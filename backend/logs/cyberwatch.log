@@ -1,0 +1,7 @@
+{"asctime": "2025-05-10T01:41:43Z", "levelname": "INFO", "name": "root", "message": "Starting CyberWatch v1.0.0"}
+{"asctime": "2025-05-10T01:41:43Z", "levelname": "INFO", "name": "root", "message": "Environment: development"}
+{"asctime": "2025-05-10T01:41:43Z", "levelname": "INFO", "name": "root", "message": "Debug mode: True"}
+{"asctime": "2025-05-10T01:41:43Z", "levelname": "INFO", "name": "root", "message": "Database: SQLite at ./data/cyberwatch.db"}
+{"asctime": "2025-05-10T01:41:43Z", "levelname": "INFO", "name": "root", "message": "Allowed hosts: ['*']"}
+{"asctime": "2025-05-10T01:41:43Z", "levelname": "INFO", "name": "root", "message": "CORS origins: ['*']"}
+{"asctime": "2025-05-10T01:41:43Z", "levelname": "INFO", "name": "root", "message": "SSL enabled: False"}

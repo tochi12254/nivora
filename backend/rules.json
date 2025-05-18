@@ -1,0 +1,144 @@
+[
+  {
+    "id": "R001",
+    "name": "Suspicious Port Scan",
+    "pattern": "SYN|FIN",
+    "protocol": "tcp",
+    "description": "Detects TCP SYN/FIN scans (stealth scanning techniques)",
+    "severity": "medium",
+    "mitre_tactic": "TA0043: Discovery",
+    "mitre_technique": "T1046: Network Service Scanning"
+  },
+  {
+    "id": "R002",
+    "name": "HTTP SQL Injection Attempt",
+    "pattern": "(?:'\\s+(?:OR|AND)\\s+[\\d]+=[\\d]+|(?:SELECT|UNION|INSERT|DELETE|DROP|ALTER)\\s+.+FROM|\\b(?:xp_cmdshell|exec\\s*\\(|sp_executesql)\\b)",
+    "protocol": "http",
+    "description": "Detects common SQL injection patterns in HTTP traffic",
+    "severity": "high",
+    "mitre_tactic": "TA0001: Initial Access",
+    "mitre_technique": "T1190: Exploit Public-Facing Application"
+  },
+  {
+    "id": "R003",
+    "name": "Known Malicious IP",
+    "source_ip": "192.168.0.99",
+    "description": "IP address from threat intelligence feed",
+    "severity": "high",
+    "threat_feed": "AbuseIPDB",
+    "last_updated": "2023-11-15"
+  },
+  {
+    "id": "R004",
+    "name": "CVE-2021-44228 Log4j Exploit",
+    "pattern": "\\$\\{jndi:(?:ldap[s]?|rmi|dns|nis|iiop|corba|nds|http):\\/\\/",
+    "protocol": "http",
+    "description": "Detects Log4Shell exploitation attempts",
+    "severity": "critical",
+    "cve": "CVE-2021-44228",
+    "mitre_technique": "T1190: Exploit Public-Facing Application"
+  },
+  {
+    "id": "R005",
+    "name": "Windows EternalBlue Exploit",
+    "pattern": "\\x05\\x00\\x0b\\x03\\x10\\x00\\x00\\x00\\x48\\x00",
+    "protocol": "smb",
+    "description": "Detects SMB exploit used in WannaCry ransomware",
+    "severity": "critical",
+    "cve": "CVE-2017-0144",
+    "mitre_technique": "T1210: Exploitation of Remote Services"
+  },
+  {
+    "id": "R006",
+    "name": "Linux Dirty Pipe Exploit",
+    "pattern": "pipe:|splice:|tee:",
+    "context": "system_call_sequence",
+    "description": "Detects sequence of system calls used in Dirty Pipe exploit",
+    "severity": "high",
+    "cve": "CVE-2022-0847",
+    "mitre_technique": "T1068: Exploitation for Privilege Escalation"
+  },
+  {
+    "id": "R007",
+    "name": "Meterpreter Reverse Shell",
+    "pattern": "\\x00\\x00\\x00\\x00\\x68\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x01\\x00\\x00\\x00",
+    "protocol": "tcp",
+    "description": "Detects Meterpreter payload staging",
+    "severity": "high",
+    "mitre_tactic": "TA0002: Execution",
+    "mitre_technique": "T1059: Command-Line Interface"
+  },
+  {
+    "id": "R008",
+    "name": "PowerShell Download Cradle",
+    "pattern": "(?:Invoke-WebRequest|IWR|System\\.Net\\.WebClient|Start-BitsTransfer)\\s+.+-Uri\\s+['\"](http|https|ftp)://",
+    "protocol": "process_creation",
+    "description": "Detects common PowerShell download patterns",
+    "severity": "high",
+    "mitre_technique": "T1059.001: PowerShell"
+  },
+  {
+    "id": "R009",
+    "name": "DNS Exfiltration",
+    "pattern": "([a-z0-9]{16,64}\\.){3,}[a-z0-9]{16,64}\\.[a-z]{2,}",
+    "protocol": "dns",
+    "description": "Detects potential data exfiltration via DNS tunneling",
+    "severity": "medium",
+    "mitre_technique": "T1048: Exfiltration Over Alternative Protocol"
+  },
+  {
+    "id": "R010",
+    "name": "RDP Brute Force",
+    "threshold": "5 attempts in 60 seconds",
+    "pattern": "CredSSP Protocol",
+    "protocol": "rdp",
+    "description": "Detects RDP brute force attempts",
+    "severity": "medium",
+    "mitre_technique": "T1110: Brute Force"
+  },
+  {
+    "id": "R011",
+    "name": "Web Shell Upload",
+    "pattern": "(?:<\\?php\\s+@eval\\(\\$_(?:POST|GET|REQUEST)|<\\.\\%\\s+@eval\\s+request\\(\"|\\bexec\\s*\\(|\\bshell_exec\\s*\\(|\\bsystem\\s*\\(|\\bpassthru\\s*\\()",
+    "protocol": "http",
+    "description": "Detects common web shell upload patterns",
+    "severity": "critical",
+    "mitre_technique": "T1505.003: Web Shell"
+  },
+  {
+    "id": "R012",
+    "name": "Suspicious PowerShell Execution",
+    "pattern": "-nop\\s+-w\\s+hidden\\s+-e\\s+[A-Za-z0-9+/=]{100,}",
+    "protocol": "process_creation",
+    "description": "Detects obfuscated PowerShell command execution",
+    "severity": "high",
+    "mitre_technique": "T1059.001: PowerShell"
+  },
+  {
+    "id": "R013",
+    "name": "Cobalt Strike Beacon",
+    "pattern": "\\x00\\x00\\x00\\x00\\x62\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x01\\x00\\x00\\x00",
+    "protocol": "tcp",
+    "description": "Detects Cobalt Strike beacon traffic",
+    "severity": "critical",
+    "mitre_software": "S0154: Cobalt Strike"
+  },
+  {
+    "id": "R014",
+    "name": "Suspicious Process Hollowing",
+    "pattern": "WriteProcessMemory.*CreateRemoteThread",
+    "context": "api_call_sequence",
+    "description": "Detects common process hollowing technique",
+    "severity": "high",
+    "mitre_technique": "T1055: Process Injection"
+  },
+  {
+    "id": "R015",
+    "name": "Kerberos Golden Ticket",
+    "pattern": "ticket_encryption_type: 0x17",
+    "protocol": "kerberos",
+    "description": "Detects potential Kerberos golden ticket usage",
+    "severity": "high",
+    "mitre_technique": "T1558.001: Golden Ticket"
+  }
+]

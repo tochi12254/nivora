@@ -1,0 +1,139 @@
+/* Import Google fonts */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+
+    --card: 222 47% 15%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222 47% 11%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 252 80% 73%;
+    --primary-foreground: 222 47% 11%;
+
+    --secondary: 217 32% 17%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217 32% 17%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 217 32% 17%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217 32% 17%;
+    --input: 217 32% 17%;
+    --ring: 252 80% 73%;
+
+    --radius: 0.5rem;
+    
+    --sidebar-background: 222 52% 8%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 252 80% 73%;
+    --sidebar-primary-foreground: 222 47% 11%;
+    --sidebar-accent: 222 47% 15%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 222 47% 15%;
+    --sidebar-ring: 252 80% 73%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', sans-serif;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-background/50;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-isimbi-purple/50 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-isimbi-purple/70;
+  }
+  
+  /* Code font */
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-card/70 backdrop-blur-md border border-white/10 rounded-xl shadow-lg;
+  }
+  
+  .data-highlight {
+    @apply text-isimbi-bright-blue font-semibold;
+  }
+  
+  .text-glow {
+    text-shadow: 0 0 10px theme('colors.isimbi.purple'), 0 0 20px theme('colors.isimbi.purple');
+  }
+  
+  .pulse-border {
+    @apply relative;
+  }
+  
+  .pulse-border::after {
+    content: '';
+    @apply absolute inset-0 rounded-xl border border-isimbi-purple/50 animate-data-pulse;
+    z-index: -1;
+  }
+
+  .nav-icon {
+    @apply relative p-3 rounded-lg text-muted-foreground hover:text-isimbi-purple hover:bg-white/5 transition-all duration-200;
+  }
+
+  .nav-icon.active {
+    @apply text-isimbi-purple bg-white/5;
+  }
+  
+  .nav-icon.active::before {
+    content: '';
+    @apply absolute left-0 top-1/2 -translate-y-1/2 w-1 h-1/2 bg-isimbi-purple rounded-r;
+  }
+
+  /* Severity badges */
+  .severity-info {
+    @apply bg-blue-500/20 text-blue-300 border border-blue-500/40;
+  }
+  
+  .severity-warning {
+    @apply bg-amber-500/20 text-amber-300 border border-amber-500/40;
+  }
+  
+  .severity-critical {
+    @apply bg-red-500/20 text-red-300 border border-red-500/40;
+  }
+  
+  .severity-blocked {
+    @apply bg-teal-500/20 text-teal-300 border border-teal-500/40;
+  }
+}
+
+
