@@ -123,7 +123,7 @@ const EVENT_HANDLERS_CONFIG = {
   // Telemetry events (throttled)
   'system_telemetry': throttle((data: SystemTelemetry) => 
     console.log('📊 System Telemetry:', data), 5000),
-  'system_stats': (data: SystemStats) => console.debug('📈 System Stats:', data),
+  'system_stats': (data: SystemStats) => console.log('📈 System Stats:', data),
   
   // Default handler for unconfigured events
   'default': (type: string, data: any) => console.log(`ℹ️ Event: ${type}`, data)
@@ -166,7 +166,7 @@ export default function useSocket(): UseSocketReturn {
   const connect = useCallback(() => {
     if (socketRef.current?.connected || initialized.current) return;
 
-    const newSocket = io('http://127.0.0.1:8000/packet_sniffer', {
+    const newSocket = io('http://127.0.0.1:8000', {
       path: '/socket.io',             // Matches your FastAPI mount
       transports: ['websocket'],
       reconnectionAttempts: 5,

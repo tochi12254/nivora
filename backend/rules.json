@@ -1,144 +1,248 @@
 [
+ 
   {
-    "id": "R001",
-    "name": "Suspicious Port Scan",
-    "pattern": "SYN|FIN",
+    "id": "SCAN-001",
+    "name": "Stealth TCP Scan (SYN/FIN)",
     "protocol": "tcp",
-    "description": "Detects TCP SYN/FIN scans (stealth scanning techniques)",
+    "pattern": "(S|F)",  
+    "threshold": 50,
+    "window": 10,
+    "action": "throttle",
     "severity": "medium",
-    "mitre_tactic": "TA0043: Discovery",
-    "mitre_technique": "T1046: Network Service Scanning"
+    "mitre_tactic": "TA0043",
+    "mitre_technique": "T1046",
+    "description": "Detects TCP stealth scans using SYN/FIN flag combinations"
   },
   {
-    "id": "R002",
-    "name": "HTTP SQL Injection Attempt",
-    "pattern": "(?:'\\s+(?:OR|AND)\\s+[\\d]+=[\\d]+|(?:SELECT|UNION|INSERT|DELETE|DROP|ALTER)\\s+.+FROM|\\b(?:xp_cmdshell|exec\\s*\\(|sp_executesql)\\b)",
+    "id": "SCAN-002",
+    "name": "UDP Port Sweep",
+    "protocol": "udp",
+    "destination_port": "1-1024",
+    "threshold": 100,
+    "window": 30,
+    "action": "alert",
+    "severity": "medium",
+    "mitre_tactic": "TA0043",
+    "description": "Detects rapid UDP port scanning activity"
+  },
+
+
+  {
+    "id": "EXPLOIT-101",
+    "name": "Log4Shell Exploit (CVE-2021-44228)",
     "protocol": "http",
-    "description": "Detects common SQL injection patterns in HTTP traffic",
-    "severity": "high",
-    "mitre_tactic": "TA0001: Initial Access",
-    "mitre_technique": "T1190: Exploit Public-Facing Application"
-  },
-  {
-    "id": "R003",
-    "name": "Known Malicious IP",
-    "source_ip": "192.168.0.99",
-    "description": "IP address from threat intelligence feed",
-    "severity": "high",
-    "threat_feed": "AbuseIPDB",
-    "last_updated": "2023-11-15"
-  },
-  {
-    "id": "R004",
-    "name": "CVE-2021-44228 Log4j Exploit",
-    "pattern": "\\$\\{jndi:(?:ldap[s]?|rmi|dns|nis|iiop|corba|nds|http):\\/\\/",
-    "protocol": "http",
-    "description": "Detects Log4Shell exploitation attempts",
+    "pattern": "\\$\\{jndi:(ldap[s]?|rmi|dns):\\/\\/",
+    "action": "block",
     "severity": "critical",
     "cve": "CVE-2021-44228",
-    "mitre_technique": "T1190: Exploit Public-Facing Application"
+    "mitre_technique": "T1190",
+    "description": "Blocks Log4J remote code execution attempts"
   },
   {
-    "id": "R005",
-    "name": "Windows EternalBlue Exploit",
-    "pattern": "\\x05\\x00\\x0b\\x03\\x10\\x00\\x00\\x00\\x48\\x00",
-    "protocol": "smb",
-    "description": "Detects SMB exploit used in WannaCry ransomware",
-    "severity": "critical",
-    "cve": "CVE-2017-0144",
-    "mitre_technique": "T1210: Exploitation of Remote Services"
-  },
-  {
-    "id": "R006",
-    "name": "Linux Dirty Pipe Exploit",
-    "pattern": "pipe:|splice:|tee:",
-    "context": "system_call_sequence",
-    "description": "Detects sequence of system calls used in Dirty Pipe exploit",
-    "severity": "high",
-    "cve": "CVE-2022-0847",
-    "mitre_technique": "T1068: Exploitation for Privilege Escalation"
-  },
-  {
-    "id": "R007",
-    "name": "Meterpreter Reverse Shell",
-    "pattern": "\\x00\\x00\\x00\\x00\\x68\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x01\\x00\\x00\\x00",
-    "protocol": "tcp",
-    "description": "Detects Meterpreter payload staging",
-    "severity": "high",
-    "mitre_tactic": "TA0002: Execution",
-    "mitre_technique": "T1059: Command-Line Interface"
-  },
-  {
-    "id": "R008",
-    "name": "PowerShell Download Cradle",
-    "pattern": "(?:Invoke-WebRequest|IWR|System\\.Net\\.WebClient|Start-BitsTransfer)\\s+.+-Uri\\s+['\"](http|https|ftp)://",
-    "protocol": "process_creation",
-    "description": "Detects common PowerShell download patterns",
-    "severity": "high",
-    "mitre_technique": "T1059.001: PowerShell"
-  },
-  {
-    "id": "R009",
-    "name": "DNS Exfiltration",
-    "pattern": "([a-z0-9]{16,64}\\.){3,}[a-z0-9]{16,64}\\.[a-z]{2,}",
-    "protocol": "dns",
-    "description": "Detects potential data exfiltration via DNS tunneling",
-    "severity": "medium",
-    "mitre_technique": "T1048: Exfiltration Over Alternative Protocol"
-  },
-  {
-    "id": "R010",
-    "name": "RDP Brute Force",
-    "threshold": "5 attempts in 60 seconds",
-    "pattern": "CredSSP Protocol",
-    "protocol": "rdp",
-    "description": "Detects RDP brute force attempts",
-    "severity": "medium",
-    "mitre_technique": "T1110: Brute Force"
-  },
-  {
-    "id": "R011",
-    "name": "Web Shell Upload",
-    "pattern": "(?:<\\?php\\s+@eval\\(\\$_(?:POST|GET|REQUEST)|<\\.\\%\\s+@eval\\s+request\\(\"|\\bexec\\s*\\(|\\bshell_exec\\s*\\(|\\bsystem\\s*\\(|\\bpassthru\\s*\\()",
+    "id": "EXPLOIT-102",
+    "name": "ProxyShell Exploit (CVE-2021-34473)",
     "protocol": "http",
-    "description": "Detects common web shell upload patterns",
+    "pattern": "AutoDiscover\\.xml.*X-Rps-CAT",
+    "action": "block",
     "severity": "critical",
-    "mitre_technique": "T1505.003: Web Shell"
+    "cve": "CVE-2021-34473",
+    "description": "Prevents Microsoft Exchange server exploitation"
   },
+
+
   {
-    "id": "R012",
-    "name": "Suspicious PowerShell Execution",
-    "pattern": "-nop\\s+-w\\s+hidden\\s+-e\\s+[A-Za-z0-9+/=]{100,}",
-    "protocol": "process_creation",
-    "description": "Detects obfuscated PowerShell command execution",
-    "severity": "high",
-    "mitre_technique": "T1059.001: PowerShell"
-  },
-  {
-    "id": "R013",
+    "id": "MAL-201",
     "name": "Cobalt Strike Beacon",
-    "pattern": "\\x00\\x00\\x00\\x00\\x62\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x01\\x00\\x00\\x00",
     "protocol": "tcp",
-    "description": "Detects Cobalt Strike beacon traffic",
+    "pattern": "\\x00\\x00\\x00\\x00\\x62\\x00\\x00\\x00", 
+    "action": "block",
     "severity": "critical",
-    "mitre_software": "S0154: Cobalt Strike"
+    "mitre_software": "S0154",
+    "description": "Detects Cobalt Strike C2 beaconing"
   },
   {
-    "id": "R014",
-    "name": "Suspicious Process Hollowing",
-    "pattern": "WriteProcessMemory.*CreateRemoteThread",
-    "context": "api_call_sequence",
-    "description": "Detects common process hollowing technique",
+    "id": "MAL-202",
+    "name": "Emotet Malware Pattern",
+    "protocol": "http",
+    "pattern": "\\x4D\\x5A.*Rich.*This program cannot be run in DOS mode",
+    "action": "quarantine",
     "severity": "high",
-    "mitre_technique": "T1055: Process Injection"
+    "description": "Identifies Emotet loader characteristics"
+  },  
+
+  {
+    "id": "CRED-301",
+    "name": "RDP Brute Force",
+    "protocol": "tcp",
+    "destination_port": "3389",
+    "threshold": 10,
+    "window": 60,
+    "action": "block",
+    "severity": "high",
+    "mitre_technique": "T1110",
+    "description": "Blocks RDP credential stuffing attacks"
   },
   {
-    "id": "R015",
-    "name": "Kerberos Golden Ticket",
-    "pattern": "ticket_encryption_type: 0x17",
+    "id": "CRED-302",
+    "name": "Kerberoasting Attempt",
     "protocol": "kerberos",
-    "description": "Detects potential Kerberos golden ticket usage",
+    "pattern": "tgs-rep.*rc4-hmac",
+    "action": "alert",
+    "severity": "medium",
+    "mitre_technique": "T1558.003",
+    "description": "Detects Kerberos ticket encryption downgrade"
+  },
+
+  
+  {
+    "id": "EXFIL-401",
+    "name": "DNS Tunneling",
+    "protocol": "dns",
+    "pattern": "([A-Za-z0-9]{32}\\.){3,}",
+    "entropy_threshold": 4.5,
+    "action": "quarantine",
     "severity": "high",
-    "mitre_technique": "T1558.001: Golden Ticket"
+    "mitre_technique": "T1048",
+    "description": "Detects high-entropy DNS subdomains"
+  },
+  {
+    "id": "EXFIL-402",
+    "name": "HTTPS Data Exfiltration",
+    "protocol": "tls",
+    "pattern": "17\\x03\\x03..[\\x00-\\x1F]", 
+    "threshold": 100,
+    "window": 5,
+    "action": "throttle",
+    "severity": "medium",
+    "description": "Throttles large TLS data transfers"
+  },
+
+
+  {
+    "id": "WEB-501",
+    "name": "SQL Injection",
+    "protocol": "http",
+    "pattern": "(?:'\\s+(?:OR|AND)\\s+[\\d]+=[\\d]+|(SELECT|UNION).+FROM)",
+    "action": "block",
+    "severity": "critical",
+    "mitre_technique": "T1190",
+    "description": "Blocks common SQL injection patterns"
+  },
+  {
+    "id": "WEB-502",
+    "name": "XSS Payload",
+    "protocol": "http",
+    "pattern": "<script>[^<]+</script>|alert\\(['\"]",
+    "action": "block",
+    "severity": "high",
+    "description": "Prevents cross-site scripting attacks"
+  },
+
+ 
+  {
+    "id": "NET-601",
+    "name": "TCP Session Hijack",
+    "protocol": "tcp",
+    "pattern": "(?:ACK|RST)\\x00{12}",
+    "action": "block",
+    "severity": "high",
+    "description": "Detects TCP sequence number prediction"
+  },
+  {
+    "id": "NET-602",
+    "name": "ICMP Tunnel",
+    "protocol": "icmp",
+    "pattern": "\\x08\\x00.{4}....",  
+    "threshold": 100,
+    "window": 10,
+    "action": "alert",
+    "severity": "medium",
+    "description": "Detects potential ICMP covert channels"
+  },
+
+  
+  {
+    "id": "BEH-701",
+    "name": "Lateral Movement Spike",
+    "protocol": "smb",
+    "source_ip": "internal",
+    "destination_ip": "internal",
+    "threshold": 50,
+    "window": 300,
+    "action": "alert",
+    "ml_model": "lstm_lateral",
+    "severity": "high",
+    "description": "Detects internal host communication anomalies"
+  },
+  {
+    "id": "BEH-702",
+    "name": "Data Staging Pattern",
+    "protocol": "http",
+    "pattern": "\\.(zip|rar|7z|tar)\\x00",
+    "action": "quarantine",
+    "severity": "medium",
+    "description": "Identifies archive files in web traffic"
+  },
+
+  
+  {
+    "id": "TI-801",
+    "name": "Known Malicious IP",
+    "source_ip": "192.168.0.99",
+    "action": "block",
+    "severity": "high",
+    "threat_feed": "AbuseIPDB",
+    "description": "Automatically block TI-verified malicious IPs"
+  },
+  {
+    "id": "TI-802",
+    "name": "Tor Exit Node",
+    "source_ip": "tor",
+    "action": "throttle",
+    "severity": "low",
+    "description": "Limit traffic from known Tor networks"
+  },
+
+  
+  {
+    "id": "CLD-901",
+    "name": "AWS Metadata API Access",
+    "protocol": "http",
+    "pattern": "169\\.254\\.169\\.254|instance-data",
+    "action": "alert",
+    "severity": "high",
+    "description": "Detects EC2 metadata service access attempts"
+  },
+  {
+    "id": "CLD-902",
+    "name": "Kubernetes API Scan",
+    "protocol": "https",
+    "destination_port": "6443",
+    "pattern": "/api/v1/namespaces",
+    "threshold": 20,
+    "window": 60,
+    "action": "block",
+    "description": "Blocks Kubernetes API enumeration"
+  },
+
+  
+  {
+    "id": "IOT-1001",
+    "name": "Mirai Botnet Pattern",
+    "protocol": "tcp",
+    "pattern": "\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00",
+    "action": "block",
+    "severity": "critical",
+    "description": "Detects Mirai botnet handshake patterns"
+  },
+  {
+    "id": "IOT-1002",
+    "name": "Industrial Protocol Scan",
+    "protocol": "tcp",
+    "destination_port": "502,102,44818",  
+    "threshold": 10,
+    "window": 30,
+    "action": "alert",
+    "description": "Detects SCADA/ICS protocol scanning"
   }
 ]

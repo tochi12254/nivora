@@ -30,6 +30,7 @@ export interface ConnectionAnalysis { protocol: string; count: number; riskScore
 export interface FileQuarantined { path: string; hash: string; reason: string; }
 export interface SystemSnapshot { timestamp: string; metrics: SystemStats; }
 export interface ProcessInfo { pid: number; name: string; cpu: number; memory: number; }
+export interface AnalysisError { data: any}
 export interface PacketMetadata {
   timestamp: number;
   src_ip: string | null;
@@ -44,6 +45,7 @@ export interface PacketMetadata {
 // ==================== Event Type Definitions ====================
 export type SocketEvent =
   | { type: 'threat_detected'; data: ThreatData }
+  | { type: 'analysis_error'; data: AnalysisError}
   | { type: 'network_metrics'; data: any }
   | { type: 'phishing_link_detected'; data: PhishingData }
   | { type: 'training_progress'; data: TrainingProgress }
@@ -109,6 +111,7 @@ const EVENT_HANDLERS_CONFIG = {
   'system_error': (data: ErrorData) => console.error('❌ System Error:', data),
   'system_status': (data: SystemStatus) => console.info('🖥️ System Status:', data),
   'service_status': (data: ServiceStatus) => console.info('🛠️ Service Status:', data),
+  'analysis_error':(data: AnalysisError) => console.log("Analysis Error", data),
   
   // Network events
   'network_anomaly': throttle((data: NetworkAnomaly) => 

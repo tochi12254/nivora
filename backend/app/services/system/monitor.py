@@ -4,7 +4,11 @@ import time
 import psutil
 import cpuinfo
 import platform
+import math
+import win32api
+import win32security
 import os
+import glob
 import asyncio
 import aiohttp
 import socket
@@ -13,14 +17,14 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 import socketio
 import logging
-from collections import deque
+from collections import deque, OrderedDict
 import signal
 import json
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("SystemMonitor")
-
+IS_WINDOWS = platform.system() == "Windows"
 
 class SystemMonitorProcess(mp.Process):
     """Main monitoring process that collects all system metrics"""
@@ -29,7 +33,7 @@ class SystemMonitorProcess(mp.Process):
         super().__init__()
         self.sio = sio
         self.data_queue = data_queue
-        
+
         self.control_queue = control_queue
         self.running = True
         self.interval = 10  # seconds between updates
@@ -38,6 +42,8 @@ class SystemMonitorProcess(mp.Process):
             "memory": deque(maxlen=60),
             "network": deque(maxlen=60),
             "disk": deque(maxlen=60),
+            "process_count": deque(maxlen=60),
+            "user_logins": deque(maxlen=60),
         }
         self.anomaly_thresholds = {
             "cpu": 90,
@@ -49,6 +55,14 @@ class SystemMonitorProcess(mp.Process):
         self.suspicious_ports = {4444: "Metasploit", 8080: "Webshell", 9999: "C2"}
         self.file_hashes = {}
         self.sensitive_keywords = ["confidential", "password", "secret"]
+        self._dns_cache = OrderedDict()
+        self._dns_cache_max_size = 1000
+        self._dns_cache_ttl = 3600  # 1 hour
+        self._dns_lock = mp.Lock()
+        self._max_file_size = 250 * 1024 * 1024  # 250MB
+
+        # File hash calculation parameters
+        self._hash_buffer_size = 65536
 
     def run(self):
         """Main process monitoring loop"""
@@ -62,7 +76,7 @@ class SystemMonitorProcess(mp.Process):
                 self._check_commands()
 
                 # Collect all system stats
-                stats = self._collect_system_stats()
+                stats = self.collect_system_stats()
 
                 # Check for anomalies
                 stats["anomalies"] = self._check_anomalies(stats)
@@ -79,6 +93,77 @@ class SystemMonitorProcess(mp.Process):
                 logger.error(f"Monitoring error: {e}")
                 time.sleep(1)
 
+    def _calculate_file_hash(self, file_path: str) -> Optional[Dict[str, str]]:
+        """Safe file hashing with large file support and error handling"""
+        if not os.path.exists(file_path):
+            logger.warning(f"File not found: {file_path}")
+            return None
+
+        try:
+            file_size = os.path.getsize(file_path)
+            if file_size > self._max_file_size:
+                logger.warning(f"File too large for hashing: {file_path} ({file_size/1024/1024:.2f}MB)")
+                return None
+
+            sha256 = hashlib.sha256()
+            md5 = hashlib.md5()
+
+            with open(file_path, 'rb') as f:
+                while chunk := f.read(self._hash_buffer_size):
+                    sha256.update(chunk)
+                    md5.update(chunk)
+
+            return {
+                "sha256": sha256.hexdigest(),
+                "md5": md5.hexdigest(),
+                "file_size": file_size,
+                "last_modified": os.path.getmtime(file_path)
+            }
+        except PermissionError:
+            logger.warning(f"Permission denied accessing {file_path}")
+            return None
+        except OSError as e:
+            logger.error(f"File access error: {str(e)}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected hashing error: {str(e)}")
+            return None
+
+    def _resolve_dns(self, ip: str) -> Optional[str]:
+        """Thread-safe DNS resolution with caching and TTL"""
+        if not ip or ip.startswith(("127.", "10.", "192.168.")):
+            return None
+
+        with self._dns_lock:
+            # Check cache and validate TTL
+            entry = self._dns_cache.get(ip)
+            if entry and (time.time() - entry['timestamp']) < self._dns_cache_ttl:
+                return entry['domain']
+
+            try:
+                # Async-friendly DNS resolution
+                domain, _, _ = socket.gethostbyaddr(ip)
+                self._dns_cache[ip] = {
+                    'domain': domain,
+                    'timestamp': time.time()
+                }
+
+                # Maintain cache size
+                if len(self._dns_cache) > self._dns_cache_max_size:
+                    self._dns_cache.popitem(last=False)
+
+                return domain
+            except (socket.herror, socket.gaierror) as e:
+                logger.debug(f"DNS resolution failed for {ip}: {str(e)}")
+                self._dns_cache[ip] = {
+                    'domain': None,
+                    'timestamp': time.time()
+                }
+                return None
+            except Exception as e:
+                logger.error(f"Unexpected DNS error: {str(e)}")
+                return None
+
     def _check_commands(self):
         """Process any control commands"""
         try:
@@ -91,22 +176,24 @@ class SystemMonitorProcess(mp.Process):
         except queue.Empty:
             pass
 
-    def _collect_system_stats(self) -> Dict[str, Any]:
+    def collect_system_stats(self) -> Dict[str, Any]:
         """Collect all system statistics"""
         stats = {
             "timestamp": datetime.utcnow().isoformat(),
             "cpu": self._get_cpu_stats(),
             "memory": self._get_memory_stats(),
-            "disk": self._get_disk_stats(),
-            "network": self._get_network_stats(),
-            "processes": self._get_process_stats(),
-            "system": self._get_system_info(),
+            "disk": self.get_disk_stats(),
+            "network": self.get_network_stats(),
+            "processes": self.get_process_stats(),
+            "process_count": len(self.get_process_stats()),
+            "system": self.get_system_info(),
             "security": self._get_security_status(),
         }
 
+        
+        logger.debug(f"Collected stats: {stats}")
         # Update history for anomaly detection
         self._update_history(stats)
-        
 
         return stats
 
@@ -140,7 +227,7 @@ class SystemMonitorProcess(mp.Process):
             "swap": {"total": swap.total, "used": swap.used, "percent": swap.percent},
         }
 
-    def _get_disk_stats(self) -> Dict:
+    def get_disk_stats(self) -> Dict:
         """Get disk usage and IO statistics with robust error handling"""
         partitions = []
         for part in psutil.disk_partitions():
@@ -179,11 +266,14 @@ class SystemMonitorProcess(mp.Process):
 
         return {"partitions": partitions, "io": io_stats}
 
-    def _get_network_stats(self) -> Dict:
+    def get_network_stats(self) -> Dict:
         """Get network interface and connection statistics"""
         connections = []
         for conn in psutil.net_connections(kind="inet"):
             try:
+                remote_ip = conn.raddr.ip if conn.raddr else None
+                domain = self._resolve_dns(remote_ip)
+
                 if conn.status == "ESTABLISHED":
                     connections.append(
                         {
@@ -195,6 +285,7 @@ class SystemMonitorProcess(mp.Process):
                             ),
                             "status": conn.status,
                             "pid": conn.pid,
+                            "domain":domain,
                             "suspicious": self._is_suspicious_port(conn.laddr.port),
                         }
                     )
@@ -211,9 +302,28 @@ class SystemMonitorProcess(mp.Process):
         return {
             "connections": connections,
             "io": io_stats,
+            "dns_cache": list(self._dns_cache.items()),
+            "arp_table": self._get_arp_table(),
             "interfaces": self._get_network_interfaces(),
         }
 
+    def _resolve_dns(self, ip: str) -> str:
+        """Reverse DNS lookup with caching"""
+        if ip not in self._dns_cache:
+            try:
+                self._dns_cache[ip] = socket.gethostbyaddr(ip)[0]
+            except: 
+                self._dns_cache[ip] = ""
+        return self._dns_cache[ip]
+
+    def _get_arp_table(self) -> List[Dict]:
+        """Get ARP table entries"""
+        arp = []
+        for line in os.popen("arp -a" if platform.system() != "Windows" else "arp -a"):
+            if "dynamic" in line.lower():
+                parts = line.split()
+                arp.append({"ip": parts[0], "mac": parts[1]})
+        return arp
     def _get_network_interfaces(self) -> List[Dict]:
         """Get detailed network interface information"""
         interfaces = []
@@ -236,7 +346,7 @@ class SystemMonitorProcess(mp.Process):
             )
         return interfaces
 
-    def _get_process_stats(self) -> List[Dict]:
+    def get_process_stats(self) -> List[Dict]:
         """Get process information with security context"""
         processes = []
         for proc in psutil.process_iter(
@@ -249,29 +359,50 @@ class SystemMonitorProcess(mp.Process):
                 "exe",
                 "cmdline",
                 "status",
+                'ppid'
             ]
         ):
             try:
                 info = proc.info
-                processes.append(
-                    {
-                        "pid": info["pid"],
-                        "name": info["name"],
-                        "user": info["username"],
-                        "cpu": info["cpu_percent"],
-                        "memory": info["memory_percent"],
-                        "status": info["status"],
-                        "suspicious": any(
-                            p.lower() in info["name"].lower()
-                            for p in self.suspicious_processes
-                        ),
-                        "signed": (
-                            self._check_binary_signature(info["exe"])
-                            if info["exe"]
-                            else None
-                        ),
-                    }
+                exe_path = info.get("exe")
+                # Compute security-related fields first
+                signed = self._check_binary_signature(exe_path) if exe_path else None
+                # Add validation for Windows system processes
+                if IS_WINDOWS and not self._is_valid_windows_exe(exe_path):
+                    bin_hash = None
+                    signed = None
+                else:
+                    bin_hash = self._calculate_file_hash(exe_path) if exe_path else None
+                    signed = self._check_binary_signature(exe_path) if exe_path else None
+                suspicious = any(
+                    p.lower() in info["name"].lower() 
+                    for p in self.suspicious_processes
                 )
+                cmdline = " ".join(info["cmdline"]) if info.get("cmdline") else ""
+                
+                # Calculate risk score with required parameters
+                risk_score = self._calculate_process_risk(
+                    name=info["name"],
+                    cmdline=cmdline,
+                    signed=signed,
+                    suspicious=suspicious
+                )
+                
+                # Build process entry with all fields
+                processes.append({
+                    "pid": info["pid"],
+                    "name": info["name"],
+                    "user": info["username"],
+                    "cpu": info["cpu_percent"],
+                    "cmdline": cmdline,
+                    "ppid": info["ppid"],
+                    "memory": info["memory_percent"],
+                    "status": info["status"],
+                    "bin_hash": bin_hash,
+                    "risk_score": risk_score,
+                    "suspicious": suspicious,
+                    "signed": signed, 
+                })
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
 
@@ -279,7 +410,53 @@ class SystemMonitorProcess(mp.Process):
             :50
         ]  # Top 50 by CPU
 
-    def _get_system_info(self) -> Dict:
+    # Add to SystemMonitorProcess class
+    def _is_valid_windows_exe(self, path: Optional[str]) -> bool:
+        """Check if path belongs to a valid Windows executable"""
+        if not path:
+            return False
+        
+        # Filter known Windows pseudo-processes
+        invalid_paths = {
+            "System", "Registry", "MemCompression",
+            r"\SystemRoot\System32",
+            r"\Device\HarddiskVolume"
+        }
+        
+        return all(
+            not path.startswith(invalid) 
+            and not path in invalid_paths
+            for invalid in invalid_paths
+        ) and os.path.isfile(path)
+        
+    def _calculate_process_risk(
+        self, 
+        name: str, 
+        cmdline: str, 
+        signed: Optional[bool], 
+        suspicious: bool
+    ) -> int:
+        """Calculate risk score using direct parameters instead of a dict"""
+        score = 0
+        if suspicious:
+            score += 30
+        if not signed:  # Now uses the pre-computed 'signed' value
+            score += 25
+        if "powershell" in cmdline.lower():
+            score += 20
+        return min(score, 100)
+
+    def _get_system_services(self) -> List[Dict]:
+        """Collect running services"""
+        services = []
+        if platform.system() == "Windows":
+            for s in psutil.win_service_iter():
+                services.append(
+                    {"name": s.name(), "status": s.status(), "binpath": s.binpath()}
+                )
+        return services
+
+    def get_system_info(self) -> Dict:
         """Get static system information"""
         return {
             "os": platform.system(),
@@ -287,6 +464,19 @@ class SystemMonitorProcess(mp.Process):
             "cpu": cpuinfo.get_cpu_info().get("brand_raw", "Unknown"),
             "boot_time": datetime.fromtimestamp(psutil.boot_time()).isoformat(),
             "uptime": time.time() - psutil.boot_time(),
+            "critical_files": self._check_system_files(), 
+            "services": self._get_system_services()
+        }
+    def _check_system_files(self) -> Dict:
+        """Monitor critical system files"""
+        targets = {
+            "Windows": [r"C:\Windows\System32\*.dll", r"C:\Windows\System32\*.exe"],
+            "Linux": ["/bin/*", "/usr/bin/*", "/sbin/*"]
+        }
+        return {
+            fpath: self._calculate_file_hash(fpath)
+            for pattern in targets.get(platform.system(), [])
+            for fpath in glob.glob(pattern)
         }
 
     def _get_security_status(self) -> Dict:
@@ -296,12 +486,12 @@ class SystemMonitorProcess(mp.Process):
             "updates": self._check_system_updates(),
             "suspicious": {
                 "processes": len(
-                    [p for p in self._get_process_stats() if p["suspicious"]]
+                    [p for p in self.get_process_stats() if p["suspicious"]]
                 ),
                 "connections": len(
                     [
                         c
-                        for c in self._get_network_stats()["connections"]
+                        for c in self.get_network_stats()["connections"]
                         if c["suspicious"]
                     ]
                 ),
@@ -309,9 +499,12 @@ class SystemMonitorProcess(mp.Process):
         }
 
     def _update_history(self, stats: Dict):
+        monitor = SystemMonitor(self.sio)
         """Update historical data for anomaly detection"""
         self.history["cpu"].append(stats["cpu"]["usage"])
         self.history["memory"].append(stats["memory"]["percent"])
+        self.history["process_count"].append(len(stats["processes"]))
+        self.history["user_logins"].append(len(monitor.get_logged_in_users()))
 
         if stats["disk"]["partitions"]:
             self.history["disk"].append(stats["disk"]["partitions"][0]["percent"])
@@ -363,6 +556,14 @@ class SystemMonitorProcess(mp.Process):
                         "message": f"High network throughput: {avg_net/1000000:.2f} MB/s",
                     }
                 )
+            if len(self.history["process_count"]) > 100:
+                avg_procs = sum(self.history["process_count"][-100:])/100
+                if stats["process_count"] > avg_procs * 1.5:
+                    anomalies.append({
+                        "type": "process_count", 
+                        "severity": "medium",
+                        "message": f"Process count spike: {stats['process_count']} (avg: {avg_procs})"
+            })
 
             if anomalies:
                 asyncio.run_coroutine_threadsafe(
@@ -438,12 +639,7 @@ class SystemMonitor(mp.Process):
         self.sio = sio
         self.data_queue = mp.Queue()
         self.control_queue = mp.Queue()
-        self.monitor_process = SystemMonitorProcess(
-            self.sio,  # First parameter - Socket.IO instance
-            self.data_queue,  # Second parameter
-            self.control_queue,  # Third parameter
-        )
-
+    
         # Pass all required arguments in order
         self.monitor_process = SystemMonitorProcess(
             sio=self.sio,  # Required first
@@ -697,10 +893,10 @@ class SystemMonitor(mp.Process):
         snapshot = {
             "timestamp": datetime.utcnow().isoformat(),
             "trigger_event": trigger_event,
-            "processes": self._get_process_stats(),
-            "network": self._get_network_stats(),
-            "users": self._get_logged_in_users(),
-            "system": self._get_system_info(),
+            "processes": self.monitor_process.get_process_stats(),
+            "network": self.monitor_process.get_network_stats(),
+            "users": self.get_logged_in_users(),
+            "system": self.monitor_process.get_system_info(),
             "performance": self._get_performance_metrics()
         }
 
@@ -720,10 +916,11 @@ class SystemMonitor(mp.Process):
 
     async def update_threat_dashboard(self):
         """Send aggregated threat intelligence to frontend"""
+       
         while self.running:
             try:
                 threats = {
-                    "active_processes": len([p for p in self._get_process_stats() 
+                    "active_processes": len([p for p in self.monitor_process.get_process_stats() 
                                         if p.get("is_suspicious")]),
                     "blocked_connections": self._get_firewall_block_count(),
                     "quarantined_files": self._get_quarantine_count(),
@@ -739,8 +936,10 @@ class SystemMonitor(mp.Process):
                 await asyncio.sleep(30)
 
     async def _send_system_stats(self):
+        
+        
         while self.running:
-            stats = await self._collect_system_stats()
+            stats = await self.monitor_process.collect_system_stats()
 
             # Threat detection logic
             threats = self._detect_threats(stats)
@@ -908,10 +1107,17 @@ class SystemMonitor(mp.Process):
                     headers={"x-apikey": os.getenv('VIRUSTOTAL_KEY')}
                 )
                 vt_data = await vt_resp.json()
+                async with session.get(
+                f"https://www.hybrid-analysis.com/api/v2/search/terms",
+                params={"host": ip},
+                headers={"api-key": os.getenv('HYBRID_KEY')}
+            ) as ha_resp:
+                    ha_data = await ha_resp.json()
 
                 return {
                     "abuse_score": abuse_data.get("data", {}).get("abuseConfidenceScore"),
                     "vt_malicious": vt_data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {}).get("malicious"),
+                    "hybrid_analysis":ha_data.get("result", [])[:3],
                     "is_tor": abuse_data.get("data", {}).get("isTor"),
                     "is_cloud": abuse_data.get("data", {}).get("isCloudProvider")
                 }
@@ -936,44 +1142,101 @@ class SystemMonitor(mp.Process):
             "dns_tunneling": port == 53 and conn.get("bytes_sent", 0) > 1000
         }
 
-    def _get_logged_in_users(self) -> List[Dict]:
-        """Get currently logged in users"""
-        users = []
-        try:
-            if platform.system() == "Windows":
-                # Windows implementation
-                import win32api
-                for user in win32api.GetLoggedOnUsers():
-                    users.append({
-                        "name": user[0],
-                        "domain": user[1],
-                        "login_time": None  # Requires more complex WMI query
-                    })
-            else:
-                # Linux/macOS implementation
-                import pwd
-                for uid in os.listdir("/proc"):
-                    if uid.isdigit():
-                        try:
-                            stat = os.stat(f"/proc/{uid}")
-                            user = pwd.getpwuid(stat.st_uid).pw_name
-                            users.append({
-                                "name": user,
-                                "login_time": stat.st_ctime
-                            })
-                        except:
-                            continue
-        except Exception as e:
-            logger.debug(f"User detection failed: {e}")
+    def get_logged_in_users(self) -> List[Dict]:
+        """
+        Retrieve a list of currently logged-in users with detailed session information.
 
-        # Deduplicate
-        return [dict(t) for t in {tuple(d.items()) for d in users}]
+        Returns:
+            List[Dict]: A list of dictionaries, each containing user session details.
+        """
+        users = []
+        seen = set()
+
+        try:
+            for user in psutil.users():
+                try:
+                    user_info = {
+                        "username": user.name,
+                        "terminal": user.terminal or 'N/A',
+                        "host": user.host or 'localhost',
+                        "login_time": user.started,
+                        "session_type": self._get_session_type(user),
+                        "login_duration": round(time.time() - user.started, 2)
+                    }
+
+                    if IS_WINDOWS:
+                        user_info.update(self._get_windows_user_details(user.name))
+                    else:
+                        user_info.update(self._get_unix_user_details(user.name))
+
+                    # Deduplicate user entries based on key fields
+                    key = (user_info["username"], user_info["terminal"], user_info["host"])
+                    if key not in seen:
+                        seen.add(key)
+                        users.append(user_info)
+
+                except Exception as user_error:
+                    logger.debug(f"Error processing user '{user.name}': {user_error}")
+
+        except Exception as e:
+            logger.error(f"Failed to retrieve logged-in users: {e}", exc_info=True)
+        return users
+
+    def _get_session_type(self,user: psutil._common.suser) -> str:
+        """
+        Infer session type (console, gui, remote) based on user context.
+        """
+        if user.host and user.host not in ('localhost', '0.0.0.0', '::1'):
+            return 'remote'
+        if IS_WINDOWS:
+            return 'console'
+        if user.terminal and user.terminal.startswith(':'):
+            return 'gui'
+        return 'console'
+
+    def _get_windows_user_details(self,username: str) -> Dict:
+        """
+        Return additional user information for Windows systems.
+        Requires `pywin32`, fallback to minimal info if unavailable.
+        """
+        try:
+            sid, domain, _ = win32security.LookupAccountName(None, username)
+            return {
+                "domain": domain,
+                "sid": win32security.ConvertSidToStringSid(sid)
+            }
+        except ImportError:
+            logger.warning("pywin32 not installed; skipping Windows user details.")
+        except Exception as e:
+            logger.debug(f"Failed to retrieve Windows details for {username}: {e}")
+        return {}
+
+    def _get_unix_user_details(self,username: str) -> Dict:
+        """
+        Return additional user information for Unix-like systems using the `pwd` module.
+        """
+        import pwd
+
+        try:
+            pw = pwd.getpwnam(username)
+            return {
+                "uid": pw.pw_uid,
+                "gid": pw.pw_gid,
+                "home_dir": pw.pw_dir,
+                "shell": pw.pw_shell
+            }
+        except KeyError:
+            logger.debug(f"User '{username}' not found in /etc/passwd.")
+        except Exception as e:
+            logger.debug(f"Failed to retrieve Unix details for {username}: {e}")
+        return {}
 
     def _get_performance_metrics(self) -> Dict:
         """Calculate comprehensive performance metrics"""
+        
         cpu = psutil.cpu_percent(interval=1)
         mem = psutil.virtual_memory().percent
-        disk = max([p['usage_percent'] for p in self._get_disk_stats()['partitions']] or [0])
+        disk = max([p['usage_percent'] for p in self.monitor_process.get_disk_stats()['partitions']] or [0])
 
         # Calculate weighted performance score (0-100)
         score = 100 - ((cpu * 0.4) + (mem * 0.3) + (disk * 0.3))
@@ -1015,8 +1278,9 @@ class SystemMonitor(mp.Process):
             return 0
 
     def _get_current_anomalies(self) -> List[Dict]:
+      
         """Get currently detected anomalies"""
-        stats = self._collect_system_stats()  # Reuse existing method
+        stats = self.monitor_process.collect_system_stats()  # Reuse existing method
         return self._detect_threats(stats)  # Reuse threat detection
 
     def _get_recent_threats(self, limit: int = 5) -> List[Dict]:

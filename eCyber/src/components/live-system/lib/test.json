@@ -1,0 +1,141 @@
+{
+    "anomalies": [],
+    "cpu": {
+      "cores": {
+        "logical": 4,
+        "physical": 2
+      },
+      "frequency": {
+        "current": 1190,
+        "max": 1190,
+        "min": 0
+      },
+      "load_avg": null,
+      "times": {
+        "dpc": 1.1,
+        "idle": 47.3,
+        "interrupt": 7.2,
+        "system": 20.1,
+        "user": 24.4
+      },
+      "usage": 49.3
+    },
+    "disk": {
+      "io": {
+        "read_bytes": 169190106112,
+        "read_count": 4436265,
+        "read_time": 370172,
+        "write_bytes": 86906116096,
+        "write_count": 2777498,
+        "write_time": 70137
+      },
+      "partitions": []
+    },
+    "memory": {
+      "total": 8361132032,
+      "used": 7582273536,
+      "available": 778858496,
+      "percent": 90.7,
+      "swap": {
+        "total": 12538777600,
+        "used": 1622368256,
+        "percent": 12.9
+      }
+    },
+    "network": {
+      "connections": [
+        {
+          "local": "192.168.43.16:28534",
+          "remote": "140.82.114.22:443",
+          "status": "ESTABLISHED",
+          "pid": 24720,
+          "suspicious": false
+        },
+        {
+          "local": "127.0.0.1:55215",
+          "remote": "127.0.0.1:55214",
+          "status": "ESTABLISHED",
+          "pid": 6148,
+          "suspicious": false
+        },
+        {
+          "local": "::1:28489",
+          "remote": "::1:3000",
+          "status": "ESTABLISHED",
+          "pid": 27568,
+          "suspicious": false
+        }
+        // ... remaining 21 connections omitted for brevity
+      ],
+      "interfaces": [
+        {
+          "name": "Ethernet",
+          "addresses": [
+            {
+              "address": "C0-18-03-4A-86-46",
+              "family": "AF_LINK",
+              "netmask": null
+            },
+            {
+              "address": "169.254.157.112",
+              "family": "AF_INET",
+              "netmask": "255.255.0.0"
+            }
+          ],
+          "is_up": false,
+          "speed": 0
+        },
+        {
+          "name": "Npcap Loopback Adapter",
+          "addresses": [],
+          "is_up": true,
+          "speed": 1215
+        }
+        // ... remaining interfaces omitted for brevity
+      ],
+      "io": {
+        "bytes_recv": 949469899,
+        "bytes_sent": 32973535,
+        "dropin": 0,
+        "dropout": 0,
+        "errin": 0,
+        "errout": 0,
+        "packets_recv": 696380,
+        "packets_sent": 343494
+      }
+    },
+    "processes": [
+      {
+        "pid": 0,
+        "name": "System Idle Process",
+        "user": "NT AUTHORITY\\SYSTEM",
+        "cpu": 145.2,
+        "memory": 0.00009797716348273545,
+        "status": "running",
+        "signed": null,
+        "suspicious": false
+      },
+      {
+        "pid": 20752,
+        "name": "python.exe",
+        "user": "ENOCK\\PC",
+        "cpu": 61.6,
+        "memory": 2.013528686733696,
+        "status": "running",
+        "signed": null,
+        "suspicious": false
+      },
+      {
+        "pid": 17156,
+        "name": "python.exe",
+        "user": "ENOCK\\PC",
+        "cpu": 57.4,
+        "memory": 1.9452875923679707,
+        "status": "running",
+        "signed": null,
+        "suspicious": false
+      }
+      // ... remaining 47 processes omitted for brevity
+    ]
+  }
+  

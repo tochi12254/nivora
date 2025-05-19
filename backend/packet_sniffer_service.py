@@ -68,7 +68,6 @@ class PacketSnifferService:
 
         try:
             await self.sio.emit(event_type, data, namespace=ns)
-            logger.debug("Emitted %s successfully", event_type)
         except Exception:
             logger.exception("Failed to emit %s", event_type)
 

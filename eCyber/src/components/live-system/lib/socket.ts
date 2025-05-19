@@ -234,7 +234,7 @@ export function getSocket(): Socket {
 
   if (!socket) {
     // In a real app, this would connect to your server
-    socket = io({
+    socket = io("http://127.0.0.1:8000",{
       autoConnect: true,
       reconnection: true,
       reconnectionAttempts: MAX_RECONNECTION_ATTEMPTS,

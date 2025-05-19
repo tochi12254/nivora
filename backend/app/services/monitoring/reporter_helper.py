@@ -5,34 +5,48 @@ from datetime import datetime
 from collections.abc import Mapping, Iterable
 from multiprocessing.managers import DictProxy, ListProxy
 from multiprocessing import Event
+from scapy.all import wrpcap, Packet, Queue
+
+import os
+def default_asn():
+    return {"asn": 0, "org": "Unknown"}
 
 
+def default_geo():
+    return {"country": "Unknown", "city": "Unknown"}
+
+
+# reporter.py
 
 def _serialize(obj):
-    """
-    Recursively convert unsupported types into JSON-serializable structures:
-    - datetime → ISO8601 string
-    - Manager proxies (DictProxy, ListProxy) → dict/list
-    - other Mapping/Iterable → recurse
-    """
+    """Recursively serialize objects while handling tuple keys and Manager proxies"""
     if isinstance(obj, datetime):
         return obj.isoformat()
 
-    # First: convert proxies to their native types and recurse
-    if isinstance(obj, DictProxy):
-        return {k: _serialize(v) for k, v in dict(obj).items()}
-    if isinstance(obj, ListProxy):
-        return [_serialize(v) for v in list(obj)]
+    # Convert Manager proxies to native types first
+    if isinstance(obj, (DictProxy, ListProxy)):
+        obj = dict(obj) if isinstance(obj, DictProxy) else list(obj)
 
-    # Then: handle any other Mapping or Iterable
+    # Handle dictionaries and convert tuple keys
     if isinstance(obj, Mapping):
-        return {k: _serialize(v) for k, v in obj.items()}
-    if isinstance(obj, Iterable) and not isinstance(obj, (str, bytes)):
-        return [_serialize(v) for v in obj]
+        return {
+            _safe_key(k): _serialize(v)
+            for k, v in obj.items()
+        }
 
-    # Return primitive
+    # Handle other iterables
+    if isinstance(obj, Iterable) and not isinstance(obj, (str, bytes)):
+        return [_serialize(item) for item in obj]
+
     return obj
 
+def _safe_key(key):
+    """Convert non-JSON-safe keys to strings"""
+    if isinstance(key, tuple):
+        return '|'.join(str(x) for x in key)
+    if isinstance(key, (int, float, bool, type(None))):
+        return key
+    return str(key)
 
 def _reporter_loop(sio_queue, stats_proxy, stop_event, interval: float = 5.0):
     """
