@@ -16,7 +16,7 @@ import pickle
 import socket
 import multiprocessing as mp
 from multiprocessing.managers import DictProxy
-from multiprocessing.queues import Full, Empty
+from queue import Full, Empty
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers import algorithms
 
@@ -58,7 +58,10 @@ from ..detection.signature import SignatureEngine
 from ..detection.detect_port_scan import PortScanDetector
 from ..detection.phishing_blocker import PhishingBlocker
 from .reporter_helper import _reporter_loop, default_asn, default_geo
-from ..ips.engine import IPSEngine
+from ml.feature_extraction import analyze_and_flatten,map_to_cicids2017_features
+from ...utils.format_http_data import transform_http_activity
+from ...utils.save_to_json import save_http_data_to_json
+# from ..ips.engine import IPSEngine
 
 # Configure logging
 logger = logging.getLogger("packet_sniffer")
@@ -86,7 +89,8 @@ class PacketSniffer:
         self.event_queue = Queue(maxsize=10000)
         self.data_lock = mp.Lock()
         self.processing_lock = self.manager.Lock()
-        self.worker_process: Optional[Process] = None
+        self.worker_process = Process(target=self._process_queue, args=(), daemon=True)
+    
         self.sniffer_process: Optional[Process] = None
         self._queue_monitor_active = False
         self._queue_stats = {"processed": 0, "dropped": 0, "errors": 0}
@@ -128,9 +132,9 @@ class PacketSniffer:
         self.recent_packets = defaultdict(lambda: deque(maxlen=100))
         self.current_packet_source = None
         self.port_scan_detector = PortScanDetector()
-        
+
         self._init_ip_databases()
-        
+
         # RFC compliance patterns
         self.rfc7230_methods = {'GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'CONNECT', 'OPTIONS', 'TRACE'}
         self.http_version_pattern = re.compile(r'HTTP/\d\.\d$')
@@ -200,7 +204,6 @@ class PacketSniffer:
         self.asn_db = defaultdict(default_asn)
         self.geo_db = defaultdict(default_geo)
 
-        
         # Load local IP data (example - extend with actual data)
         self._load_sample_data()
 
@@ -223,7 +226,7 @@ class PacketSniffer:
                 # Initialize if not exists
                 if '1min' not in self.stats['throughput']:
                     self.stats['throughput']['1min'] = deque(maxlen=300)
-                
+
                 entry = {
                     'timestamp': time.time(),
                     'bytes': http_data['network_metrics']['packet_size'],
@@ -231,7 +234,7 @@ class PacketSniffer:
                     'source_ip': http_data['source_ip'],
                     'destination_ip': http_data['destination_ip']
                 }
-                
+
                 self.stats['throughput']['1min'].append(entry)
                 self._update_derived_metrics(entry)
 
@@ -247,12 +250,11 @@ class PacketSniffer:
             # Update top talkers
             self.stats['top_talkers'][entry['source_ip']] += entry['packets']
             self.stats['top_talkers'][entry['destination_ip']] += entry['packets']
-            
+
             # Update protocol distribution
             protocol = entry.get('protocol', 'unknown')
             self.stats['protocols'][protocol] += 1
-                   
-    
+
     def _check_rfc_compliance(self, http_layer) -> Dict:
         """Verify HTTP protocol compliance with RFC standards"""
         compliance = {
@@ -266,12 +268,12 @@ class PacketSniffer:
                 method = http_layer.Method.decode('ascii', errors='replace').strip()
                 if method not in self.rfc7230_methods:
                     compliance['rfc7230']['violations'].append(f'Invalid method {method}')
-                
+
             if hasattr(http_layer, 'Http_Version'):
                 version = http_layer.Http_Version.decode('ascii', errors='replace').strip()
                 if not self.http_version_pattern.match(version):
                     compliance['rfc7230']['violations'].append(f'Invalid version {version}')
-            
+
             # RFC 7540 (HTTP/2) checks
             if hasattr(http_layer, 'Headers'):
                 headers = http_layer.headers
@@ -281,7 +283,7 @@ class PacketSniffer:
                     for header in headers:
                         if header.startswith(':') and header not in self.pseudo_headers:
                             compliance['rfc7540']['violations'].append(f'Invalid pseudo-header {header}')
-            
+
             # Check for HTTP/2 over TCP (h2c) compliance
             if compliance['rfc7540']['valid']:
                 port = http_layer.get('Destination-Port', 80)
@@ -300,7 +302,7 @@ class PacketSniffer:
             }))
 
         return compliance
-    
+
     def _analyze_network_path(self, source_ip: str) -> Dict:
         """Perform network path analysis using local data"""
         result = {
@@ -321,10 +323,9 @@ class PacketSniffer:
 
         # Add cached traceroute information
         result['hops'] = list(self.network_path_cache.get(source_ip, deque(maxlen=10)))
-        
+
         return result
-    
-    
+
     def _get_asn_info(self, ip_address: str) -> Dict:
         """Retrieve ASN information from local database"""
         return self.asn_db[ip_address]
@@ -334,7 +335,7 @@ class PacketSniffer:
         self.network_path_cache[source_ip].extend(hops)
         if len(self.network_path_cache[source_ip]) > 10:
             self.network_path_cache[source_ip].popleft()
-       
+
     def _setup_logging(self):
         """Configure packet-level logging"""
         self.packet_logger = logging.getLogger("packet_traffic")
@@ -556,10 +557,9 @@ class PacketSniffer:
 
     def _packet_handler(self, packet: Packet):
         """Main packet processing method with enhanced analysis"""
-        
+
         self.start_time = time.perf_counter()
         # self.recorder.handle_packet(packet)
-        
 
         with self.packet_counter.get_lock():
             self.packet_counter.value += 1
@@ -642,8 +642,11 @@ class PacketSniffer:
                         raw_layer = packet[Raw]
                         packet_info["payload"] = raw_layer.load.hex() if hasattr(raw_layer, 'load') else None
                         if raw_layer.load:
-                            for byte in bytes(raw_layer.load):
-                                self.byte_distribution[byte] += 1
+                            arr = np.frombuffer(raw_layer.load, dtype=np.uint8)
+                            counts = np.bincount(arr, minlength=256)
+                            with self.data_lock:
+                                for i, c in enumerate(counts):
+                                    self.byte_distribution[i] += int(c)
                     except Exception as e:
                         logger.debug("Raw payload processing error: %s", str(e))
 
@@ -698,23 +701,60 @@ class PacketSniffer:
                             self._analyze_http(packet)
                         except Exception as e:
                             logger.debug("HTTP analysis error: %s", str(e))
-                    elif packet.haslayer(DNSQR):
-                        try:
-                            dns = packet[DNSQR]
-                            raw_qname = self._safe_extract(dns, "qname")
+                    # elif packet.haslayer(DNS):  # Check for full DNS layer instead of DNSQR
+                    #     try:
+                    #         dns = packet[DNS]
+                    #         src_ip = packet[IP].src if packet.haslayer(IP) else "unknown"
 
-                            # Sanitize and trim the query
-                            sanitized_qname = self._sanitize_dns_query(raw_qname, max_length=255)
+                    #         # Process both queries and responses
+                    #         query_data = []
+                    #         response_data = []
 
-                            packet_info["dns_query"] = sanitized_qname
+                    #         # Extract queries
+                    #         if dns.qd:
+                    #             for q in dns.qd:
+                    #                 raw_qname = self._safe_extract(q, "qname")
+                    #                 sanitized_qname = self._sanitize_dns_query(raw_qname, max_length=255)
+                    #                 query_data.append({
+                    #                     "name": sanitized_qname,
+                    #                     "type": q.qtype
+                    #                 })
 
-                            logger.info("DNS Query: %s (Type:%s) from %s", 
-                                        sanitized_qname, 
-                                        dns.qtype, 
-                                        src_ip)
-                            self._analyze_dns(packet)
-                        except Exception as e:
-                            logger.debug("DNS analysis error: %s", str(e))
+                    #         # Extract answers
+                    #         if dns.an:
+                    #             for ans in dns.an:
+                    #                 response_data.append({
+                    #                     "name": self._safe_extract(ans, "rrname"),
+                    #                     "type": ans.type,
+                    #                     "data": self._safe_extract(ans, "rdata"),
+                    #                     "ttl": ans.ttl
+                    #                 })
+
+                    #         # Create analysis context
+                    #         dns_context = {
+                    #             "timestamp": datetime.utcnow().isoformat(),
+                    #             "source_ip": src_ip,
+                    #             "queries": query_data,
+                    #             "responses": response_data,
+                    #             "opcode": dns.opcode,
+                    #             "rcode": dns.rcode
+                    #         }
+
+                    #         logger.info("DNS %s: %s queries, %s answers from %s",
+                    #                 "Query" if dns.qr == 0 else "Response",
+                    #                 len(query_data), len(response_data), src_ip)
+
+                    #         # Full analysis with error isolation
+                    #         self._analyze_dns(packet)  # Pass full DNS packet to analyzer
+
+                    #     except Exception as e:
+                    #         logger.error("DNS processing failed: %s [Packet: %s]",
+                    #                     str(e), packet.summary(), exc_info=True)
+                    #         self.sio_queue.put(('system_error', {
+                    #             'component': 'dns_processor',
+                    #             'error': str(e),
+                    #             'packet_summary': packet.summary()
+                    #         }))
                     elif packet.haslayer(TCP) and (packet[TCP].dport == 22 or packet[TCP].sport == 22):
                         try:
                             self._endpoint_tracker[src_ip]["tcp"].add((dst_ip, packet[TCP].dport))
@@ -765,9 +805,12 @@ class PacketSniffer:
                     self._log_packet_to_db(packet_info)
                 except Exception as e:
                     logger.error("Database logging error: %s", str(e))
-                logger.info("Found packet: %s", packet_info)
-            self.sio_queue.put(("packet_data", packet_info))
-            
+                
+            # self.sio_queue.put(("user_alert", {
+            #     "message":"Packet handler working",
+            #     "timestamp":"NOW"
+            # }))
+
         except Exception as e:
             logger.error("Packet processing error: %s", str(e))
             self.sio_queue.put(
@@ -802,21 +845,24 @@ class PacketSniffer:
             return truncated
         return text[:max_length-3] + '...'
 
-    def _sanitize_dns_query(self, query: bytes, max_length: int = 255) -> str:
+    def _sanitize_dns_query(self, query, max_length: int = 255) -> str:
         """Sanitize DNS query with length trimming and binary detection"""
         try:
-            # Decode with error handling and truncation
-            decoded = query.decode('utf-8', errors='replace').strip()
-        except UnicodeDecodeError:
-            # Fallback to Latin-1 if UTF-8 fails
+            if isinstance(query, str):
+                decoded = query.strip()
+                query_bytes = query.encode('utf-8', errors='replace')
+            else:
+                query_bytes = query
+                decoded = query.decode('utf-8', errors='replace').strip()
+        except Exception:
             decoded = query.decode('latin-1', errors='replace').strip()
+            query_bytes = query
 
         # Detect binary-looking payloads
-        if self._is_binary(query):
-            hex_repr = query.hex()[:max_length]
+        if self._is_binary(query_bytes):
+            hex_repr = query_bytes.hex()[:max_length]
             return f"[BINARY:{hex_repr}]..."
 
-        # Trim long queries while preserving structure
         if len(decoded) > max_length:
             return self._smart_truncate(decoded, max_length)
 
@@ -858,7 +904,7 @@ class PacketSniffer:
             return 0.0
         entropy = 0.0
         for x in range(256):
-            p_x = float(data.count(x)) / data
+            p_x = float(data.count(x)) / len(data)
             if p_x > 0:
                 entropy += -p_x * math.log(p_x, 2)
         return entropy
@@ -1058,7 +1104,6 @@ class PacketSniffer:
                 },
             }
 
-    
     def _analyze_http(self, packet: Packet):
         """Comprehensive HTTP analysis with advanced threat detection"""
         try:
@@ -1088,6 +1133,11 @@ class PacketSniffer:
                 "path": self._safe_extract(http_layer, "Path"),
                 "method": self._safe_extract(http_layer, "Method"),
                 "user_agent": self._safe_extract(http_layer, "User_Agent"),
+                "status_code": (
+                            int(self._safe_extract(http_layer, "Status_Code"))
+                            if packet.haslayer(HTTPResponse)
+                            else None
+                    ),
                 "version": self._safe_extract(http_layer, "Http_Version"),
                 "referer": self._safe_extract(http_layer, "Referer"),
                 "content_type": self._safe_extract(http_layer, "Content_Type"),
@@ -1110,7 +1160,7 @@ class PacketSniffer:
                         tcp_layer.sport if tcp_layer else None,
                         tcp_layer.dport if tcp_layer else None,
                     )
-                    
+
                     if flow_key not in self.stats["flows"]:
                         self.stats["flows"][flow_key] = {
                             "first_seen": current_time,
@@ -1127,7 +1177,7 @@ class PacketSniffer:
                         })
 
                     flow_info = self.stats["flows"][flow_key]
-                    flow_duration = flow_info["last_seen"] - flow_info["first_seen"]
+                    flow_duration = max(flow_info["last_seen"] - flow_info["first_seen"], 0.001)
                     bytes_per_second = flow_info["byte_count"] / flow_duration if flow_duration > 0 else 0
                     packets_per_second = flow_info["packet_count"] / flow_duration if flow_duration > 0 else 0
             except Exception as e:
@@ -1144,7 +1194,7 @@ class PacketSniffer:
             # Network layer extraction with safety
             ip_layer = packet[IP] if packet.haslayer(IP) else None
             tcp_layer = packet[TCP] if packet.haslayer(TCP) else None
-            
+
             # Header analysis
             header_fields = http_layer.fields if http_layer else {}
             try:
@@ -1238,8 +1288,15 @@ class PacketSniffer:
                         self.sio_queue.put_nowait(
                             ("signature_match", {**sig_results, "context": http_data})
                         )
-
-                self.sio_queue.put(("http_activity", http_data))
+                # try:
+                #      save_to_json([http_data])
+                # except Exception as e:
+                #     logger.warning(f"Failed to process and save data: {e}")
+                flattened_http_data = analyze_and_flatten(http_data)
+                data = map_to_cicids2017_features(flattened_http_data)
+                http_tranformed = transform_http_activity(http_data)
+                # save_http_data_to_json(http_data)
+                self.sio_queue.put(("http_activity", http_tranformed))
             except Exception as e:
                 logger.critical(f"Notification failed: {str(e)}", exc_info=True)
 
@@ -1250,8 +1307,7 @@ class PacketSniffer:
                 'message': str(e),
                 'packet_summary': packet.summary() if 'packet' in locals() else None
             }))
-        
-        
+
     def __analyze_chunked_encoding(self, payload: bytes) -> dict:
         """
         Internal method to validate chunked transfer encoding
@@ -1297,7 +1353,7 @@ class PacketSniffer:
             results["analysis_failed"] = True
 
         return results
-    
+
     def _analyze_ciphersuites(self, packet: Packet) -> dict:
         """
         Analyze TLS cipher suites by manually parsing TCP payload
@@ -1358,8 +1414,6 @@ class PacketSniffer:
 
         return ciphers
 
-
-    
     def __extract_cipher_suites(self, raw: bytes) -> list:
         """Extract cipher suites from ClientHello message"""
         try:
@@ -1370,24 +1424,23 @@ class PacketSniffer:
             pos += 32  # Skip random bytes
             session_id_length = raw[pos]
             pos += 1 + session_id_length
-            
+
             # Skip cipher suites length (2 bytes)
             cipher_suites_length = int.from_bytes(raw[pos:pos+2], 'big')
             pos += 2
-            
+
             # Extract cipher suite codes (2 bytes each)
             cipher_suites = []
             for _ in range(cipher_suites_length // 2):
                 suite = raw[pos:pos+2]
                 cipher_suites.append(suite)
                 pos += 2
-                
+
             return cipher_suites
 
         except IndexError:
             return []
-    
-    
+
     def __parse_cipher_suite(self, suite_bytes: bytes) -> str:
         """Convert cipher suite bytes to IANA name"""
         cipher_map = {
@@ -1402,8 +1455,6 @@ class PacketSniffer:
         }
         return cipher_map.get(suite_bytes, f'UNKNOWN_{suite_bytes.hex().upper()}')
 
-
-    
     def __parse_tls_version_from_bytes(self, version_bytes: bytes) -> str:
         """Parse TLS version from 2-byte version field"""
         version_map = {
@@ -1414,8 +1465,6 @@ class PacketSniffer:
             b'\x03\x00': 'SSL 3.0'
         }
         return version_map.get(version_bytes, f'Unknown ({version_bytes.hex()})')
-
-
 
     def _analyze_content_gaps(self, payload: bytes) -> dict:
         """
@@ -1476,7 +1525,7 @@ class PacketSniffer:
         try:
             # Split headers from body
             headers_part = payload.split(b'\r\n\r\n', 1)[0]
-            
+
             # Find Content-Length header
             for line in headers_part.split(b'\r\n'):
                 if line.lower().startswith(b'content-length:'):
@@ -1484,37 +1533,37 @@ class PacketSniffer:
                         # Split header key/value
                         _, value = line.split(b':', 1)
                         content_length = value.strip().decode('ascii')
-                        
+
                         # Validate numeric value
                         if not content_length.isdigit():
                             logger.warning(f"Invalid Content-Length value: {content_length}")
                             return None
-                            
+
                         # Convert to integer
                         length = int(content_length)
-                        
+
                         # Check for multiple Content-Length headers
                         if b'content-length:' in line.lower().replace(line.lower(), b'', 1):
                             logger.warning("Multiple Content-Length headers detected")
                             return None
-                            
+
                         # Validate against maximum realistic value
                         if length > 10**9:  # 1GB
                             logger.warning(f"Excessive Content-Length: {length}")
                             return None
-                            
+
                         return length
-                        
+
                     except (ValueError, UnicodeDecodeError) as e:
                         logger.debug(f"Content-Length parsing failed: {str(e)}")
                         return None
-                        
+
             return None
 
         except Exception as e:
             logger.error(f"Content-Length extraction error: {str(e)}", exc_info=True)
             return None
-    
+
     def __check_compression_anomalies(self, payload: bytes) -> dict:
         """
         Detect suspicious compression patterns in HTTP/TLS traffic
@@ -1537,32 +1586,32 @@ class PacketSniffer:
             if len(payload) > 5 and payload[0] == 0x16:  # TLS handshake
                 handshake_type = payload[5]
                 pos = 5  # Start after TLS record header
-                
+
                 # Skip record header length
                 record_length = int.from_bytes(payload[3:5], 'big')
                 pos += 4 if record_length > 0x4000 else 3
-                
+
                 if handshake_type == 0x01:  # ClientHello
                     pos += 38  # Skip client version + random bytes
                     session_id_length = payload[pos]
                     pos += 1 + session_id_length
-                    
+
                     # Skip cipher suites length
                     cipher_suites_length = int.from_bytes(payload[pos:pos+2], 'big')
                     pos += 2 + cipher_suites_length
-                    
+
                     # Get compression methods
                     compression_methods_length = payload[pos]
                     pos += 1
                     findings['tls_compression'] = [
                         self.__parse_compression_method(m) 
                         for m in payload[pos:pos+compression_methods_length]]
-                    
+
                 elif handshake_type == 0x02:  # ServerHello
                     pos += 38  # Skip server version + random bytes
                     session_id_length = payload[pos]
                     pos += 1 + session_id_length
-                    
+
                     # Get selected compression method
                     if len(payload) > pos:
                         findings['tls_compression'] = [
@@ -1578,14 +1627,14 @@ class PacketSniffer:
             # ==================== HTTP Compression Analysis ====================
             # Parse HTTP headers from payload
             http_headers = self.__parse_http_headers(payload)
-            
+
             http_compression = {
                 'content_encoding': http_headers.get('Content-Encoding', ''),
                 'accept_encoding': http_headers.get('Accept-Encoding', ''),
                 'transfer_encoding': http_headers.get('Transfer-Encoding', '')
             }
             findings['http_compression'] = http_compression
-            
+
             # Detect compression mismatch
             if (http_compression['content_encoding'] and 
                 not http_compression['accept_encoding']):
@@ -1597,11 +1646,11 @@ class PacketSniffer:
             used_methods = {m.strip().lower() 
                             for m in http_compression['content_encoding'].split(',') + 
                                     http_compression['accept_encoding'].split(',')}
-            
+
             findings['insecure_methods'].extend(
                 m for m in used_methods if m in deprecated_methods
             )
-            
+
             if findings['insecure_methods']:
                 findings['severity'] = max(findings['severity'], 0.7)
 
@@ -1610,7 +1659,6 @@ class PacketSniffer:
             findings['analysis_error'] = True
 
         return findings
-
 
     def __parse_compression_method(self, method_byte: int) -> str:
         """Convert TLS compression method byte to name"""
@@ -2248,13 +2296,9 @@ class PacketSniffer:
     def _analyze_dns(self, packet: Packet):
         """Enhanced DNS analysis with TTL monitoring"""
         try:
-            logger.info("Analysis of DNS started")
-            if not (packet.haslayer(DNS) and packet.haslayer(IP)):
-                return
-
             dns = packet[DNS]
             ip = packet[IP]
-            
+
             queries = []
             responses = []
 
@@ -2301,19 +2345,10 @@ class PacketSniffer:
                 avg_ttl = sum(r["ttl"] for r in responses) / len(responses)
                 dns_data["ttl_anomaly"] = bool(avg_ttl < 30)
 
-            try:
-                self.sio_queue.put_nowait(("dns_activity", dns_data))
-                logger.info("Analysis of DNS ended")
-            except Full:
-                logger.warning("DNS queue full, dropping packet")
+            self.sio_queue.put_nowait(("dns_activity", dns_data))
 
         except Exception as e:
             logger.error(f"DNS analysis failed: {str(e)}", exc_info=True)
-            self.sio_queue.put(('system_error', {
-                'error': 'dns_analysis_failed',
-                'message': str(e),
-                'packet_summary': packet.summary() if 'packet' in locals() else None
-            }))
 
     def _calculate_subdomain_entropy(self, queries: list) -> float:
         """Calculate entropy of subdomain labels"""
@@ -2625,7 +2660,7 @@ class PacketSniffer:
     #         )
     #     )
 
-    def start(self, interface: str = None):
+    async def start(self, interface: str = None):
         """Start both the queue‑processor and the packet capture thread."""
         interface = interface or conf.iface
         if not interface:
@@ -2645,6 +2680,8 @@ class PacketSniffer:
                 filter="not (dst net 127.0.0.1 or multicast or ip6)",
                 prn=self._packet_handler,
                 store=False,
+                promisc=True
+                
             )
             self._async_sniffer.start()
             logger.info("AsyncSniffer started on %s", interface)
@@ -2669,94 +2706,6 @@ class PacketSniffer:
             }
         ))
 
-    # def _start_sniffing(self, interface: str):
-    #     """Internal sniffing method with proper resource cleanup"""
-    #     try:
-    #         # Explicitly create new socket in the process
-    #         with conf.L2listen(
-    #             iface=interface,
-    #             filter="not (dst net 127.0.0.1 or multicast or ip6)"
-    #         ) as sock:
-    #             sniff(
-    #                 opened_socket=sock,
-    #                 prn=self._packet_handler,
-    #                 stop_filter=lambda _: self.stop_event.is_set(),
-    #                 store=False,
-
-    #             )
-    #     except Exception as e:
-    #         logger.error(f"Sniffing error: {str(e)}")
-    #         self.sio_queue.put(("system_error", {
-    #             "component": "packet_capture",
-    #             "error": str(e),
-    #             "timestamp": datetime.utcnow().isoformat(),
-    #         }))
-
-    def _start_sniffing(self, interface: str):
-        """Capture packets forever (until process is killed)"""
-        try:
-            with conf.L2listen(
-                iface=interface,
-                filter="not (dst net 127.0.0.1 or multicast or ip6)"
-            ) as sock:
-                sniff(
-                    opened_socket=sock,
-                    prn=self._packet_handler,
-                    store=False
-                    # no stop_filter, no count → infinite
-                )
-        except Exception as e:
-            logger.error(f"Sniffing error: {e}")
-            self.sio_queue.put(("system_error", {
-                "component": "packet_capture",
-                "error": str(e),
-                "timestamp": datetime.utcnow().isoformat(),
-            }))
-
-    # def stop(self):
-    #     """Graceful shutdown with comprehensive cleanup and monitoring"""
-    #     self._running = False
-    #     if hasattr(self, "manager"):
-    #         self.manager.shutdown()
-    #     if not self.stop_event.is_set():
-    #         self.stop_event.set()
-
-    #         # Send pre-shutdown notification
-
-    #         self.sio_queue.put(
-    #             (
-    #                 "system_status",
-    #                 {
-    #                     "component": "packet_sniffer",
-    #                     "status": "stopping",
-    #                     "timestamp": datetime.utcnow().isoformat(),
-    #                 },
-    #             )
-    #         )
-
-    #     packet_count = self.packet_counter.value
-    #     uptime = time.time() - self.start_time
-
-    #     # Terminate processes with timeout
-    #     processes = [
-    #         self.sniffer_process,
-    #         self.worker_process,
-    #         self.reporter_process
-    #     ]
-
-    #     for p in processes:
-    #         if p and p.is_alive():
-    #             p.terminate()  # Forceful termination if needed
-    #             p.join(timeout=2)
-    #             if p.exitcode is None:
-    #                 logger.warning(f"{p.name} did not terminate gracefully")
-
-    #     # Final status update with safe values
-    #     logger.info(
-    #         "Packet sniffer stopped. Processed %d packets. Uptime: %.2f seconds",
-    #         packet_count,
-    #         uptime
-    #     )
 
     def stop(self):
         """Stop packet capture and cleanup."""
@@ -2764,7 +2713,7 @@ class PacketSniffer:
         if self._async_sniffer:
             self._async_sniffer.stop()
             logger.info("AsyncSniffer stopped")
-            
+
             # self.recorder.flush_remaining_on_exit()
 
         # stop worker and reporter as you already have
@@ -2775,7 +2724,7 @@ class PacketSniffer:
             self.reporter_process.terminate()
             self.reporter_process = None
             self.end_time = time.perf_counter()
-            
+
             logger.info("processed %d packets in %d secons", self.packet_counter.value, (self.end_time - self.start_time))
         # send stopping status
         self.sio_queue.put((

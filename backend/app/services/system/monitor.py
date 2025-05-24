@@ -21,22 +21,29 @@ from collections import deque, OrderedDict
 import signal
 import json
 
+from ml.feature_extraction import flatten_complex_data
+from ...utils.save_to_json import save_telemetry_to_json
+from ...utils.map_telemetry_to_frontend import map_to_system_telemetry_format
+from ...utils.report import get_24h_network_traffic,get_daily_threat_summary
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("SystemMonitor")
 IS_WINDOWS = platform.system() == "Windows"
 
+
 class SystemMonitorProcess(mp.Process):
     """Main monitoring process that collects all system metrics"""
 
-    def __init__(self,sio: socketio.AsyncServer, data_queue: mp.Queue, control_queue: mp.Queue):
+    def __init__(
+        self, sio: socketio.AsyncServer, data_queue: mp.Queue, control_queue: mp.Queue
+    ):
         super().__init__()
         self.sio = sio
         self.data_queue = data_queue
 
         self.control_queue = control_queue
         self.running = True
-        self.interval = 10  # seconds between updates
+        self.interval = 5  # seconds between updates
         self.history = {
             "cpu": deque(maxlen=60),
             "memory": deque(maxlen=60),
@@ -102,13 +109,15 @@ class SystemMonitorProcess(mp.Process):
         try:
             file_size = os.path.getsize(file_path)
             if file_size > self._max_file_size:
-                logger.warning(f"File too large for hashing: {file_path} ({file_size/1024/1024:.2f}MB)")
+                logger.warning(
+                    f"File too large for hashing: {file_path} ({file_size/1024/1024:.2f}MB)"
+                )
                 return None
 
             sha256 = hashlib.sha256()
             md5 = hashlib.md5()
 
-            with open(file_path, 'rb') as f:
+            with open(file_path, "rb") as f:
                 while chunk := f.read(self._hash_buffer_size):
                     sha256.update(chunk)
                     md5.update(chunk)
@@ -117,7 +126,7 @@ class SystemMonitorProcess(mp.Process):
                 "sha256": sha256.hexdigest(),
                 "md5": md5.hexdigest(),
                 "file_size": file_size,
-                "last_modified": os.path.getmtime(file_path)
+                "last_modified": os.path.getmtime(file_path),
             }
         except PermissionError:
             logger.warning(f"Permission denied accessing {file_path}")
@@ -137,16 +146,13 @@ class SystemMonitorProcess(mp.Process):
         with self._dns_lock:
             # Check cache and validate TTL
             entry = self._dns_cache.get(ip)
-            if entry and (time.time() - entry['timestamp']) < self._dns_cache_ttl:
-                return entry['domain']
+            if entry and (time.time() - entry["timestamp"]) < self._dns_cache_ttl:
+                return entry["domain"]
 
             try:
                 # Async-friendly DNS resolution
                 domain, _, _ = socket.gethostbyaddr(ip)
-                self._dns_cache[ip] = {
-                    'domain': domain,
-                    'timestamp': time.time()
-                }
+                self._dns_cache[ip] = {"domain": domain, "timestamp": time.time()}
 
                 # Maintain cache size
                 if len(self._dns_cache) > self._dns_cache_max_size:
@@ -155,10 +161,7 @@ class SystemMonitorProcess(mp.Process):
                 return domain
             except (socket.herror, socket.gaierror) as e:
                 logger.debug(f"DNS resolution failed for {ip}: {str(e)}")
-                self._dns_cache[ip] = {
-                    'domain': None,
-                    'timestamp': time.time()
-                }
+                self._dns_cache[ip] = {"domain": None, "timestamp": time.time()}
                 return None
             except Exception as e:
                 logger.error(f"Unexpected DNS error: {str(e)}")
@@ -190,7 +193,6 @@ class SystemMonitorProcess(mp.Process):
             "security": self._get_security_status(),
         }
 
-        
         logger.debug(f"Collected stats: {stats}")
         # Update history for anomaly detection
         self._update_history(stats)
@@ -285,7 +287,7 @@ class SystemMonitorProcess(mp.Process):
                             ),
                             "status": conn.status,
                             "pid": conn.pid,
-                            "domain":domain,
+                            "domain": domain,
                             "suspicious": self._is_suspicious_port(conn.laddr.port),
                         }
                     )
@@ -312,7 +314,7 @@ class SystemMonitorProcess(mp.Process):
         if ip not in self._dns_cache:
             try:
                 self._dns_cache[ip] = socket.gethostbyaddr(ip)[0]
-            except: 
+            except:
                 self._dns_cache[ip] = ""
         return self._dns_cache[ip]
 
@@ -324,6 +326,7 @@ class SystemMonitorProcess(mp.Process):
                 parts = line.split()
                 arp.append({"ip": parts[0], "mac": parts[1]})
         return arp
+
     def _get_network_interfaces(self) -> List[Dict]:
         """Get detailed network interface information"""
         interfaces = []
@@ -359,7 +362,7 @@ class SystemMonitorProcess(mp.Process):
                 "exe",
                 "cmdline",
                 "status",
-                'ppid'
+                "ppid",
             ]
         ):
             try:
@@ -373,36 +376,39 @@ class SystemMonitorProcess(mp.Process):
                     signed = None
                 else:
                     bin_hash = self._calculate_file_hash(exe_path) if exe_path else None
-                    signed = self._check_binary_signature(exe_path) if exe_path else None
+                    signed = (
+                        self._check_binary_signature(exe_path) if exe_path else None
+                    )
                 suspicious = any(
-                    p.lower() in info["name"].lower() 
-                    for p in self.suspicious_processes
+                    p.lower() in info["name"].lower() for p in self.suspicious_processes
                 )
                 cmdline = " ".join(info["cmdline"]) if info.get("cmdline") else ""
-                
+
                 # Calculate risk score with required parameters
                 risk_score = self._calculate_process_risk(
                     name=info["name"],
                     cmdline=cmdline,
                     signed=signed,
-                    suspicious=suspicious
+                    suspicious=suspicious,
                 )
-                
+
                 # Build process entry with all fields
-                processes.append({
-                    "pid": info["pid"],
-                    "name": info["name"],
-                    "user": info["username"],
-                    "cpu": info["cpu_percent"],
-                    "cmdline": cmdline,
-                    "ppid": info["ppid"],
-                    "memory": info["memory_percent"],
-                    "status": info["status"],
-                    "bin_hash": bin_hash,
-                    "risk_score": risk_score,
-                    "suspicious": suspicious,
-                    "signed": signed, 
-                })
+                processes.append(
+                    {
+                        "pid": info["pid"],
+                        "name": info["name"],
+                        "user": info["username"],
+                        "cpu": info["cpu_percent"],
+                        "cmdline": cmdline,
+                        "ppid": info["ppid"],
+                        "memory": info["memory_percent"],
+                        "status": info["status"],
+                        "bin_hash": bin_hash,
+                        "risk_score": risk_score,
+                        "suspicious": suspicious,
+                        "signed": signed,
+                    }
+                )
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
 
@@ -415,26 +421,23 @@ class SystemMonitorProcess(mp.Process):
         """Check if path belongs to a valid Windows executable"""
         if not path:
             return False
-        
+
         # Filter known Windows pseudo-processes
         invalid_paths = {
-            "System", "Registry", "MemCompression",
+            "System",
+            "Registry",
+            "MemCompression",
             r"\SystemRoot\System32",
-            r"\Device\HarddiskVolume"
+            r"\Device\HarddiskVolume",
         }
-        
+
         return all(
-            not path.startswith(invalid) 
-            and not path in invalid_paths
+            not path.startswith(invalid) and not path in invalid_paths
             for invalid in invalid_paths
         ) and os.path.isfile(path)
-        
+
     def _calculate_process_risk(
-        self, 
-        name: str, 
-        cmdline: str, 
-        signed: Optional[bool], 
-        suspicious: bool
+        self, name: str, cmdline: str, signed: Optional[bool], suspicious: bool
     ) -> int:
         """Calculate risk score using direct parameters instead of a dict"""
         score = 0
@@ -464,14 +467,15 @@ class SystemMonitorProcess(mp.Process):
             "cpu": cpuinfo.get_cpu_info().get("brand_raw", "Unknown"),
             "boot_time": datetime.fromtimestamp(psutil.boot_time()).isoformat(),
             "uptime": time.time() - psutil.boot_time(),
-            "critical_files": self._check_system_files(), 
-            "services": self._get_system_services()
+            "critical_files": self._check_system_files(),
+            "services": self._get_system_services(),
         }
+
     def _check_system_files(self) -> Dict:
         """Monitor critical system files"""
         targets = {
             "Windows": [r"C:\Windows\System32\*.dll", r"C:\Windows\System32\*.exe"],
-            "Linux": ["/bin/*", "/usr/bin/*", "/sbin/*"]
+            "Linux": ["/bin/*", "/usr/bin/*", "/sbin/*"],
         }
         return {
             fpath: self._calculate_file_hash(fpath)
@@ -545,9 +549,7 @@ class SystemMonitorProcess(mp.Process):
 
         # Check network activity
         if len(self.history["network"]) > 10:
-            avg_net = sum(self.history["network"]) / len(
-                self.history["network"]
-            )
+            avg_net = sum(self.history["network"]) / len(self.history["network"])
             if avg_net > self.anomaly_thresholds["network"]:
                 anomalies.append(
                     {
@@ -557,21 +559,26 @@ class SystemMonitorProcess(mp.Process):
                     }
                 )
             if len(self.history["process_count"]) > 100:
-                avg_procs = sum(self.history["process_count"][-100:])/100
+                avg_procs = sum(self.history["process_count"][-100:]) / 100
                 if stats["process_count"] > avg_procs * 1.5:
-                    anomalies.append({
-                        "type": "process_count", 
-                        "severity": "medium",
-                        "message": f"Process count spike: {stats['process_count']} (avg: {avg_procs})"
-            })
+                    anomalies.append(
+                        {
+                            "type": "process_count",
+                            "severity": "medium",
+                            "message": f"Process count spike: {stats['process_count']} (avg: {avg_procs})",
+                        }
+                    )
 
             if anomalies:
                 asyncio.run_coroutine_threadsafe(
                     self.sio.emit(
-                    "system_alerts",
-                    {"timestamp": datetime.utcnow().isoformat(), "alerts": anomalies},
-                ),
-                asyncio.get_event_loop()
+                        "system_alerts",
+                        {
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "alerts": anomalies,
+                        },
+                    ),
+                    asyncio.get_event_loop(),
                 )
 
         return anomalies
@@ -639,7 +646,8 @@ class SystemMonitor(mp.Process):
         self.sio = sio
         self.data_queue = mp.Queue()
         self.control_queue = mp.Queue()
-    
+        self.threat_log: List[Dict] = [] 
+
         # Pass all required arguments in order
         self.monitor_process = SystemMonitorProcess(
             sio=self.sio,  # Required first
@@ -648,7 +656,7 @@ class SystemMonitor(mp.Process):
         )
         self.running = False
 
-    def start(self):
+    async def start(self):
         """Start the monitoring system"""
         if not self.running:
             self.monitor_process.start()
@@ -662,7 +670,9 @@ class SystemMonitor(mp.Process):
             try:
                 if not self.data_queue.empty():
                     stats = self.data_queue.get_nowait()
-                    await self.sio.emit("system_telemetry", stats)
+                    flattened_telemetry = flatten_complex_data(stats)
+                    telemetry = map_to_system_telemetry_format(stats, sample_interval=self.monitor_process.interval)
+                    await self.sio.emit("system_telemetry", telemetry)
                 await asyncio.sleep(0.1)  # Prevent busy waiting
             except queue.Empty:
                 await asyncio.sleep(0.5)
@@ -695,26 +705,30 @@ class SystemMonitor(mp.Process):
                 "name": proc.name(),
                 "exe": proc.exe(),
                 "cmdline": proc.cmdline(),
-                "username": proc.username()
+                "username": proc.username(),
             }
 
             proc.terminate()
-            await self.sio.emit("threat_response", {
-                "action": "process_terminated",
-                "pid": pid,
-                "reason": reason,
-                "process_info": proc_info,
-                "timestamp": datetime.utcnow().isoformat()
-            })
+            await self.sio.emit(
+                "threat_response",
+                {
+                    "action": "process_terminated",
+                    "pid": pid,
+                    "reason": reason,
+                    "process_info": proc_info,
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
+            )
         except Exception as e:
             logger.error(f"Failed to terminate process {pid}: {e}")
-            await self.sio.emit("threat_error", {
-                "action": "process_termination_failed",
-                "pid": pid,
-                "error": str(e)
-            })
+            await self.sio.emit(
+                "threat_error",
+                {"action": "process_termination_failed", "pid": pid, "error": str(e)},
+            )
 
-    async def block_malicious_connection(self, ip: str, port: int, direction: str, reason: str):
+    async def block_malicious_connection(
+        self, ip: str, port: int, direction: str, reason: str
+    ):
         """Block IP connection across platforms"""
         try:
             if platform.system() == "Windows":
@@ -732,21 +746,23 @@ class SystemMonitor(mp.Process):
                     cmd = f"iptables -A OUTPUT -d {ip} -p tcp --dport {port} -j DROP"
                 os.system(cmd)
 
-            await self.sio.emit("threat_response", {
-                "action": "connection_blocked",
-                "ip": ip,
-                "port": port,
-                "direction": direction,
-                "reason": reason,
-                "timestamp": datetime.utcnow().isoformat()
-            })
+            await self.sio.emit(
+                "threat_response",
+                {
+                    "action": "connection_blocked",
+                    "ip": ip,
+                    "port": port,
+                    "direction": direction,
+                    "reason": reason,
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
+            )
         except Exception as e:
             logger.error(f"Failed to block {ip}:{port}: {e}")
-            await self.sio.emit("threat_error", {
-                "action": "block_failed",
-                "ip": ip,
-                "error": str(e)
-        })
+            await self.sio.emit(
+                "threat_error", {"action": "block_failed", "ip": ip, "error": str(e)}
+            )
+
     def _check_binary_signature(self, path: str) -> Optional[bool]:
         """Check if binary is signed/trusted (simplified example)"""
         if not path or not os.path.exists(path):
@@ -776,8 +792,8 @@ class SystemMonitor(mp.Process):
                     "memory_maps": [],
                     "security": {
                         "signed": self._check_binary_signature(proc.exe()),
-                        "dlls": self._scan_loaded_dlls(pid)
-                    }
+                        "dlls": self._scan_loaded_dlls(pid),
+                    },
                 }
 
                 # Network connections
@@ -786,9 +802,17 @@ class SystemMonitor(mp.Process):
                         {
                             "fd": conn.fd,
                             "family": conn.family.name,
-                            "local": f"{conn.laddr.ip}:{conn.laddr.port}" if conn.laddr else None,
-                            "remote": f"{conn.raddr.ip}:{conn.raddr.port}" if conn.raddr else None,
-                            "status": conn.status
+                            "local": (
+                                f"{conn.laddr.ip}:{conn.laddr.port}"
+                                if conn.laddr
+                                else None
+                            ),
+                            "remote": (
+                                f"{conn.raddr.ip}:{conn.raddr.port}"
+                                if conn.raddr
+                                else None
+                            ),
+                            "status": conn.status,
                         }
                         for conn in proc.connections()
                     ]
@@ -798,27 +822,23 @@ class SystemMonitor(mp.Process):
                 # Memory regions
                 try:
                     analysis["memory_maps"] = [
-                        {
-                            "path": m.path,
-                            "rss": m.rss,
-                            "size": m.size,
-                            "perms": m.perms
-                        }
+                        {"path": m.path, "rss": m.rss, "size": m.size, "perms": m.perms}
                         for m in proc.memory_maps()
-                    ][:20]  # Limit to first 20 regions
+                    ][
+                        :20
+                    ]  # Limit to first 20 regions
                 except (psutil.AccessDenied, psutil.NoSuchProcess):
                     pass
 
                 await self.sio.emit("process_inspection", analysis)
-                return analysis ##THIS MAY BE SENT VIA ROUTES TO USER TO SEE ANALYSIS
+                return analysis  ##THIS MAY BE SENT VIA ROUTES TO USER TO SEE ANALYSIS
 
         except Exception as e:
             logger.error(f"Process inspection failed for PID {pid}: {e}")
-            await self.sio.emit("threat_error", {
-                "action": "inspection_failed",
-                "pid": pid,
-                "error": str(e)
-            })
+            await self.sio.emit(
+                "threat_error",
+                {"action": "inspection_failed", "pid": pid, "error": str(e)},
+            )
             return None
 
     async def analyze_connection(self, conn_details: Dict):
@@ -826,14 +846,16 @@ class SystemMonitor(mp.Process):
         try:
             analysis = {
                 **conn_details,
-                "geoip": await self._lookup_ip_geo(conn_details.get('remote_ip')),
-                "whois": await self._lookup_whois(conn_details.get('remote_ip')),
-                "threat_intel": await self._check_threat_feeds(conn_details.get('remote_ip')),
-                "protocol_analysis": self._analyze_packet_patterns(conn_details)
+                "geoip": await self._lookup_ip_geo(conn_details.get("remote_ip")),
+                "whois": await self._lookup_whois(conn_details.get("remote_ip")),
+                "threat_intel": await self._check_threat_feeds(
+                    conn_details.get("remote_ip")
+                ),
+                "protocol_analysis": self._analyze_packet_patterns(conn_details),
             }
 
             await self.sio.emit("connection_analysis", analysis)
-            return analysis #THIS MUST BE SENT TO USER TOO
+            return analysis  # THIS MUST BE SENT TO USER TOO
 
         except Exception as e:
             logger.error(f"Connection analysis failed: {e}")
@@ -851,7 +873,11 @@ class SystemMonitor(mp.Process):
     async def quarantine_file(self, file_path: str, reason: str):
         """Move file to quarantine with forensic metadata"""
         try:
-            quarantine_dir = "/var/quarantine" if platform.system() != "Windows" else "C:\\Quarantine"
+            quarantine_dir = (
+                "/var/quarantine"
+                if platform.system() != "Windows"
+                else "C:\\Quarantine"
+            )
             os.makedirs(quarantine_dir, exist_ok=True)
 
             file_hash = self._calculate_file_hash(file_path)
@@ -867,7 +893,7 @@ class SystemMonitor(mp.Process):
                 "file_hash": file_hash,
                 "original_perms": oct(stat.st_mode),
                 "owner": stat.st_uid,
-                "reason": reason
+                "reason": reason,
             }
 
             # Move file and create metadata
@@ -875,18 +901,20 @@ class SystemMonitor(mp.Process):
             with open(f"{dest_path}.meta", "w") as f:
                 json.dump(metadata, f)
 
-            await self.sio.emit("file_quarantined", {
-                "original_path": file_path,
-                "quarantine_path": dest_path,
-                "metadata": metadata
-            })
+            await self.sio.emit(
+                "file_quarantined",
+                {
+                    "original_path": file_path,
+                    "quarantine_path": dest_path,
+                    "metadata": metadata,
+                },
+            )
         except Exception as e:
             logger.error(f"Failed to quarantine {file_path}: {e}")
-            await self.sio.emit("threat_error", {
-                "action": "quarantine_failed",
-                "file": file_path,
-                "error": str(e)
-            })
+            await self.sio.emit(
+                "threat_error",
+                {"action": "quarantine_failed", "file": file_path, "error": str(e)},
+            )
 
     async def capture_system_snapshot(self, trigger_event: Dict):
         """Capture complete system state at time of detection"""
@@ -897,7 +925,7 @@ class SystemMonitor(mp.Process):
             "network": self.monitor_process.get_network_stats(),
             "users": self.get_logged_in_users(),
             "system": self.monitor_process.get_system_info(),
-            "performance": self._get_performance_metrics()
+            "performance": self._get_performance_metrics(),
         }
 
         # Save to file
@@ -905,27 +933,35 @@ class SystemMonitor(mp.Process):
         with open(filename, "w") as f:
             json.dump(snapshot, f, indent=2)
 
-        await self.sio.emit("system_snapshot", {
-            "filename": filename,
-            "summary": {
-                "process_count": len(snapshot["processes"]),
-                "alert_severity": trigger_event.get("severity", "unknown")
-            }
-        })
+        await self.sio.emit(
+            "system_snapshot",
+            {
+                "filename": filename,
+                "summary": {
+                    "process_count": len(snapshot["processes"]),
+                    "alert_severity": trigger_event.get("severity", "unknown"),
+                },
+            },
+        )
         return filename
 
     async def update_threat_dashboard(self):
         """Send aggregated threat intelligence to frontend"""
-       
+
         while self.running:
             try:
                 threats = {
-                    "active_processes": len([p for p in self.monitor_process.get_process_stats() 
-                                        if p.get("is_suspicious")]),
+                    "active_processes": len(
+                        [
+                            p
+                            for p in self.monitor_process.get_process_stats()
+                            if p.get("is_suspicious")
+                        ]
+                    ),
                     "blocked_connections": self._get_firewall_block_count(),
                     "quarantined_files": self._get_quarantine_count(),
                     "current_anomalies": self._get_current_anomalies(),
-                    "threat_timeline": self._get_recent_threats()
+                    "threat_timeline": self._get_recent_threats(),
                 }
 
                 await self.sio.emit("threat_dashboard", threats)
@@ -936,8 +972,7 @@ class SystemMonitor(mp.Process):
                 await asyncio.sleep(30)
 
     async def _send_system_stats(self):
-        
-        
+
         while self.running:
             stats = await self.monitor_process.collect_system_stats()
 
@@ -948,19 +983,23 @@ class SystemMonitor(mp.Process):
                 for threat in threats:
                     if threat["severity"] == "critical":
                         await self.trigger_auto_response(threat)
-
-            await self.sio.emit("system_telemetry", stats)
+            flattened_telemetry = flatten_complex_data(stats)
+            telemetry = map_to_system_telemetry_format(stats, sample_interval=self.monitor_process.interval)
+            await self.sio.emit("system_telemetry", telemetry)
             await asyncio.sleep(5)
 
     async def trigger_auto_response(self, threat: Dict):
         """Automated response based on threat type"""
         response_actions = {
             "malicious_process": lambda: self.terminate_suspicious_process(
-                threat["pid"], threat["reason"]),
+                threat["pid"], threat["reason"]
+            ),
             "c2_connection": lambda: self.block_malicious_connection(
-                threat["ip"], threat["port"], "out", "C2 server connection"),
+                threat["ip"], threat["port"], "out", "C2 server connection"
+            ),
             "suspicious_file": lambda: self.quarantine_file(
-                threat["file_path"], threat["reason"])
+                threat["file_path"], threat["reason"]
+            ),
         }
 
         action = response_actions.get(threat["type"])
@@ -971,31 +1010,44 @@ class SystemMonitor(mp.Process):
     def _detect_threats(self, stats: Dict) -> List[Dict]:
         """Analyze system state for potential threats"""
         threats = []
-
+        
+        now = datetime.utcnow()
+        
         # Process analysis
         for proc in stats["processes"][:20]:  # Check top 20 processes
             if proc["is_suspicious"]:
-                threats.append({
-                    "type": "malicious_process",
-                    "severity": "high",
-                    "pid": proc["pid"],
-                    "name": proc["name"],
-                    "reason": "Matches known malicious process patterns",
-                    "timestamp": datetime.utcnow().isoformat()
-                })
+                threats.append(
+                    {
+                        "type": "malicious_process",
+                        "severity": "high",
+                        "pid": proc["pid"],
+                        "name": proc["name"],
+                        "reason": "Matches known malicious process patterns",
+                        "timestamp": datetime.utcnow().isoformat(),
+                    }
+                )
 
         # Network analysis
         for conn in stats["network"]["connections"]:
             if conn["suspicious"]:
-                threats.append({
-                    "type": "suspicious_connection",
-                    "severity": "medium",
-                    "ip": conn["remote"].split(":")[0] if conn["remote"] else None,
-                    "port": int(conn["remote"].split(":")[1]) if conn["remote"] else None,
-                    "pid": conn["pid"],
-                    "reason": f"Connection to known suspicious port {conn.get('port')}",
-                    "timestamp": datetime.utcnow().isoformat()
-                })
+                threats.append(
+                    {
+                        "type": "suspicious_connection",
+                        "severity": "medium",
+                        "ip": conn["remote"].split(":")[0] if conn["remote"] else None,
+                        "port": (
+                            int(conn["remote"].split(":")[1])
+                            if conn["remote"]
+                            else None
+                        ),
+                        "pid": conn["pid"],
+                        "reason": f"Connection to known suspicious port {conn.get('port')}",
+                        "timestamp": datetime.utcnow().isoformat(),
+                    }
+                )
+        for threat in threats:
+            record = {'timestamp': now, **threat}  
+            self.threat_log.append(record)
 
         return threats
 
@@ -1008,14 +1060,17 @@ class SystemMonitor(mp.Process):
             if platform.system() == "Windows":
                 # Windows implementation using psutil
                 for m in proc.memory_maps():
-                    modules.append({
-                        "path": m.path,
-                        "perms": m.perms,
-                        "signed": self._check_binary_signature(m.path),
-                        "suspicious": any(x in m.path.lower() for x in [
-                            "temp", "appdata", "tmp", ".dll"
-                        ])
-                    })
+                    modules.append(
+                        {
+                            "path": m.path,
+                            "perms": m.perms,
+                            "signed": self._check_binary_signature(m.path),
+                            "suspicious": any(
+                                x in m.path.lower()
+                                for x in ["temp", "appdata", "tmp", ".dll"]
+                            ),
+                        }
+                    )
             else:
                 # Linux implementation parsing /proc
                 maps_file = f"/proc/{pid}/maps"
@@ -1025,14 +1080,21 @@ class SystemMonitor(mp.Process):
                             if ".so" in line or "lib" in line:
                                 path = line.strip().split()[-1]
                                 if os.path.exists(path):
-                                    modules.append({
-                                        "path": path,
-                                        "perms": line.split()[1],
-                                        "signed": False,  # Linux binaries typically aren't signed
-                                        "suspicious": any(x in path for x in [
-                                            "/tmp/", "/dev/", "libfakeroot"
-                                        ])
-                                    })
+                                    modules.append(
+                                        {
+                                            "path": path,
+                                            "perms": line.split()[1],
+                                            "signed": False,  # Linux binaries typically aren't signed
+                                            "suspicious": any(
+                                                x in path
+                                                for x in [
+                                                    "/tmp/",
+                                                    "/dev/",
+                                                    "libfakeroot",
+                                                ]
+                                            ),
+                                        }
+                                    )
         except (psutil.NoSuchProcess, psutil.AccessDenied, FileNotFoundError):
             pass
 
@@ -1047,14 +1109,18 @@ class SystemMonitor(mp.Process):
             async with aiohttp.ClientSession() as session:
                 async with session.get(f"http://ip-api.com/json/{ip}") as resp:
                     data = await resp.json()
-                    return {
-                        "country": data.get("country"),
-                        "region": data.get("regionName"),
-                        "city": data.get("city"),
-                        "isp": data.get("isp"),
-                        "org": data.get("org"),
-                        "asn": data.get("as")
-                    } if data.get("status") == "success" else None
+                    return (
+                        {
+                            "country": data.get("country"),
+                            "region": data.get("regionName"),
+                            "city": data.get("city"),
+                            "isp": data.get("isp"),
+                            "org": data.get("org"),
+                            "asn": data.get("as"),
+                        }
+                        if data.get("status") == "success"
+                        else None
+                    )
         except Exception as e:
             logger.debug(f"GeoIP lookup failed: {e}")
             return None
@@ -1066,9 +1132,10 @@ class SystemMonitor(mp.Process):
 
         try:
             proc = await asyncio.create_subprocess_exec(
-                "whois", ip,
+                "whois",
+                ip,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
             stdout, _ = await proc.communicate()
 
@@ -1097,29 +1164,34 @@ class SystemMonitor(mp.Process):
                 abuse_resp = await session.get(
                     f"https://api.abuseipdb.com/api/v2/check",
                     params={"ipAddress": ip},
-                    headers={"Key": os.getenv('ABUSEIPDB_KEY')}
+                    headers={"Key": os.getenv("ABUSEIPDB_KEY")},
                 )
                 abuse_data = await abuse_resp.json()
 
                 # VirusTotal (requires API key)
                 vt_resp = await session.get(
                     f"https://www.virustotal.com/api/v3/ip_addresses/{ip}",
-                    headers={"x-apikey": os.getenv('VIRUSTOTAL_KEY')}
+                    headers={"x-apikey": os.getenv("VIRUSTOTAL_KEY")},
                 )
                 vt_data = await vt_resp.json()
                 async with session.get(
-                f"https://www.hybrid-analysis.com/api/v2/search/terms",
-                params={"host": ip},
-                headers={"api-key": os.getenv('HYBRID_KEY')}
-            ) as ha_resp:
+                    f"https://www.hybrid-analysis.com/api/v2/search/terms",
+                    params={"host": ip},
+                    headers={"api-key": os.getenv("HYBRID_KEY")},
+                ) as ha_resp:
                     ha_data = await ha_resp.json()
 
                 return {
-                    "abuse_score": abuse_data.get("data", {}).get("abuseConfidenceScore"),
-                    "vt_malicious": vt_data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {}).get("malicious"),
-                    "hybrid_analysis":ha_data.get("result", [])[:3],
+                    "abuse_score": abuse_data.get("data", {}).get(
+                        "abuseConfidenceScore"
+                    ),
+                    "vt_malicious": vt_data.get("data", {})
+                    .get("attributes", {})
+                    .get("last_analysis_stats", {})
+                    .get("malicious"),
+                    "hybrid_analysis": ha_data.get("result", [])[:3],
                     "is_tor": abuse_data.get("data", {}).get("isTor"),
-                    "is_cloud": abuse_data.get("data", {}).get("isCloudProvider")
+                    "is_cloud": abuse_data.get("data", {}).get("isCloudProvider"),
                 }
         except Exception as e:
             logger.debug(f"Threat feed check failed: {e}")
@@ -1136,10 +1208,11 @@ class SystemMonitor(mp.Process):
         # Check for known malicious patterns
         return {
             "beaconing": self._check_beaconing(ip, port),
-            "data_exfiltration": port in [21, 22, 53, 80, 443] and conn.get("bytes_sent", 0) > 10_000_000,
+            "data_exfiltration": port in [21, 22, 53, 80, 443]
+            and conn.get("bytes_sent", 0) > 10_000_000,
             "port_hopping": port > 30000 and port < 40000,
             "known_c2_ports": port in [443, 8080, 8443, 53],
-            "dns_tunneling": port == 53 and conn.get("bytes_sent", 0) > 1000
+            "dns_tunneling": port == 53 and conn.get("bytes_sent", 0) > 1000,
         }
 
     def get_logged_in_users(self) -> List[Dict]:
@@ -1157,11 +1230,11 @@ class SystemMonitor(mp.Process):
                 try:
                     user_info = {
                         "username": user.name,
-                        "terminal": user.terminal or 'N/A',
-                        "host": user.host or 'localhost',
+                        "terminal": user.terminal or "N/A",
+                        "host": user.host or "localhost",
                         "login_time": user.started,
                         "session_type": self._get_session_type(user),
-                        "login_duration": round(time.time() - user.started, 2)
+                        "login_duration": round(time.time() - user.started, 2),
                     }
 
                     if IS_WINDOWS:
@@ -1170,7 +1243,11 @@ class SystemMonitor(mp.Process):
                         user_info.update(self._get_unix_user_details(user.name))
 
                     # Deduplicate user entries based on key fields
-                    key = (user_info["username"], user_info["terminal"], user_info["host"])
+                    key = (
+                        user_info["username"],
+                        user_info["terminal"],
+                        user_info["host"],
+                    )
                     if key not in seen:
                         seen.add(key)
                         users.append(user_info)
@@ -1182,36 +1259,33 @@ class SystemMonitor(mp.Process):
             logger.error(f"Failed to retrieve logged-in users: {e}", exc_info=True)
         return users
 
-    def _get_session_type(self,user: psutil._common.suser) -> str:
+    def _get_session_type(self, user: psutil._common.suser) -> str:
         """
         Infer session type (console, gui, remote) based on user context.
         """
-        if user.host and user.host not in ('localhost', '0.0.0.0', '::1'):
-            return 'remote'
+        if user.host and user.host not in ("localhost", "0.0.0.0", "::1"):
+            return "remote"
         if IS_WINDOWS:
-            return 'console'
-        if user.terminal and user.terminal.startswith(':'):
-            return 'gui'
-        return 'console'
+            return "console"
+        if user.terminal and user.terminal.startswith(":"):
+            return "gui"
+        return "console"
 
-    def _get_windows_user_details(self,username: str) -> Dict:
+    def _get_windows_user_details(self, username: str) -> Dict:
         """
         Return additional user information for Windows systems.
         Requires `pywin32`, fallback to minimal info if unavailable.
         """
         try:
             sid, domain, _ = win32security.LookupAccountName(None, username)
-            return {
-                "domain": domain,
-                "sid": win32security.ConvertSidToStringSid(sid)
-            }
+            return {"domain": domain, "sid": win32security.ConvertSidToStringSid(sid)}
         except ImportError:
             logger.warning("pywin32 not installed; skipping Windows user details.")
         except Exception as e:
             logger.debug(f"Failed to retrieve Windows details for {username}: {e}")
         return {}
 
-    def _get_unix_user_details(self,username: str) -> Dict:
+    def _get_unix_user_details(self, username: str) -> Dict:
         """
         Return additional user information for Unix-like systems using the `pwd` module.
         """
@@ -1223,7 +1297,7 @@ class SystemMonitor(mp.Process):
                 "uid": pw.pw_uid,
                 "gid": pw.pw_gid,
                 "home_dir": pw.pw_dir,
-                "shell": pw.pw_shell
+                "shell": pw.pw_shell,
             }
         except KeyError:
             logger.debug(f"User '{username}' not found in /etc/passwd.")
@@ -1233,10 +1307,16 @@ class SystemMonitor(mp.Process):
 
     def _get_performance_metrics(self) -> Dict:
         """Calculate comprehensive performance metrics"""
-        
+
         cpu = psutil.cpu_percent(interval=1)
         mem = psutil.virtual_memory().percent
-        disk = max([p['usage_percent'] for p in self.monitor_process.get_disk_stats()['partitions']] or [0])
+        disk = max(
+            [
+                p["usage_percent"]
+                for p in self.monitor_process.get_disk_stats()["partitions"]
+            ]
+            or [0]
+        )
 
         # Calculate weighted performance score (0-100)
         score = 100 - ((cpu * 0.4) + (mem * 0.3) + (disk * 0.3))
@@ -1247,18 +1327,19 @@ class SystemMonitor(mp.Process):
             "memory_usage": mem,
             "disk_usage": disk,
             "status": (
-                "excellent" if score > 90 else
-                "good" if score > 70 else
-                "fair" if score > 50 else
-                "poor"
-            )
+                "excellent"
+                if score > 90
+                else "good" if score > 70 else "fair" if score > 50 else "poor"
+            ),
         }
 
     def _get_firewall_block_count(self) -> int:
         """Get count of currently blocked connections"""
         try:
             if platform.system() == "Windows":
-                output = os.popen("netsh advfirewall firewall show rule name=all").read()
+                output = os.popen(
+                    "netsh advfirewall firewall show rule name=all"
+                ).read()
                 return output.count("Block")
             else:
                 output = os.popen("iptables -L -n -v | grep DROP").read()
@@ -1268,17 +1349,17 @@ class SystemMonitor(mp.Process):
 
     def _get_quarantine_count(self) -> int:
         """Count quarantined files"""
-        quarantine_dir = "/var/quarantine" if platform.system() != "Windows" else "C:\\Quarantine"
+        quarantine_dir = (
+            "/var/quarantine" if platform.system() != "Windows" else "C:\\Quarantine"
+        )
         try:
-            return len([
-                f for f in os.listdir(quarantine_dir)
-                if f.endswith(".quarantined")
-            ])
+            return len(
+                [f for f in os.listdir(quarantine_dir) if f.endswith(".quarantined")]
+            )
         except:
             return 0
 
     def _get_current_anomalies(self) -> List[Dict]:
-      
         """Get currently detected anomalies"""
         stats = self.monitor_process.collect_system_stats()  # Reuse existing method
         return self._detect_threats(stats)  # Reuse threat detection
@@ -1293,7 +1374,7 @@ class SystemMonitor(mp.Process):
 
     def _check_beaconing(self, ip: str, port: int) -> bool:
         """Detect periodic beaconing behavior with advanced pattern analysis"""
-        if not hasattr(self, '_connection_history'):
+        if not hasattr(self, "_connection_history"):
             self._connection_history = {}  # Stores {ip: [timestamps]}
 
         now = time.time()
@@ -1301,26 +1382,26 @@ class SystemMonitor(mp.Process):
         # Initialize history for this IP if needed
         if ip not in self._connection_history:
             self._connection_history[ip] = {
-                'timestamps': deque(maxlen=50),  # Track last 50 connections
-                'intervals': deque(maxlen=10),   # Track last 10 intervals
-                'first_seen': now
+                "timestamps": deque(maxlen=50),  # Track last 50 connections
+                "intervals": deque(maxlen=10),  # Track last 10 intervals
+                "first_seen": now,
             }
 
         # Record current connection
         history = self._connection_history[ip]
-        history['timestamps'].append(now)
+        history["timestamps"].append(now)
 
         # Need at least 5 data points for analysis
-        if len(history['timestamps']) < 5:
+        if len(history["timestamps"]) < 5:
             return False
 
         # Calculate intervals between connections
         intervals = []
-        prev_time = history['timestamps'][0]
-        for t in list(history['timestamps'])[1:]:
+        prev_time = history["timestamps"][0]
+        for t in list(history["timestamps"])[1:]:
             intervals.append(t - prev_time)
             prev_time = t
-        history['intervals'].extend(intervals)
+        history["intervals"].extend(intervals)
 
         # Beaconing detection heuristics
         beaconing_score = 0
@@ -1329,7 +1410,7 @@ class SystemMonitor(mp.Process):
         if len(intervals) >= 3:
             mean_interval = sum(intervals) / len(intervals)
             variance = sum((x - mean_interval) ** 2 for x in intervals) / len(intervals)
-            std_dev = variance ** 0.5
+            std_dev = variance**0.5
 
             # More points for tighter intervals (likely beaconing)
             if std_dev < 5:  # Very consistent timing
@@ -1341,15 +1422,19 @@ class SystemMonitor(mp.Process):
         common_intervals = [5, 10, 15, 30, 60, 300, 600, 1800]
         for interval in intervals[-3:]:  # Check last 3 intervals
             for common in common_intervals:
-                if abs(interval - common) < (common * 0.2):  # Within 20% of common interval
+                if abs(interval - common) < (
+                    common * 0.2
+                ):  # Within 20% of common interval
                     beaconing_score += 2
                     break
 
         # 3. Check for small, consistent payload sizes (if available)
-        if hasattr(self, '_connection_sizes') and ip in self._connection_sizes:
+        if hasattr(self, "_connection_sizes") and ip in self._connection_sizes:
             sizes = self._connection_sizes[ip]
             if len(sizes) > 3:
-                size_variance = sum((x - sum(sizes)/len(sizes)) ** 2 for x in sizes) / len(sizes)
+                size_variance = sum(
+                    (x - sum(sizes) / len(sizes)) ** 2 for x in sizes
+                ) / len(sizes)
                 if size_variance < 100:  # Very consistent payload sizes
                     beaconing_score += 2
 
@@ -1358,7 +1443,7 @@ class SystemMonitor(mp.Process):
             beaconing_score += 1
 
         # 5. Check for low-entropy domains (if DNS resolution available)
-        if hasattr(self, '_dns_cache') and ip in self._dns_cache:
+        if hasattr(self, "_dns_cache") and ip in self._dns_cache:
             domain = self._dns_cache[ip]
             if domain and len(domain) > 10:
                 entropy = self._calculate_entropy(domain)
@@ -1370,12 +1455,14 @@ class SystemMonitor(mp.Process):
 
     def _calculate_entropy(self, string: str) -> float:
         """Calculate Shannon entropy of a string"""
-        prob = [float(string.count(c)) / len(string) for c in dict.fromkeys(list(string))]
+        prob = [
+            float(string.count(c)) / len(string) for c in dict.fromkeys(list(string))
+        ]
         return -sum(p * math.log(p) / math.log(2.0) for p in prob)
 
     def _update_connection_size(self, ip: str, size: int):
         """Track connection payload sizes for analysis"""
-        if not hasattr(self, '_connection_sizes'):
+        if not hasattr(self, "_connection_sizes"):
             self._connection_sizes = {}
         if ip not in self._connection_sizes:
             self._connection_sizes[ip] = deque(maxlen=20)
@@ -1383,6 +1470,6 @@ class SystemMonitor(mp.Process):
 
     def _update_dns_cache(self, ip: str, domain: str):
         """Maintain DNS resolution cache"""
-        if not hasattr(self, '_dns_cache'):
+        if not hasattr(self, "_dns_cache"):
             self._dns_cache = {}
         self._dns_cache[ip] = domain

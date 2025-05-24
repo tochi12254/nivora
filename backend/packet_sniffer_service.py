@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from multiprocessing import Queue
-from multiprocessing.queues import Empty
+from queue import Empty
 from typing import Optional
 from socketio import AsyncServer
 
@@ -62,9 +62,7 @@ class PacketSnifferService:
 
         # Safely get the set of clients in this namespace
         room_clients = self.sio.manager.rooms.get(ns, set())
-        logger.debug(
-            "Emitting %s to %d clients in %s", event_type, len(room_clients), ns
-        )
+        
 
         try:
             await self.sio.emit(event_type, data, namespace=ns)

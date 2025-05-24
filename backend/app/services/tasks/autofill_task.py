@@ -16,7 +16,6 @@ async def run_autofill_task(interval: int = 300):  # 5 minutes by default
                 try:
                     filler = DatabaseAutofiller(db)
                     await filler.autofill_all(count=5)  # Add 5 entries to each table
-                    logger.info("Successfully autofilled database")
                 except Exception as e:
                     logger.error(f"Error during autofill: {e}")
                     await db.rollback()

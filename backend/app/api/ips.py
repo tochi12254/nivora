@@ -13,7 +13,7 @@ from app.schemas.ips import (
     IPSEvent, IPSStats
 )
 from app.models.ips import IPSRule as DBRule, IPSEvent as DBEvent
-from ..services.ips.engine import IPSEngine
+# from ..services.ips.engine import IPSEngine
 
 router = APIRouter()
 logger = logging.getLogger("ips_api")

@@ -5,6 +5,7 @@ from datetime import datetime
 from collections.abc import Mapping, Iterable
 from multiprocessing.managers import DictProxy, ListProxy
 from multiprocessing import Event
+import signal
 from scapy.all import wrpcap, Packet, Queue
 
 import os
@@ -53,6 +54,8 @@ def _reporter_loop(sio_queue, stats_proxy, stop_event, interval: float = 5.0):
     Runs in its own Process. Periodically snapshots `stats_proxy`
     (a Manager().dict proxy), serializes it, and pushes to sio_queue.
     """
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
     while not stop_event.is_set():
         try:
             # make a shallow copy of the current stats
@@ -63,9 +66,10 @@ def _reporter_loop(sio_queue, stats_proxy, stop_event, interval: float = 5.0):
 
             # enqueue for the socket-emitter service
             sio_queue.put(("system_stats", serialized_snapshot))
+        # except KeyboardInterrupt:
+        #     # swallow it and let the loop continue or break
+        #     break
         except Exception as e:
             # no logger in child; fall back to print
             print("Reporter loop error:", e)
-
-        # wait up to `interval` seconds, but wake early if stop_event is set
         stop_event.wait(interval)

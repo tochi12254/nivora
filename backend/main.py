@@ -2,14 +2,16 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 import asyncio
 import logging
+from scapy.all import get_if_list
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import socketio
 from multiprocessing import Queue, Manager 
-from multiprocessing.queues import Full, Empty
+import multiprocessing
+from queue import Full, Empty
 import asyncio
-
+import psutil
 # Configuration
 from app.core.config import settings
 from app.middleware.blocker_middleware import BlocklistMiddleware
@@ -18,6 +20,7 @@ from app.core.logger import setup_logger
 from socket_events import get_socket_app
 from app.services.system.monitor import SystemMonitor
 from app.services.detection.phishing_blocker import PhishingBlocker
+# from app.services.system.malware_detection import activate_cyber_defense
 
 
 # Database
@@ -34,25 +37,32 @@ from app.api import (
     system as system_router,
     admin as admin_router,
     ids as ids_router,
-    ips as ips_router,
+    
 )
-from app.api.ips import get_ips_engine
+
+from api.firewall_api import router as firewall_router
+from api.threat_intel_api import router as intel_router
+from api.nac_api import router as nac_router
+from api.dns_api import router as dns_router
+from app.utils.report import get_24h_network_traffic, get_daily_threat_summary,  handle_network_history
+# from app.api.ips import get_ips_engine
 
 # Services
 from app.services.monitoring.sniffer import PacketSniffer
 from app.services.detection.signature import SignatureEngine
 from app.services.detection.ids_signature import IdsSignatureEngine
-from app.services.ips.engine import IPSEngine
-from app.services.ips.adapter import IPSPacketAdapter
+from app.services.ips.engine import EnterpriseIPS, ThreatIntel
+
+# from app.services.ips.adapter import IPSPacketAdapter
 from app.services.prevention.firewall import FirewallManager
-from app.services.tasks.autofill_task import run_autofill_task
+# from app.services.tasks.autofill_task import run_autofill_task
 
 # Socket.IO
 from sio_instance import sio
 from packet_sniffer_service import PacketSnifferService
 from packet_sniffer_events import PacketSnifferNamespace
 
-from socket_events import start_event_emitter, emit_ips_updates
+# from socket_events import start_event_emitter
 
 # Logging setup
 logging.basicConfig(
@@ -99,54 +109,80 @@ async def create_app() -> FastAPI:
         signature_engine = SignatureEngine(sio)
         ids_signature_engine = IdsSignatureEngine(sio)
         blocker = ApplicationBlocker(sio)
-        ips_engine = IPSEngine(sio, blocker)
+
+        # Initialize packet components INDEPENDENTLY
+        manager = Manager()
+        sio_queue = manager.Queue(maxsize=10000)
+        # ips_queue = manager.Queue(maxsize=10000)
+        sniffer_namespace = PacketSnifferNamespace("/packet_sniffer", sio_queue)
+        sio.register_namespace(sniffer_namespace)
+
+        intel = ThreatIntel() 
+        await intel.load_from_cache()        
+        asyncio.create_task(intel.fetch_and_cache_feeds())
+        ips = EnterpriseIPS(
+            "rules.json", sio,intel, multiprocessing.cpu_count(), sio_queue
+        )
+
+        sniffer = PacketSniffer(sio_queue)
+
+        sniffer_service = PacketSnifferService(sio, sio_queue)
+
         # loop = asyncio.get_event_loop()  # Get current loop
         monitor = SystemMonitor(sio)
+        # cyber_defender = activate_cyber_defense(monitor)
 
         # phishing_blocker = PhishingBlocker(sio)
 
-        await ips_engine.initialize()
-
         # Initialize IPS Adapter
-        ips_adapter = IPSPacketAdapter(ips_engine)
-        await ips_adapter.start()
+        # ips_adapter = IPSPacketAdapter(ips)
+        # await ips_adapter.start()
 
         # Start database autofill task
-        autofill_task = asyncio.create_task(run_autofill_task(interval=300))
+        # autofill_task = asyncio.create_task(run_autofill_task(interval=300))
 
         # Store services in app state
 
         app.state.firewall = firewall
         app.state.signature_engine = signature_engine
         app.state.ids_signature_engine = ids_signature_engine
-        app.state.ips_engine = ips_engine
-        app.state.ips_adapter = ips_adapter
+        # app.state.ips_engine = ips
+        # app.state.ips_adapter = ips_adapter
         app.state.db = AsyncSessionLocal
-        app.state.autofill_task = autofill_task
+        # app.state.autofill_task = autofill_task
         app.state.blocker = blocker
 
-        emitter_task = asyncio.create_task(start_event_emitter())  # Pass the factory
-        app.state.emitter_task = emitter_task
-
-        # Initialize packet components INDEPENDENTLY
-        manager = Manager()
-        sio_queue = manager.Queue(maxsize=10000)
-        sniffer_namespace = PacketSnifferNamespace('/packet_sniffer', sio_queue)
-        sio.register_namespace(sniffer_namespace)
-
-        sniffer = PacketSniffer(sio_queue)
-
-        sniffer_service = PacketSnifferService(sio, sio_queue)
+        # emitter_task = asyncio.create_task(start_event_emitter())  # Pass the factory
+        # app.state.emitter_task = emitter_task
 
         try:
+            # loop = asyncio.get_running_loop()
+            # await loop.run_in_executor(None, sniffer.start, "Wi-Fi")
             await sniffer_service.start()
-            sniffer.start("Wi-Fi")
-            monitor.start()
+            await sniffer.start("Wi-Fi")
+            await monitor.start()
+            await ips.start()
             logger.info("System monitoring started")
             # Start packet sniffer with IPS integration
 
             # Start IPS updates task
-            asyncio.create_task(ips_updates_task(ips_engine))
+            # asyncio.create_task(ips_updates_task(ips))
+
+            # Emit periodic summary
+            @sio.on("request_daily_summary")
+            async def _on_request_summary(sid):
+                try:
+                    if not monitor.data_queue.empty():
+                        stats = monitor.data_queue.get_nowait()
+                        net24 = get_24h_network_traffic(stats)
+                        threats = get_daily_threat_summary(monitor)
+                        await sio.emit(
+                            "daily_summary",
+                            {"network24h": net24, "threatSummary": threats},
+                            to=sid,
+                        )
+                except Empty:
+                    pass
 
             yield
 
@@ -161,33 +197,20 @@ async def create_app() -> FastAPI:
             # if sniffer_service:
             #     await sniffer_service.stop()
 
-            await ips_adapter.stop()
-            autofill_task.cancel()
+            # await ips_adapter.stop()
+            # autofill_task.cancel()
             await engine.dispose()
+            await ips.stop()
+            # health_status = {
+            #             "ips_queue_size": ips.input_queue.qsize(),
+            #             "sniffer_packets": sniffer.packet_counter.value,
+            #             "memory_usage": psutil.virtual_memory().percent,
+            #             "timestamp": datetime.utcnow().isoformat()
+            #         }
+            # await sio.emit("system_health", health_status)
 
-            emitter_task.cancel()
+            # emitter_task.cancel()
             # scanner.stop_silent_monitor()
-
-            try:
-                await emitter_task
-            except asyncio.CancelledError:
-                logger.info("Background tasks stopped")
-
-            try:
-                await autofill_task
-            except asyncio.CancelledError:
-                pass
-
-    async def ips_updates_task(ips_engine: IPSEngine):
-        """Background task for IPS updates"""
-        while True:
-            try:
-                async with AsyncSessionLocal() as db:
-                    await emit_ips_updates()
-                    await asyncio.sleep(60)
-            except Exception as e:
-                logger.error(f"Error in IPS updates: {e}")
-                await asyncio.sleep(5)
 
     # Set the lifespan after app creation
     app.router.lifespan_context = lifespan
@@ -209,14 +232,14 @@ async def create_app() -> FastAPI:
 
     # Add other middlewares
     # app.add_middleware(HTTPSRedirectMiddleware)
-    app.add_middleware(
-        BlocklistMiddleware,
-        blocker=(
-            app.state.blocker
-            if hasattr(app.state, "blocker")
-            else ApplicationBlocker(sio)
-        ),
-    )
+    # app.add_middleware(
+    #     BlocklistMiddleware,
+    #     blocker=(
+    #         app.state.blocker
+    #         if hasattr(app.state, "blocker")
+    #         else ApplicationBlocker(sio)
+    #     ),
+    # )
 
     # Register routers
     app.include_router(user_router.router, prefix="/api/users", tags=["Users"])
@@ -226,7 +249,10 @@ async def create_app() -> FastAPI:
     app.include_router(system_router.router, prefix="/api/system", tags=["System"])
     app.include_router(admin_router.router, prefix="/api/admin", tags=["Admin"])
     app.include_router(ids_router.router, prefix="/api/ids", tags=["IDS"])
-    app.include_router(ips_router.router, prefix="/api/ips", tags=["IPS"])
+    app.include_router(firewall_router, prefix="/firewall")
+    app.include_router(intel_router, prefix="/intel")
+    app.include_router(nac_router, prefix="/nac")
+    app.include_router(dns_router, prefix="/dns")
 
     # Health check endpoint
     @app.get("/api/health", include_in_schema=False)
@@ -243,7 +269,15 @@ async def create_app() -> FastAPI:
 # Socket.IO events
 @sio.event
 async def connect(sid, environ):
+    interfaces = get_if_list()
+    await sio.emit("interfaces", interfaces, to=sid)
     logger.info(f"Client connected: {sid[:8]}...")
+
+
+@sio.on("get_interfaces")
+async def get_interfaces(sid):
+    interfaces = get_if_list()
+    await sio.emit("interfaces", interfaces, to=sid)
 
 
 @sio.event
@@ -265,6 +299,8 @@ if __name__ == "__main__":
         await hypercorn.asyncio.serve(app, config)
 
     try:
+        
         asyncio.run(run())
+        
     except KeyboardInterrupt:
         pass
