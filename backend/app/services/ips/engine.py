@@ -5,7 +5,7 @@ import logging
 import multiprocessing
 from multiprocessing import Queue
 import signal
-from queue import Empty as QueueEmpty
+from queue import Full, Empty as QueueEmpty
 import os
 import time
 import socket
@@ -632,9 +632,9 @@ class PacketProcessor:
         for rule in protocol_rules:
             if self.match_history.should_skip(context.src_ip, rule["id"]):
                 continue
-            if not self._ip_match(rule.get("source_ip"), context.src_ip):
+            if not self._ip_match(rule.get("source_ip"), context.src_ip, context):
                 continue
-            if not self._ip_match(rule.get("destination_ip"), context.dst_ip):
+            if not self._ip_match(rule.get("destination_ip"), context.dst_ip,context):
                 continue
             if not self._port_match(rule.get("source_port"), context.src_port):
                 continue
@@ -1697,7 +1697,7 @@ class IPSWorker(multiprocessing.Process):
         self.input_queue = input_queue
         self.output_queue = output_queue
         self.rule_file = rule_file
-        self.threat_intel = ThreatIntel()
+        self.threat_intel = threat_intel
         self.worker_id = worker_id
         self.shutdown_flag = multiprocessing.Event()
         self.processed_count = 0
@@ -1726,6 +1726,9 @@ class IPSWorker(multiprocessing.Process):
                 # Send results to output queue
                 if matches:
                     self.output_queue.put((packet, matches))
+                    logger.info(
+                        f"[Worker-{self.worker_id}] ➤ Sending {len(matches)} matches to output_queue"
+                    )
 
                 # Periodically reload rules
                 if self.processed_count % 1000 == 0:
@@ -1852,6 +1855,7 @@ class EnterpriseIPS:
         threat_intel: ThreatIntel = None,
         num_workers: int = multiprocessing.cpu_count(),
         input_queue: Queue = None,
+        output_queue: Queue = None,
     ):
         self.rule_file = rule_file
         self.sio = sio
@@ -1859,7 +1863,7 @@ class EnterpriseIPS:
         self.input_queue = input_queue
         self.threat_intel = threat_intel
         self.input_queue.maxsize = MAX_PACKET_QUEUE_SIZE
-        self.output_queue = multiprocessing.Queue()
+        self.output_queue = output_queue
         self.workers = []
         self.stats_collector = StatsCollector()
         self.memory_monitor = MemoryMonitor()
@@ -1925,7 +1929,7 @@ class EnterpriseIPS:
 
         try:
             self.input_queue.put_nowait(packet)
-        except multiprocessing.QueueFull:
+        except Full:
             logger.warning("Input queue full, dropping packet")
             # In a real implementation, you might want to handle this differently
 
@@ -1943,6 +1947,8 @@ class EnterpriseIPS:
                 result = self.output_queue.get_nowait()
                 if result is None:
                     continue
+
+                logger.info("[EnterpriseIPS] ✅ Received result from output_queue")
 
                 packet, matches = result
                 self.stats_collector.update_stats(packet, matches)
@@ -1994,33 +2000,8 @@ class EnterpriseIPS:
                     output_queue=self.output_queue,
                     rule_file=self.rule_file,
                     worker_id=worker.worker_id,
+                    threat_intel=self.threat_intel,
                 )
                 new_worker.start()
                 self.workers.append(new_worker)
             await asyncio.sleep(HEARTBEAT_INTERVAL)
-
-
-# Example usage
-async def main():
-    # Initialize Socket.IO server
-    sio = socketio.AsyncServer(async_mode="asgi")
-
-    # Create IPS instance
-    ips = EnterpriseIPS(
-        rule_file="ips_rules.json", sio=sio, num_workers=4  # Your rules JSON file
-    )
-
-    # Start IPS
-    await ips.start()
-
-    try:
-        # Simulate packet processing
-        while True:
-            # In a real implementation, you would get packets from your network interface
-            await asyncio.sleep(1)
-    except KeyboardInterrupt:
-        await ips.stop()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())

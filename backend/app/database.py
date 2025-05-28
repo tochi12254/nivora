@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 from .core.config import settings
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager,contextmanager
 
 from .models.user import User
 from .models.log import Log
@@ -42,6 +42,26 @@ engine = create_async_engine(
 AsyncSessionLocal = async_sessionmaker(
     bind=engine, class_=AsyncSession, expire_on_commit=False
 )
+
+# at top, alongside your async engine...
+SyncSessionLocal = sessionmaker(
+    bind=engine.sync_engine, autocommit=False, autoflush=False, expire_on_commit=False
+)
+
+
+
+
+@contextmanager
+def get_sync_db():
+    db = SyncSessionLocal()
+    try:
+        yield db
+        db.commit()
+    except:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 async def init_db():

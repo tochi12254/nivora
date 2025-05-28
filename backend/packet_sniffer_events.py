@@ -1,7 +1,7 @@
 # packet_sniffer_events.py
 import logging
 from socketio import AsyncNamespace
-from multiprocessing import Queue
+from multiprocessing import Manager, Queue
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)

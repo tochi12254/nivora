@@ -47,6 +47,7 @@ import ipaddress
 from sqlalchemy.inspection import inspect
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
+from .feature_processor import AdvancedFeatureExtractor, ThreatDetector, EnhancedPacketProcessor
 from ...models.network import NetworkEvent
 from ...models.threat import ThreatLog
 from ...database import get_db
@@ -54,13 +55,14 @@ from ...models.packet import Packets
 from ...core.security import get_current_user
 from ..detection.rate_limiter import RateLimiter
 from ..prevention.firewall import FirewallManager
+# from ...database import get_sync_db
 from ..detection.signature import SignatureEngine
 from ..detection.detect_port_scan import PortScanDetector
 from ..detection.phishing_blocker import PhishingBlocker
 from .reporter_helper import _reporter_loop, default_asn, default_geo
 from ml.feature_extraction import analyze_and_flatten,map_to_cicids2017_features
 from ...utils.format_http_data import transform_http_activity
-from ...utils.save_to_json import save_http_data_to_json
+from ...utils.save_to_json import save_http_data_to_json, save_packet_data_to_json, save_features_to_json, save_feature_vectors_to_json
 # from ..ips.engine import IPSEngine
 
 # Configure logging
@@ -85,12 +87,23 @@ class PacketSniffer:
         self.end_time = time.time()
         self._state_checked = False
 
+        ##Machine learning part
+
+        self.feature_extractor = AdvancedFeatureExtractor(
+            cleanup_interval=300, flow_timeout=120
+        )
+        self.packet_processor = EnhancedPacketProcessor()
+        self.threat_detector = ThreatDetector(self.feature_extractor)
+        # If you’ll do ML inference:
+        # self.enhanced_processor = EnhancedPacketProcessor()
+        # self.enhanced_processor.load_model("path/to/your/model.pkl")
+
         # Initialize queues and locks
         self.event_queue = Queue(maxsize=10000)
         self.data_lock = mp.Lock()
         self.processing_lock = self.manager.Lock()
         self.worker_process = Process(target=self._process_queue, args=(), daemon=True)
-    
+
         self.sniffer_process: Optional[Process] = None
         self._queue_monitor_active = False
         self._queue_stats = {"processed": 0, "dropped": 0, "errors": 0}
@@ -110,26 +123,38 @@ class PacketSniffer:
         self.firewall = FirewallManager(sio_queue)
 
         # Initialize statistics
-        self.stats = self.manager.dict({
-        "start_time": datetime.utcnow(),  # datetime is immutable, so it's okay as-is
-        "total_packets": 0,  # primitives like int are fine
-        "protocols": self.manager.dict(),  # use manager.dict in place of defaultdict
-        "flows":self.manager.dict(),
-        "top_talkers": self.manager.dict(),
-        "alerts": self.manager.list(),  # no maxlen, you'll need to manage length manually
-        "throughput": self.manager.dict({
-            "1min":self. manager.list(),  # again, no maxlen—handle it in logic
-            "5min": self.manager.list()
-        }),
-        "geo_data": self.manager.dict(),
-        "threat_types": self.manager.dict(),
-    })
+        self.stats = self.manager.dict(
+            {
+                "start_time": datetime.utcnow(),  # datetime is immutable, so it's okay as-is
+                "total_packets": 0,  # primitives like int are fine
+                "protocols": defaultdict(
+                    int
+                ),  # use manager.dict in place of defaultdict
+                "flows": self.manager.dict(),
+                "top_talkers": self.manager.dict(),
+                "alerts": self.manager.list(),  # no maxlen, you'll need to manage length manually
+                "throughput": self.manager.dict(
+                    {
+                        "1min": deque(maxlen=60),  # again, no maxlen—handle it in logic
+                        "5min": deque(maxlen=360),
+                    }
+                ),
+                "geo_data": self.manager.dict(),
+                "threat_types": self.manager.dict(),
+            }
+        )
         self._last_seen_times = defaultdict(float)
         self._dns_counter = self.manager.dict()
         self._endpoint_tracker = defaultdict(lambda: defaultdict(set))
         self._protocol_counter = self.manager.dict()
 
-        self.recent_packets = defaultdict(lambda: deque(maxlen=100))
+        self.recent_packets = defaultdict(lambda: {
+            'packets': deque(maxlen=100),
+            'syn_times': deque(maxlen=1000),
+            'rst_count': 0,
+            'auth_failures': 0,
+            'network_flows': deque(maxlen=1000) 
+        })
         self.current_packet_source = None
         self.port_scan_detector = PortScanDetector()
 
@@ -448,9 +473,8 @@ class PacketSniffer:
         return tuple(sorted([src_ip, dst_ip]) + [proto, sport, dport])
 
     def _get_protocol_name(self, packet: Packet) -> str:
-        """Enhanced protocol detection with comprehensive port support"""
+        """Safe and accurate protocol detection based on layers and ports"""
         try:
-            # Define common protocol-port mappings
             TCP_PROTOCOLS = {
                 80: "HTTP",
                 8080: "HTTP",
@@ -459,8 +483,6 @@ class PacketSniffer:
                 8888: "HTTP",
                 443: "HTTPS",
                 8443: "HTTPS",
-                832: "HTTPS",
-                8081: "HTTPS",
                 22: "SSH",
                 21: "FTP",
                 25: "SMTP",
@@ -468,61 +490,38 @@ class PacketSniffer:
                 465: "SMTPS",
                 23: "Telnet",
                 53: "DNS-TCP",
-                3306: "MySQL",
-                5432: "PostgreSQL",
-                27017: "MongoDB",
-                3389: "RDP",
-                5900: "VNC"
             }
 
             UDP_PROTOCOLS = {
                 53: "DNS",
                 67: "DHCP",
                 68: "DHCP",
-                69: "TFTP",
                 123: "NTP",
                 161: "SNMP",
                 162: "SNMPTRAP",
                 500: "ISAKMP",
-                514: "SYSLOG",
-                520: "RIP",
-                1900: "SSDP",
-                3478: "STUN",
-                5349: "TURN",
-                5060: "SIP",
-                1194: "OpenVPN"
             }
+
+            if packet.haslayer(HTTPRequest) or packet.haslayer(HTTPResponse):
+                return "HTTP"
+
+            if packet.haslayer(DNS):
+                return "DNS"
+
+            if packet.haslayer(ICMP):
+                return "ICMP"
+
+            if packet.haslayer(ARP):
+                return "ARP"
 
             if packet.haslayer(TCP):
                 tcp = packet[TCP]
-                # Check both source and destination ports
-                return TCP_PROTOCOLS.get(tcp.dport) or \
-                    TCP_PROTOCOLS.get(tcp.sport) or \
-                    "TCP"
+                # Avoid guessing HTTP just from ports
+                return "TCP"
 
-            elif packet.haslayer(UDP):
-                udp = packet[UDP]
-                return UDP_PROTOCOLS.get(udp.dport) or \
-                    UDP_PROTOCOLS.get(udp.sport) or \
-                    "UDP"
+            if packet.haslayer(UDP):
+                return "UDP"
 
-            elif packet.haslayer(ICMP):
-                return "ICMP"
-
-            elif packet.haslayer(ARP):
-                return "ARP"
-
-            elif packet.haslayer(Dot11):
-                return "802.11"
-
-            elif packet.haslayer(PPPoE):
-                return "PPPoE"
-
-            elif packet.haslayer(DNS):
-                return "DNS"  # Fallback for DNS detection
-
-            elif packet.haslayer(HTTP):
-                return "HTTP"  # Fallback for HTTP detection
             return "Other"
 
         except Exception as e:
@@ -554,278 +553,263 @@ class PacketSniffer:
                 "window_ratio": tcp.window / (len(packet) if len(packet) > 0 else 1),
             },
         }
-
     def _packet_handler(self, packet: Packet):
         """Main packet processing method with enhanced analysis"""
-
         self.start_time = time.perf_counter()
-        # self.recorder.handle_packet(packet)
+        features = {}
 
         with self.packet_counter.get_lock():
             self.packet_counter.value += 1
 
         try:
             with self.processing_lock:
+                # Extract IP-level metadata first
                 src_ip = dst_ip = None
                 ip_version = None
+                is_arp = False
 
-                # Extract IP information first with validation
                 try:
-                    if packet.haslayer(IP):
+                    if packet.haslayer(ARP):
+                        self._analyze_arp(packet)
+                        arp = packet[ARP]
+                        src_ip = arp.psrc
+                        dst_ip = arp.pdst
+                        is_arp = True
+                        logger.info(f"ARP Packet: {arp.op} {src_ip} -> {dst_ip}")
+                    elif packet.haslayer(IP):
                         ip_version = 4
                         src_ip = str(packet[IP].src)
                         dst_ip = str(packet[IP].dst)
+                        logger.debug(f"IPv4 Packet: {src_ip} -> {dst_ip}")
                     elif packet.haslayer(IPv6):
                         ip_version = 6
                         src_ip = str(packet[IPv6].src)
                         dst_ip = str(packet[IPv6].dst)
+                        logger.debug(f"IPv6 Packet: {src_ip} -> {dst_ip}")
                 except Exception as e:
-                    logger.debug("IP layer extraction error: %s", str(e))
+                    logger.debug("Layer 2/3 extraction error: %s", str(e))
                     return
 
-                # Create packet_info with validated IPs
-                packet_info = {
-                    "timestamp": datetime.utcnow(),
-                    "src_ip": src_ip,
-                    "dst_ip": dst_ip,
-                    "ip_version": ip_version,
-                    "src_port": None,
-                    "dst_port": None,
-                    "protocol": "Unknown",  # Default value
-                    "size": len(packet),
-                    "flags": None,
-                    "payload": None,
-                    "dns_query": None,
-                    "http_method": None,
-                    "http_path": None,
-                }
-
-                # Safely get protocol name with error handling
-                try:
-                    packet_info["protocol"] = self._get_protocol_name(packet)
-                except Exception as e:
-                    logger.debug("Protocol detection error: %s", str(e))
-                    packet_info["protocol"] = "Unknown"
-
-                # Validate essential fields before proceeding
+                # Create base packet info
+                packet_info = self._create_packet_info(packet, src_ip, dst_ip, ip_version, is_arp)
                 if not self._validate_packet(packet_info):
                     return
 
+                # Transport Layer Analysis
                 try:
-                    if packet.haslayer(IP):
-                        self.current_packet_source = packet[IP].src
-                        src_ip = packet[IP].src
-                        dst_ip = packet[IP].dst
-                    elif packet.haslayer(IPv6):
-                        self.current_packet_source = packet[IPv6].src
-                        src_ip = packet[IPv6].src
-                        dst_ip = packet[IPv6].dst
-                except Exception as e:
-                    logger.debug("IP source/dest extraction error: %s", str(e))
-                    return
-
-                # Service mapping with layer safety
-                if packet.haslayer(TCP):
-                    try:
-                        self.service_map[packet[TCP].dport] += 1
+                    if packet.haslayer(TCP):
+                        tcp = packet[TCP]
+                        
                         packet_info.update({
-                            "src_port": packet[TCP].sport,
-                            "dst_port": packet[TCP].dport,
-                            "flags": str(packet[TCP].flags) if hasattr(packet[TCP], 'flags') else None
+                            "src_port": tcp.sport,
+                            "dst_port": tcp.dport,
+                            "flags": str(tcp.flags)
                         })
-                    except Exception as e:
-                        logger.debug("TCP layer processing error: %s", str(e))
-
-                # Byte distribution analysis with safety
-                if packet.haslayer(Raw):
-                    try:
-                        raw_layer = packet[Raw]
-                        packet_info["payload"] = raw_layer.load.hex() if hasattr(raw_layer, 'load') else None
-                        if raw_layer.load:
-                            arr = np.frombuffer(raw_layer.load, dtype=np.uint8)
-                            counts = np.bincount(arr, minlength=256)
-                            with self.data_lock:
-                                for i, c in enumerate(counts):
-                                    self.byte_distribution[i] += int(c)
-                    except Exception as e:
-                        logger.debug("Raw payload processing error: %s", str(e))
-
-                # Core processing with multiprocessing-safe updates
-                try:
-                    with self.data_lock:
-                        self.stats["total_packets"] += 1
-                        self.stats["protocols"][packet_info["protocol"]] += 1
-                        self.stats["throughput"]["1min"].append(1)
-                        self.stats["throughput"]["5min"].append(1)
+                        self.service_map[tcp.dport] += 1
+                        logger.debug("TCP Packet: %s -> %s flags=%s",
+                                    f"{src_ip}:{tcp.sport}", f"{dst_ip}:{tcp.dport}", tcp.flags)
+                        self._analyze_tcp(packet)
+                    elif packet.haslayer(UDP):
+                        udp = packet[UDP]
+                        packet_info.update({
+                            "src_port": udp.sport,
+                            "dst_port": udp.dport
+                        })
+                        self.service_map[udp.dport] += 1
+                        logger.debug("UDP Packet: %s -> %s length=%d",
+                                    f"{src_ip}:{udp.sport}", f"{dst_ip}:{udp.dport}", udp.len)
+                        self._analyze_udp(packet)
                 except Exception as e:
-                    logger.debug("Stats update error: %s", str(e))
+                    logger.debug("Transport layer processing error: %s", str(e))
+                    if packet.haslayer(HTTPRequest) or packet.haslayer(HTTPResponse):
+                        packet_info["protocol"] = "HTTP"
+                    else:
+                        packet_info["protocol"] = self._get_protocol_name(packet)
+                # Assign protocol name AFTER ports are known
+                try:
+                    packet_info["protocol"] = self._get_protocol_name(packet)
+                except Exception as e:
+                    logger.debug("Protocol name resolution failed: %s", str(e))
+                    packet_info["protocol"] = "Unknown"
 
-                # Layer 3+ analysis with error protection
+                # Log the packet now with accurate data
+                logger.info(
+                    "Packet Received: proto=%(protocol)s src=%(src_ip)s:%(src_port)s "
+                    "dst=%(dst_ip)s:%(dst_port)s size=%(size)d flags=%(flags)s",
+                    {
+                        "protocol": packet_info["protocol"],
+                        "src_ip": src_ip,
+                        "src_port": packet_info.get("src_port", "N/A"),
+                        "dst_ip": dst_ip,
+                        "dst_port": packet_info.get("dst_port", "N/A"),
+                        "size": packet_info["size"],
+                        "flags": packet_info.get("flags", "N/A")
+                    }
+                )
+
+                # Layer 3+ Analysis
                 try:
                     if packet.haslayer(IP):
-                        with self.data_lock:
-                            try:
-                                self.recent_packets[src_ip].append({
-                                    "timestamp": time.time(),
-                                    "protocol": packet_info["protocol"],
-                                    "dst_ip": dst_ip,
-                                    "dst_port": (packet[TCP].dport if packet.haslayer(TCP)
-                                                else packet[UDP].dport if packet.haslayer(UDP) 
-                                                else None),
-                                    "length": len(packet),
-                                })
-                                self._protocol_counter[src_ip][packet_info["protocol"]] += 1
-                            except Exception as e:
-                                logger.debug("Recent packets update error: %s", str(e))
-
                         self._analyze_ip_packet(packet[IP])
+                        self.current_packet_source = packet[IP].src
                     elif packet.haslayer(IPv6):
                         self._analyze_ipv6_packet(packet[IPv6])
+                        self.current_packet_source = packet[IPv6].src
                 except Exception as e:
                     logger.debug("Layer 3+ analysis error: %s", str(e))
 
-                # Application layer analysis with safety
+                # Application Layer Analysis
                 try:
-                    http_layer = None
-                    if packet.haslayer(HTTPRequest):
-                        http_layer = packet[HTTPRequest]
-                    elif packet.haslayer(HTTPResponse):
-                        http_layer = packet[HTTPResponse]
+                    if packet.haslayer(HTTPRequest) or packet.haslayer(HTTPResponse):
+                        self._analyze_http(packet)
+                        logger.info(
+                            "HTTP %s %s%s",
+                            (
+                                packet[HTTPRequest].Method.decode(errors="replace")
+                                if packet.haslayer(HTTPRequest) else "Response"
+                            ),
+                            (
+                                packet[HTTPRequest].Host.decode(errors="replace")
+                                if packet.haslayer(HTTPRequest) else ""
+                            ),
+                            (
+                                packet[HTTPRequest].Path.decode(errors="replace")
+                                if packet.haslayer(HTTPRequest) else ""
+                            ),
+                        )
 
-                    if http_layer:
-                        try:
-                            packet_info.update({
-                                "http_method": self._safe_extract(http_layer, 'Method'),
-                                "http_path": self._safe_extract(http_layer, 'Path')
-                            })
-                            self._analyze_http(packet)
-                        except Exception as e:
-                            logger.debug("HTTP analysis error: %s", str(e))
-                    # elif packet.haslayer(DNS):  # Check for full DNS layer instead of DNSQR
-                    #     try:
-                    #         dns = packet[DNS]
-                    #         src_ip = packet[IP].src if packet.haslayer(IP) else "unknown"
+                    elif packet.haslayer(DNS):
+                        self._analyze_dns(packet)
+                        logger.debug("DNS Query: %s", packet[DNS].summary())
 
-                    #         # Process both queries and responses
-                    #         query_data = []
-                    #         response_data = []
-
-                    #         # Extract queries
-                    #         if dns.qd:
-                    #             for q in dns.qd:
-                    #                 raw_qname = self._safe_extract(q, "qname")
-                    #                 sanitized_qname = self._sanitize_dns_query(raw_qname, max_length=255)
-                    #                 query_data.append({
-                    #                     "name": sanitized_qname,
-                    #                     "type": q.qtype
-                    #                 })
-
-                    #         # Extract answers
-                    #         if dns.an:
-                    #             for ans in dns.an:
-                    #                 response_data.append({
-                    #                     "name": self._safe_extract(ans, "rrname"),
-                    #                     "type": ans.type,
-                    #                     "data": self._safe_extract(ans, "rdata"),
-                    #                     "ttl": ans.ttl
-                    #                 })
-
-                    #         # Create analysis context
-                    #         dns_context = {
-                    #             "timestamp": datetime.utcnow().isoformat(),
-                    #             "source_ip": src_ip,
-                    #             "queries": query_data,
-                    #             "responses": response_data,
-                    #             "opcode": dns.opcode,
-                    #             "rcode": dns.rcode
-                    #         }
-
-                    #         logger.info("DNS %s: %s queries, %s answers from %s",
-                    #                 "Query" if dns.qr == 0 else "Response",
-                    #                 len(query_data), len(response_data), src_ip)
-
-                    #         # Full analysis with error isolation
-                    #         self._analyze_dns(packet)  # Pass full DNS packet to analyzer
-
-                    #     except Exception as e:
-                    #         logger.error("DNS processing failed: %s [Packet: %s]",
-                    #                     str(e), packet.summary(), exc_info=True)
-                    #         self.sio_queue.put(('system_error', {
-                    #             'component': 'dns_processor',
-                    #             'error': str(e),
-                    #             'packet_summary': packet.summary()
-                    #         }))
-                    elif packet.haslayer(TCP) and (packet[TCP].dport == 22 or packet[TCP].sport == 22):
-                        try:
-                            self._endpoint_tracker[src_ip]["tcp"].add((dst_ip, packet[TCP].dport))
-                            self._analyze_ssh(packet)
-                        except Exception as e:
-                            logger.debug("SSH analysis error: %s", str(e))
                 except Exception as e:
-                    logger.debug("Application layer processing error: %s", str(e))
+                    logger.debug("Application layer error: %s", str(e))
 
-                # Threat detection with safety
+                # Special Protocol Handlers
                 try:
+                    if packet.haslayer(ICMP):
+                        logger.debug("ICMP Packet: type=%d code=%d",
+                                    packet[ICMP].type, packet[ICMP].code)
+                        self._analyze_icmp(packet)
+                    if packet.haslayer(Raw):
+                        logger.debug("Raw payload: %d bytes", len(packet[Raw]))
+                        self._analyze_payload(packet)
+                except Exception as e:
+                    logger.debug("Special protocol analysis error: %s", str(e))
+
+                # Behavioral Analysis
+                try:
+                    logger.debug("Behavior analysis for %s", src_ip)
+                    self._analyze_behavior(packet)
+                except Exception as e:
+                    logger.debug("Behavior analysis error: %s", str(e))
+
+                # Final Processing
+                try:
+                    self._process_payload_data(packet)
+                    self._update_packet_stats(packet_info)
                     self._detect_common_threats(packet)
-                    if packet.haslayer(HTTPRequest):
-                        try:
-                            http = packet[HTTPRequest]
-                            logger.info("HTTP %s %s%s from %s",
-                                        http.Method.decode(errors='replace'),
-                                        http.Host.decode(errors='replace'),
-                                        http.Path.decode(errors='replace'),
-                                        src_ip)
-                        except Exception as e:
-                            logger.debug("HTTP logging error: %s", str(e))
+                    logger.debug("Processed packet from %s", src_ip)
                 except Exception as e:
-                    logger.debug("Threat detection error: %s", str(e))
+                    logger.error("Final processing error: %s", str(e))
+                # ── Feature Extraction ──
 
-                # UDP handling with safety
-                if packet.haslayer(UDP):
-                    try:
-                        self._endpoint_tracker[src_ip]["udp"].add((dst_ip, packet[UDP].dport))
-                        packet_info.update({
-                            'src_port': packet[UDP].sport,
-                            'dst_port': packet[UDP].dport
-                        })
-                    except Exception as e:
-                        logger.debug("UDP processing error: %s", str(e))
-
-                # Final validation before logging
-                if not packet_info['src_ip'] or not packet_info['dst_ip']:
-                    logger.debug("Skipping non-IP packet: %s", packet.summary())
-                    return
-
-                if not self._final_validation(packet_info):
-                    logger.debug("Invalid packet format: %s", packet.summary())
-                    return
-
-                logger.debug("Valid packet ready for DB: %s", packet_info)
                 try:
-                    self._log_packet_to_db(packet_info)
-                except Exception as e:
-                    logger.error("Database logging error: %s", str(e))
-                
-            # self.sio_queue.put(("user_alert", {
-            #     "message":"Packet handler working",
-            #     "timestamp":"NOW"
-            # }))
+                    features = self.feature_extractor.extract_features(packet)
 
+                    # Step 2: Prepare ML-ready vector (even if flow is not complete)
+                    feature_vector = self.packet_processor.prepare_feature_vector(features)
+
+                    # Optional: Save features for inspection/debug
+                    save_features_to_json(features)
+                    save_feature_vectors_to_json(feature_vector)
+
+                    # Step 3: Feed into enhanced_processor to detect end-of-flow (FIN/RST)
+                    self.enhanced_processor.process_packet(packet)  # Handles per-flow export + memory cleanup
+
+                    # Optional: Periodic backup to CSV (e.g. to catch flows with no FIN/RST)
+                    if self.packet_counter.value % 300 == 0:
+                        self.feature_extractor._cleanup_expired_flows(timeout=60.0)  #   
+                except Exception as e:
+                    logger.debug("Feature extraction failed: %s", e)
+
+                # ── Rule-Based Threat Detection ──
+                try:
+                    threats = self.threat_detector.detect_threats(packet)
+                    for threat in threats:
+                        self.sio_queue.put(("threat_detected", threat))
+                except Exception as e:
+                    logger.debug("Threat detection failed: %s", e)
+
+                # ── ML-Based Threat Prediction (optional) ──
+                # Uncomment if ML model is enabled
+                # try:
+                #     if self.enhanced_processor.prediction_model:
+                #         ml_out = self.enhanced_processor.process_packet(packet)
+                #         ml_result = ml_out.get("ml_prediction")
+                #         if ml_result is not None:
+                #             self.sio_queue.put(("ml_alert", ml_out))
+                # except Exception as e:
+                #     logger.debug("ML prediction failed: %s", e)
         except Exception as e:
-            logger.error("Packet processing error: %s", str(e))
-            self.sio_queue.put(
-                (
-                    "system_error",
-                    {
-                        "component": "packet_handler",
-                        "error": str(e),
-                        "timestamp": datetime.utcnow().isoformat(),
-                    },
-                )
-            )
+            logger.error("Packet processing error: %s [Summary: %s]",
+                        str(e), packet.summary()[:100])
+            self.sio_queue.put(("system_error", {
+                "component": "packet_handler",
+                "error": str(e),
+                "timestamp": datetime.utcnow().isoformat(),
+            }))
         finally:
-            with self.processing_lock:
-                self.current_packet_source = None
+            self.current_packet_source = None
+            logger.debug("Packet processing completed in %.4f seconds",
+                        time.perf_counter() - self.start_time)
+
+    def _create_packet_info(self, packet, src_ip, dst_ip, ip_version, is_arp):
+        """DRY method for creating packet info structure"""
+        return {
+            "timestamp": datetime.utcnow(),
+            "src_ip": src_ip,
+            "dst_ip": dst_ip,
+            "ip_version": ip_version,
+            "protocol": self._get_protocol_name(packet) if not is_arp else "ARP",
+            "size": len(packet),
+            "flags": None,
+            "payload": self._extract_payload(packet),
+            "src_port": None,
+            "dst_port": None
+        }
+
+    def _process_payload_data(self, packet):
+        """Centralized payload processing"""
+        if packet.haslayer(Raw):
+            try:
+                raw = packet[Raw].load
+                arr = np.frombuffer(raw, dtype=np.uint8)
+                counts = np.bincount(arr, minlength=256)
+                with self.data_lock:
+                    for i, c in enumerate(counts):
+                        self.byte_distribution[i] += int(c)
+            except Exception as e:
+                logger.debug("Payload processing error: %s", str(e))
+
+    def _update_packet_stats(self, packet_info):
+        """Thread-safe stats updating"""
+        src_ip = packet_info["src_ip"]
+        with self.data_lock:
+            self.stats["total_packets"] += 1
+            self.stats["protocols"][packet_info["protocol"]] += 1
+
+            # Store in network_flows deque
+            rp = self.recent_packets[src_ip]
+            if 'network_flows' not in rp:
+                rp['network_flows'] = deque(maxlen=1000)
+            rp['network_flows'].append({
+                "timestamp": time.time(),
+                "protocol": packet_info["protocol"],
+                "dst_ip": packet_info["dst_ip"],
+                "dst_port": packet_info["dst_port"],
+                "length": packet_info["size"]
+            })
 
     def _is_binary(self, data: bytes) -> bool:
         """Check if data appears to be binary"""
@@ -1295,8 +1279,8 @@ class PacketSniffer:
                 flattened_http_data = analyze_and_flatten(http_data)
                 data = map_to_cicids2017_features(flattened_http_data)
                 http_tranformed = transform_http_activity(http_data)
-                # save_http_data_to_json(http_data)
-                self.sio_queue.put(("http_activity", http_tranformed))
+                save_http_data_to_json(http_data)
+                self.sio_queue.put(("http_activity", data))
             except Exception as e:
                 logger.critical(f"Notification failed: {str(e)}", exc_info=True)
 
@@ -1705,12 +1689,13 @@ class PacketSniffer:
 
     def _get_session_count(self, src_ip: str) -> dict:
         """Get session statistics for source IP"""
+        flows = self.recent_packets.get(src_ip, {}).get('network_flows', [])
         return {
-            "total_requests": self.stats["top_talkers"].get(src_ip, 0),
-            "unique_ports": len(self.port_scan_detector.port_counter[src_ip]),
+            "total_requests": len(flows),
+            "unique_ports": len({f["dst_port"] for f in flows if f["dst_port"]}),
             "protocol_distribution": dict(
-                Counter([p["protocol"] for p in self.recent_packets.get(src_ip, [])])
-            ),
+                Counter([f["protocol"] for f in flows])
+            )
         }
 
     def _check_security_headers(self, http_layer) -> dict:
@@ -2601,20 +2586,16 @@ class PacketSniffer:
                         "timestamp": datetime.utcnow().isoformat(),
                     }))
 
-    def _log_packet_to_db(self, packet_data: dict):
-        """Enhanced packet logging with safe model validation"""
+    async def _log_packet_to_db(self, packet_data: dict):
         try:
-            valid_fields = self.get_model_fields(Packets)
+            valid_fields = [c.key for c in inspect(Packets).mapper.column_attrs]
             filtered_data = {k: v for k, v in packet_data.items() if k in valid_fields}
-
             if not filtered_data:
                 logger.warning("No valid fields found for packet")
                 return
 
-            db = next(get_db())
-            packet = Packets(**filtered_data)
-            db.add(packet)
-            db.commit()
+            async with get_db() as db:
+                db.add(Packets(**filtered_data))
 
         except Exception as e:
             logger.error("Logging failed: %s", str(e))
@@ -2706,7 +2687,6 @@ class PacketSniffer:
             }
         ))
 
-
     def stop(self):
         """Stop packet capture and cleanup."""
         # stop the AsyncSniffer
@@ -2719,13 +2699,15 @@ class PacketSniffer:
         # stop worker and reporter as you already have
         if self.worker_process:
             self.worker_process.terminate()
+            self.worker_process.join(timeout=5)
         if self.reporter_process and self.reporter_process.is_alive():
             self._reporter_stop.set()
             self.reporter_process.terminate()
+            self.reporter_process.join(timeout=5)
             self.reporter_process = None
             self.end_time = time.perf_counter()
 
-            logger.info("processed %d packets in %d secons", self.packet_counter.value, (self.end_time - self.start_time))
+            logger.info("processed %d packets in %d seconds", self.packet_counter.value, (self.end_time - self.start_time))
         # send stopping status
         self.sio_queue.put((
             "system_status",
@@ -2763,6 +2745,288 @@ class PacketSniffer:
                 }
             )
 
+    def _analyze_tcp(self, packet: Packet):
+        """Advanced TCP traffic analysis with threat detection"""
+        if not packet.haslayer(TCP):
+            return
+
+        tcp = packet[TCP]
+        ip = packet[IP] if packet.haslayer(IP) else None
+
+        # Base TCP data structure
+        tcp_data = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "source_ip": ip.src if ip else None,
+            "destination_ip": ip.dst if ip else None,
+            "source_port": tcp.sport,
+            "destination_port": tcp.dport,
+            "flags": {
+                "syn": tcp.flags.S,
+                "ack": tcp.flags.A,
+                "fin": tcp.flags.F,
+                "rst": tcp.flags.R,
+                "psh": tcp.flags.P,
+                "urg": tcp.flags.U,
+                "ece": tcp.flags.E,
+                "cwr": tcp.flags.C,
+            },
+            "window_size": tcp.window,
+            "seq_num": tcp.seq,
+            "ack_num": tcp.ack,
+            "payload_size": len(tcp.payload) if tcp.payload else 0,
+            "threat_indicators": {},
+        }
+
+        # TCP Flag Analysis
+        if tcp.flags.S and not tcp.flags.A:  # SYN without ACK
+            tcp_data["threat_indicators"]["syn_flood"] = self._detect_syn_flood(packet)
+        if tcp.flags.F and not tcp.flags.A:  # FIN without ACK
+            tcp_data["threat_indicators"]["fin_scan"] = self._detect_fin_scan(packet)
+        if tcp.flags.R:  # RST
+            tcp_data["threat_indicators"]["rst_attack"] = self._detect_rst_attack(packet)
+        if tcp.flags.S and tcp.flags.A:  # SYN-ACK
+            tcp_data["threat_indicators"]["syn_ack_anomaly"] = self._detect_syn_ack_anomaly(
+                packet
+            )
+
+        # Port Analysis
+        tcp_data["threat_indicators"]["suspicious_port"] = self._check_suspicious_port(
+            tcp.dport
+        )
+
+        # Sequence Analysis
+        tcp_data["threat_indicators"]["seq_anomaly"] = self._analyze_sequence(packet)
+
+        # Window Analysis
+        tcp_data["threat_indicators"]["window_anomaly"] = self._analyze_window(packet)
+
+        # Behavioral Analysis
+        tcp_data["threat_indicators"]["behavior_anomaly"] = self._analyze_tcp_behavior(
+            packet
+        )
+
+        # Protocol Specific Checks
+        if tcp.dport == 22 or tcp.sport == 22:
+            self._analyze_ssh(packet)
+        elif tcp.dport == 3389 or tcp.sport == 3389:
+            self._analyze_rdp(packet)
+
+        # Emit TCP event
+        # self.event_queue.put(("tcp_activity", tcp_data))
+        try:
+            self.sio_queue.put(("tcp_activity", tcp_data))
+        except Exception as e: 
+            logger.error(f"Error sending tcp activity: { e}")
+
+    def _analyze_udp(self, packet: Packet):
+        """Comprehensive UDP traffic analysis"""
+        if not packet.haslayer(UDP):
+            return
+
+        udp = packet[UDP]
+        ip = packet[IP] if packet.haslayer(IP) else None
+
+        udp_data = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "source_ip": ip.src if ip else None,
+            "destination_ip": ip.dst if ip else None,
+            "source_port": udp.sport,
+            "destination_port": udp.dport,
+            "length": udp.len,
+            "payload_size": len(udp.payload) if udp.payload else 0,
+            "threat_indicators": {},
+        }
+
+        # DNS Analysis
+        if udp.dport == 53 or udp.sport == 53:
+            self._analyze_dns(packet)
+            return
+
+        # NTP Analysis
+        if udp.dport == 123:
+            udp_data["threat_indicators"]["ntp_amplification"] = (
+                self._detect_ntp_amplification(packet)
+            )
+
+        # General UDP Threat Detection
+        udp_data["threat_indicators"]["udp_flood"] = self._detect_udp_flood(packet)
+        udp_data["threat_indicators"]["suspicious_port"] = self._check_suspicious_port(
+            udp.dport
+        )
+        udp_data["threat_indicators"]["payload_analysis"] = self._analyze_udp_payload(
+            packet
+        )
+
+        # Emit UDP event
+        self.sio_queue.put(("udp_activity", udp_data))
+
+    def _analyze_icmp(self, packet: Packet):
+        """ICMP traffic analysis with attack detection"""
+        if not packet.haslayer(ICMP):
+            return
+
+        icmp = packet[ICMP]
+        ip = packet[IP] if packet.haslayer(IP) else None
+
+        icmp_data = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "source_ip": ip.src if ip else None,
+            "destination_ip": ip.dst if ip else None,
+            "type": icmp.type,
+            "code": icmp.code,
+            "payload_size": len(icmp.payload) if icmp.payload else 0,
+            "threat_indicators": {},
+        }
+
+        # ICMP Echo (Ping) Analysis
+        if icmp.type == 8:  # Echo Request
+            icmp_data["threat_indicators"]["ping_flood"] = self._detect_ping_flood(packet)
+            icmp_data["threat_indicators"]["ping_of_death"] = self._detect_ping_of_death(
+                packet
+            )
+
+        # ICMP Redirect Analysis
+        if icmp.type == 5:
+            icmp_data["threat_indicators"]["icmp_redirect"] = True
+
+        # ICMP Timestamp Analysis
+        if icmp.type == 13 or icmp.type == 14:
+            icmp_data["threat_indicators"]["timestamp_probe"] = True
+
+        # Emit ICMP event
+        self.sio_queue.put(("icmp_activity", icmp_data))
+
+    def _analyze_arp(self, packet: Packet):
+        """ARP traffic analysis for spoofing detection"""
+        if not packet.haslayer(ARP):
+            return
+
+        arp = packet[ARP]
+        ether = packet[Ether] if packet.haslayer(Ether) else None
+
+        arp_data = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "operation": "reply" if arp.op == 2 else "request",
+            "sender_ip": arp.psrc,
+            "sender_mac": arp.hwsrc,
+            "target_ip": arp.pdst,
+            "target_mac": arp.hwdst,
+            "threat_indicators": {},
+        }
+
+        # ARP Spoofing Detection
+        if arp.op == 2:  # ARP reply
+            arp_data["threat_indicators"]["arp_spoofing"] = self._detect_arp_spoofing(
+                packet
+            )
+
+        # Gratuitous ARP Detection
+        arp_data["threat_indicators"]["gratuitous_arp"] = (
+            arp.psrc == arp.pdst and arp.op == 2
+        )
+
+        # MAC/IP Inconsistency
+        if ether and arp.hwsrc != ether.src:
+            arp_data["threat_indicators"]["mac_spoofing"] = True
+
+        # Emit ARP event
+        self.sio_queue.put(("arp_activity", arp_data))
+
+    def _analyze_payload(self, packet: Packet):
+        """Advanced payload analysis for exploit detection"""
+        payload_data = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "source_ip": packet[IP].src if packet.haslayer(IP) else None,
+            "destination_ip": packet[IP].dst if packet.haslayer(IP) else None,
+            "protocol": self._get_protocol_name(packet),
+            "payload_size": len(packet.payload) if packet.payload else 0,
+            "threat_indicators": {},
+        }
+
+        # Get raw payload
+        raw_payload = bytes(packet[Raw].payload) if packet.haslayer(Raw) else b""
+
+        # Payload Analysis
+        payload_data["threat_indicators"]["shellcode"] = self._detect_shellcode(raw_payload)
+        payload_data["threat_indicators"]["sql_injection"] = self._detect_sql_injection(
+            raw_payload
+        )
+        payload_data["threat_indicators"]["xss"] = self._detect_xss(raw_payload)
+        payload_data["threat_indicators"]["exploit_kit"] = (
+            self._detect_exploit_kit_patterns(raw_payload)
+        )
+        payload_data["threat_indicators"]["obfuscation"] = self._detect_obfuscation(
+            raw_payload
+        )
+
+        # Entropy Analysis
+        payload_data["entropy"] = self._calculate_entropy(raw_payload)
+        payload_data["threat_indicators"]["high_entropy"] = payload_data["entropy"] > 7.0
+
+        # Emit Payload event
+        self.sio_queue.put(("payload_analysis", payload_data))
+
+    def _analyze_behavior(self, packet: Packet):
+        """Behavioral analysis across protocols"""
+        if not packet.haslayer(IP):
+            return
+
+        ip = packet[IP]
+
+        # Update flow tracking
+        flow_key = self._get_flow_key(packet)
+        current_time = time.time()
+
+        with self.data_lock:
+            if flow_key not in self.stats["flows"]:
+                self.stats["flows"][flow_key] = {
+                    "first_seen": current_time,
+                    "last_seen": current_time,
+                    "packet_count": 1,
+                    "byte_count": len(packet),
+                    "direction": (
+                        "outbound" if ip.src == self.current_packet_source else "inbound"
+                    ),
+                }
+            else:
+                self.stats["flows"][flow_key].update(
+                    {
+                        "last_seen": current_time,
+                        "packet_count": self.stats["flows"][flow_key]["packet_count"] + 1,
+                        "byte_count": self.stats["flows"][flow_key]["byte_count"]
+                        + len(packet),
+                    }
+                )
+
+        # Behavioral Analysis Data
+        behavior_data = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "source_ip": ip.src,
+            "destination_ip": ip.dst,
+            "flow_id": hash(flow_key),
+            "duration": current_time - self.stats["flows"][flow_key]["first_seen"],
+            "packet_count": self.stats["flows"][flow_key]["packet_count"],
+            "byte_count": self.stats["flows"][flow_key]["byte_count"],
+            "threat_indicators": {},
+        }
+
+        # Behavioral Threat Detection
+        behavior_data["threat_indicators"]["port_scan"] = self._detect_port_scan_behavior(
+            ip.src
+        )
+        behavior_data["threat_indicators"]["dos_attempt"] = self._detect_dos_behavior(
+            ip.src
+        )
+        behavior_data["threat_indicators"]["beaconing"] = self._detect_beaconing(
+            ip.src
+        )
+        behavior_data["threat_indicators"]["data_exfiltration"] = (
+            self._detect_exfiltration_behavior(ip.src)
+        )
+
+        # Emit Behavior event
+        self.sio_queue.put(("behavior_analysis", behavior_data))
+
     def register_http_listener(self, fn: Callable[[Dict], bool]):
         """
         Register a callback that returns False if it wants to block the packet,
@@ -2778,3 +3042,497 @@ class PacketSniffer:
         except Exception as e:
             logger.error("Model inspection failed: %s", str(e))
             return []
+
+    def _detect_syn_flood(self, packet: Packet) -> bool:
+        """Detect SYN flood attacks using adaptive rate limiting."""
+        if not packet.haslayer(TCP) or not packet[TCP].flags.S:
+            return False
+
+        src_ip = packet[IP].src
+        now = time.time()
+
+        # Track SYN packets with sliding window
+        with self.data_lock:
+            syn_tracker = self.recent_packets.setdefault(src_ip, {
+                'syn_times': deque(maxlen=1000),
+                'syn_ack_count': 0
+            })
+
+            syn_tracker['syn_times'].append(now)
+
+        # Calculate SYN rate (packets/second)
+        window = 2  # Second window
+        syn_count = sum(1 for t in syn_tracker['syn_times'] if now - t <= window)
+
+        # Dynamic threshold based on network baseline
+        threshold = self.rate_limiter.get_threshold('syn', default=500)
+        return syn_count > threshold
+
+    def _detect_fin_scan(self, packet: Packet) -> bool:
+        """Detect FIN scans (stealth scanning techniques)."""
+        if packet.haslayer(TCP) and packet[TCP].flags.F and not packet[TCP].flags.A:
+            src_ip = packet[IP].src
+            dst_port = packet[TCP].dport
+
+            with self.data_lock:
+                fin_targets = self.recent_packets.setdefault(src_ip, {
+                    'fin_ports': set(),
+                    'fin_times': deque(maxlen=100)
+                })
+
+                fin_targets['fin_ports'].add(dst_port)
+                fin_targets['fin_times'].append(time.time())
+
+                # Detect if scanning multiple ports
+                return len(fin_targets['fin_ports']) > 10 and \
+                    (fin_targets['fin_times'][-1] - fin_targets['fin_times'][0]) < 5
+        return False
+
+    def _detect_rst_attack(self, packet: Packet) -> bool:
+        """Detect TCP RST injection attacks."""
+        if packet.haslayer(TCP) and packet[TCP].flags.R:
+            src_ip = packet[IP].src
+            with self.data_lock:
+                self.recent_packets.setdefault(src_ip, {'rst_count': 0})['rst_count'] += 1
+                return self.recent_packets[src_ip]['rst_count'] > 50  # Threshold
+        return False
+
+    def _detect_syn_ack_anomaly(self, packet: Packet) -> bool:
+        """Detect unexpected SYN-ACK responses."""
+        if packet.haslayer(TCP) and packet[TCP].flags.SA:
+            src_ip = packet[IP].src
+            with self.data_lock:
+                syn_cache = self.recent_packets.setdefault(src_ip, {'syn_sent': set()})
+                dst_port = packet[TCP].sport
+                # Check if we saw SYN to this port first
+                return dst_port not in syn_cache['syn_sent']
+        return False
+
+    def _check_suspicious_port(self, port: int) -> bool:
+        """Identify high-risk ports with threat intelligence feed."""
+        suspicious_ports = {
+            # Hidden Tor ports
+            9001, 9030, 9150,  
+            # Cryptominer ports
+            3333, 4444, 5555, 6666,
+            # Malware ports
+            7626, 2745, 3127, 6129,
+            # Database exploits
+            1433, 1434, 3306, 5432
+        }
+        return port in suspicious_ports or port in KNOWN_SERVICES.get('malicious', [])
+
+    def _analyze_sequence(self, packet: Packet) -> dict:
+        """Detect TCP sequence prediction attacks."""
+        tcp = packet[TCP]
+        seq_analysis = {
+            'predictable': False,
+            'delta': 0,
+            'anomaly_score': 0.0
+        }
+
+        src_ip = packet[IP].src
+        with self.data_lock:
+            seq_history = self.recent_packets.setdefault(src_ip, {
+                'last_seq': None,
+                'sequence_deltas': []
+            })
+
+            if seq_history['last_seq']:
+                delta = abs(tcp.seq - seq_history['last_seq'])
+                seq_history['sequence_deltas'].append(delta)
+
+                # Check for predictable increments
+                if len(seq_history['sequence_deltas']) > 10:
+                    std_dev = np.std(seq_history['sequence_deltas'][-10:])
+                    seq_analysis['anomaly_score'] = 1 - min(std_dev / 10000, 1.0)
+                    seq_analysis['predictable'] = std_dev < 1000  # Static increment threshold
+
+            seq_history['last_seq'] = tcp.seq
+
+        return seq_analysis
+
+    def _analyze_window(self, packet: Packet) -> dict:
+        """Detect window size manipulation attempts."""
+        tcp = packet[TCP]
+        window_analysis = {
+            'zero_window': tcp.window == 0,
+            'small_window': tcp.window < 64,
+            'unusual_scaling': False
+        }
+
+        # Check for window scaling anomalies
+        if packet.haslayer(TCP):
+            options = dict(packet[TCP].options)  # Convert to dict for easier lookup
+            if 'WScale' in options:
+                window_analysis['unusual_scaling'] = options['WScale'] > 10
+        return window_analysis
+
+    def _analyze_tcp_behavior(self, packet: Packet) -> dict:
+        """Detect advanced TCP behavior anomalies."""
+        behavior = {
+            'retransmission_ratio': 0.0,
+            'persist_probes': 0,
+            'half_open': False
+        }
+
+        src_ip = packet[IP].src
+        with self.data_lock:
+            tcp_stats = self.recent_packets.setdefault(src_ip, {
+                'retransmits': 0,
+                'total_packets': 0,
+                'syn_count': 0
+            })
+
+            tcp_stats['total_packets'] += 1
+            if packet[TCP].flags.R:
+                tcp_stats['retransmits'] += 1
+
+            behavior['retransmission_ratio'] = tcp_stats['retransmits'] / tcp_stats['total_packets']
+            behavior['half_open'] = tcp_stats['syn_count'] > 10 and \
+                                tcp_stats['syn_count'] / tcp_stats['total_packets'] > 0.8
+
+        return behavior
+
+    def _detect_ntp_amplification(self, packet: Packet) -> bool:
+        """Detect NTP amplification attack attempts."""
+        if packet.haslayer(UDP) and packet[UDP].dport == 123:
+            payload = bytes(packet[UDP].payload)
+            # Check for monlist request (NTP mode 7)
+            return len(payload) >= 4 and payload[0] & 0x07 == 0x07 and \
+                len(payload) == 48  # Typical monlist request size
+        return False
+
+    def _detect_udp_flood(self, packet: Packet) -> bool:
+        """Detect UDP flood attacks with adaptive thresholds."""
+        if not packet.haslayer(UDP):
+            return False
+
+        src_ip = packet[IP].src
+        now = time.time()
+
+        with self.data_lock:
+            flood_tracker = self.recent_packets.setdefault(src_ip, {
+                'udp_times': deque(maxlen=5000),
+                'udp_sizes': deque(maxlen=5000)
+            })
+
+            flood_tracker['udp_times'].append(now)
+            flood_tracker['udp_sizes'].append(len(packet))
+
+        # Calculate bandwidth and PPS
+        window = 1  # Second
+        recent = [t for t in flood_tracker['udp_times'] if now - t <= window]
+        total_bytes = sum(flood_tracker['udp_sizes'][-len(recent):])
+
+        return len(recent) > 1000 or total_bytes > 1000000  # 1Mbps or 1000pps
+
+    def _analyze_udp_payload(self, packet: Packet) -> dict:
+        """Analyze UDP payload for tunneling and exploits."""
+        payload = bytes(packet[UDP].payload) if packet.haslayer(UDP) else b''
+        analysis = {
+            'dns_tunneling': False,
+            'entropy': self._calculate_entropy(payload),
+            'hex_pattern': False
+        }
+
+        # Detect DNS tunneling (hex-encoded subdomains)
+        if packet.haslayer(DNS) and len(payload) > 512:
+            analysis['dns_tunneling'] = any(
+                re.match(r'^[0-9a-f]{16,}\.', q.qname.decode(errors='ignore'))
+                for q in packet[DNS].qd
+            )
+
+        # Detect hex-encoded payload patterns
+        analysis['hex_pattern'] = bool(re.search(rb'[0-9a-fA-F]{32,}', payload))
+
+        return analysis
+
+    def _detect_ping_flood(self, packet: Packet) -> bool:
+        """Detect ICMP echo request floods."""
+        if packet.haslayer(ICMP) and packet[ICMP].type == 8:
+            src_ip = packet[IP].src
+            with self.data_lock:
+                self.recent_packets.setdefault(src_ip, {'icmp_count': 0})['icmp_count'] += 1
+                return self.recent_packets[src_ip]['icmp_count'] > 100  # 100 pps
+        return False
+
+    def _detect_ping_of_death(self, packet: Packet) -> bool:
+        """Detect oversized ICMP packets."""
+        if packet.haslayer(ICMP) and len(packet) > 65535:
+            return True
+        return False
+
+    def _detect_arp_spoofing(self, packet: Packet) -> bool:
+        """Detect ARP poisoning attacks."""
+        if packet.haslayer(ARP) and packet[ARP].op == 2:  # ARP reply
+            src_ip = packet[ARP].psrc
+            src_mac = packet[ARP].hwsrc
+
+            with self.data_lock:
+                arp_table = self.recent_packets.setdefault('arp_table', {})
+                if src_ip in arp_table:
+                    return arp_table[src_ip] != src_mac  # MAC changed
+                arp_table[src_ip] = src_mac
+
+            # Check for multiple IPs mapping to same MAC
+            mac_count = sum(1 for ip, mac in arp_table.items() if mac == src_mac)
+            return mac_count > 3
+
+    def _detect_shellcode(self, payload: bytes) -> bool:
+        """Detect common shellcode patterns."""
+        shellcode_patterns = [
+            rb'\x90{16}',  # NOP sled
+            rb'\xcc{4}',    # INT3 breakpoints
+            rb'\x68....\x68',  # PUSH sequences
+            rb'\xeb\xff....\x0f'  # JMP-CALL-POP
+        ]
+        return any(re.search(p, payload) for p in shellcode_patterns)
+
+    def _detect_sql_injection(self, payload: bytes) -> bool:
+        """Detect SQL injection patterns with improved accuracy."""
+        patterns = [
+            rb"'\s+OR\s+'\d'='d",
+            rb"UNION\s+ALL\s+SELECT",
+            rb"WAITFOR\s+DELAY\s+'0:0:\d+",
+            rb"EXEC\(0x[0-9a-f]+\)",
+            rb"information_schema\.tables"
+        ]
+        normalized = payload.lower().replace(b' ', b'').replace(b'\t', b'')
+        return any(re.search(p, normalized) for p in patterns)
+
+    def _detect_xss(self, payload: bytes) -> bool:
+        """Detect cross-site scripting attempts."""
+        xss_patterns = [
+            rb"<script>[^<]*</script>",
+            rb"javascript:\w+\([^)]*\)",
+            rb"on\w+=\s*[\"']?[^\"'>]+",
+            rb"alert\([^)]*\)"
+        ]
+        return any(re.search(p, payload, re.IGNORECASE) for p in xss_patterns)
+
+    def _detect_exploit_kit_patterns(self, payload: bytes) -> bool:
+        """Detect known exploit kit signatures."""
+        ek_patterns = [
+            rb"\/CWS[\x09-\x0d]",  # Angler EK
+            rb"\/[a-z0-9]{8}\/",    # Rig EK
+            rb"\/[a-z]{4}\.php\?[a-z]="  # Neutrino EK
+        ]
+        return any(re.search(p, payload) for p in ek_patterns)
+
+    def _detect_obfuscation(self, payload: bytes) -> bool:
+        """Detect obfuscated code patterns."""
+        return (
+            self._calculate_entropy(payload) > 7.5 or
+            bool(re.search(rb'\\x[0-9a-f]{2}', payload)) or
+            bool(re.search(rb'%[0-9a-f]{2}', payload)) or
+            bool(re.search(rb'(?:[A-Za-z0-9+/]{4}){10,}', payload))  # Base64
+        )
+
+    def _detect_port_scan_behavior(self, src_ip: str) -> bool:
+        """Detect horizontal port scanning patterns."""
+        with self.data_lock:
+            targets = self.recent_packets.get(src_ip, {}).get('dst_ports', set())
+            return len(targets) > 50 and len(targets) / len(self.recent_packets[src_ip].get('packets', 1)) > 0.8
+
+    def _detect_dos_behavior(self, src_ip: str) -> bool:
+        """Detect DoS behavior through multiple vectors."""
+        with self.data_lock:
+            stats = self.recent_packets.get(src_ip, {})
+            return (
+                stats.get('packet_rate', 0) > 1000 or  # Packets/second
+                stats.get('error_rate', 0) > 0.5 or     # Error ratio
+                stats.get('unique_ports', 0) > 100      # Port randomization
+            )
+
+    def _detect_exfiltration_behavior(self, src_ip: str) -> bool:
+        """Detect data exfiltration patterns."""
+        with self.data_lock:
+            stats = self.recent_packets.get(src_ip, {})
+            return (
+                stats.get('outbound_bytes', 0) > 100e6 or  # 100MB
+                stats.get('dns_queries', 0) > 1000 or
+                stats.get('uncommon_protocol_ratio', 0) > 0.8
+            )
+
+    def _analyze_rdp(self, packet: Packet):
+        """Advanced RDP protocol analysis with exploit detection"""
+        if not packet.haslayer(TCP) or packet[TCP].dport != 3389:
+            return
+
+        ip = packet[IP]
+        tcp = packet[TCP]
+        rdp_data = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "source_ip": ip.src,
+            "destination_ip": ip.dst,
+            "threat_indicators": {
+                "bruteforce": False,
+                "bluekeep_exploit": False,
+                "credential_stuffing": False,
+                "weak_encryption": False
+            },
+            "protocol_state": {
+                "ssl_negotiation": False,
+                "connection_sequence": 0,
+                "auth_attempts": 0
+            }
+        }
+
+        try:
+            # Track RDP connection attempts
+            with self.data_lock:
+                rdp_tracker = self.recent_packets.setdefault(ip.src, {
+                    'rdp_attempts': deque(maxlen=20),
+                    'auth_failures': 0,
+                    'last_attempt': 0
+                })
+
+                rdp_tracker['rdp_attempts'].append(time.time())
+                current_window = [t for t in rdp_tracker['rdp_attempts'] 
+                                if time.time() - t < 60]
+
+            # Bruteforce detection
+            if len(current_window) > 15:
+                rdp_data["threat_indicators"]["bruteforce"] = True
+                self._create_alert(
+                    "RDP Bruteforce Attempt",
+                    "critical",
+                    ip.src,
+                    f"Excessive RDP attempts ({len(current_window)}/min)"
+                )
+
+            # Analyze payload for known exploits
+            if packet.haslayer(Raw):
+                payload = bytes(packet[Raw].load)
+
+                # Detect BlueKeep (CVE-2019-0708) vulnerability scan
+                if len(payload) > 50 and payload[0] == 0x03 and payload[1] == 0x00:
+                    if b"\x00\x08\x00\x03\x00\x00\x00" in payload[:20]:
+                        rdp_data["threat_indicators"]["bluekeep_exploit"] = True
+                        self._create_alert(
+                            "BlueKeep Exploit Attempt",
+                            "critical",
+                            ip.src,
+                            "CVE-2019-0708 exploitation detected"
+                        )
+
+                # Detect credential stuffing patterns
+                if b"\x02\x00\x08\x00" in payload and b"\x04\x00\x08\x00" in payload:
+                    rdp_data["threat_indicators"]["credential_stuffing"] = True
+                    rdp_data["protocol_state"]["auth_attempts"] += 1
+
+                # Check encryption negotiation
+                if b"\x00\x03\x00\x0b" in payload[:10]:
+                    rdp_data["protocol_state"]["ssl_negotiation"] = True
+                    if b"\x00\x01\x00" in payload[10:20]:
+                        rdp_data["threat_indicators"]["weak_encryption"] = True
+
+            # Behavioral analysis
+            if rdp_data["protocol_state"]["auth_attempts"] > 5:
+                with self.data_lock:
+                    rdp_tracker['auth_failures'] += 1
+                    if rdp_tracker['auth_failures'] > 10:
+                        self.firewall.block_ip(ip.src, "RDP brute force", 3600)
+                        self.sio_queue.put(("firewall_block", {
+                            "ip": ip.src,
+                            "reason": "RDP brute force",
+                            "duration": 3600
+                        }))
+
+            # Emit RDP event
+            self.sio_queue.put(("rdp_activity", rdp_data))
+
+        except Exception as e:
+            logger.error(f"RDP analysis failed: {str(e)}", exc_info=True)
+            self.sio_queue.put(('system_error', {
+                'component': 'rdp_analysis',
+                'error': str(e),
+                'packet_summary': packet.summary()
+            }))
+
+    def _extract_payload(self, packet: Packet) -> dict:
+        """Safely extract and analyze payload from multiple layers with protocol awareness"""
+        payload_info = {
+            "raw": b"",
+            "hex": "",
+            "entropy": 0.0,
+            "printable_ratio": 0.0,
+            "mime_type": "unknown",
+            "obfuscated": False,
+            "layers": []
+        }
+
+        try:
+            # Extract payload from all possible layers
+            payload_layers = [Raw, TCP, UDP, ICMP]
+            for layer in payload_layers:
+                if packet.haslayer(layer):
+                    layer_payload = bytes(packet[layer].payload)
+                    if layer_payload:
+                        payload_info["raw"] += layer_payload
+                        payload_info["layers"].append(layer.__name__)
+
+            if not payload_info["raw"]:
+                return payload_info
+
+            # Calculate metrics
+            payload_info["hex"] = payload_info["raw"].hex()
+            payload_info["entropy"] = self._calculate_entropy(payload_info["raw"])
+
+            # Detect printable characters
+            printable_chars = sum(32 <= c < 127 for c in payload_info["raw"])
+            payload_info["printable_ratio"] = printable_chars / len(payload_info["raw"])
+
+            # Detect obfuscation
+            payload_info["obfuscated"] = self._detect_obfuscation(payload_info["raw"])
+
+            # MIME type detection
+            payload_info["mime_type"] = self._detect_mime_type(payload_info["raw"])
+
+            # Update byte distribution (thread-safe)
+            if payload_info["raw"]:
+                with self.data_lock:
+                    arr = np.frombuffer(payload_info["raw"], dtype=np.uint8)
+                    counts = np.bincount(arr, minlength=256)
+                    for i, c in enumerate(counts):
+                        self.byte_distribution[i] += int(c)
+
+        except Exception as e:
+            logger.debug(f"Payload extraction error: {str(e)}")
+            self.sio_queue.put(('system_error', {
+                'component': 'payload_extractor',
+                'error': str(e),
+                'packet_summary': packet.summary()[:100] if packet else None
+            }))
+
+        return payload_info
+
+    def _detect_mime_type(self, payload: bytes) -> str:
+        """Detect MIME type using magic numbers and heuristics"""
+        if len(payload) < 4:
+            return "unknown"
+
+        magic_numbers = {
+            b"\x25PDF": "application/pdf",
+            b"\x50\x4B\x03\x04": "application/zip",
+            b"\x89PNG": "image/png",
+            b"\xFF\xD8\xFF": "image/jpeg",
+            b"\x47\x49\x46": "image/gif",
+        }
+
+        for magic, mime in magic_numbers.items():
+            if payload.startswith(magic):
+                return mime
+
+        # Fallback to text detection
+        try:
+            payload.decode('utf-8')
+            return "text/plain" if self._is_human_readable(payload) else "text/encoded"
+        except UnicodeDecodeError:
+            return "application/octet-stream"
+
+    def _is_human_readable(self, payload: bytes) -> bool:
+        """Determine if payload contains mostly readable text"""
+        text_chars = bytearray({7,8,9,10,12,13,27} | set(range(0x20, 0x7F)) | {0x09, 0x0A})
+        return all(c in text_chars for c in payload[:1024])

@@ -1,8 +1,13 @@
-import psutil
-import socket
+from scapy.all import sniff
 
-for interface, addrs in psutil.net_if_addrs().items():
-    print(f"Interface: {interface}")
-    for addr in addrs:
-        if addr.family == socket.AF_INET:
-            print(f"  → IP: {addr.address}")
+
+def handle(pkt):
+    print(pkt)
+
+
+sniff(
+    iface=r"Wi-Fi",
+    prn=handle,
+    store=False,
+    promisc=True,
+)

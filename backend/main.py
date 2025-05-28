@@ -113,6 +113,7 @@ async def create_app() -> FastAPI:
         # Initialize packet components INDEPENDENTLY
         manager = Manager()
         sio_queue = manager.Queue(maxsize=10000)
+        output_queue = Queue()
         # ips_queue = manager.Queue(maxsize=10000)
         sniffer_namespace = PacketSnifferNamespace("/packet_sniffer", sio_queue)
         sio.register_namespace(sniffer_namespace)
@@ -121,7 +122,7 @@ async def create_app() -> FastAPI:
         await intel.load_from_cache()        
         asyncio.create_task(intel.fetch_and_cache_feeds())
         ips = EnterpriseIPS(
-            "rules.json", sio,intel, multiprocessing.cpu_count(), sio_queue
+            "rules.json", sio,intel, multiprocessing.cpu_count(), sio_queue, output_queue
         )
 
         sniffer = PacketSniffer(sio_queue)
@@ -169,20 +170,20 @@ async def create_app() -> FastAPI:
             # asyncio.create_task(ips_updates_task(ips))
 
             # Emit periodic summary
-            @sio.on("request_daily_summary")
-            async def _on_request_summary(sid):
-                try:
-                    if not monitor.data_queue.empty():
-                        stats = monitor.data_queue.get_nowait()
-                        net24 = get_24h_network_traffic(stats)
-                        threats = get_daily_threat_summary(monitor)
-                        await sio.emit(
-                            "daily_summary",
-                            {"network24h": net24, "threatSummary": threats},
-                            to=sid,
-                        )
-                except Empty:
-                    pass
+            # @sio.on("request_daily_summary")
+            # async def _on_request_summary(sid):
+            #     try:
+            #         if not monitor.data_queue.empty():
+            #             stats = monitor.data_queue.get_nowait()
+            #             net24 = get_24h_network_traffic(stats)
+            #             threats = get_daily_threat_summary(monitor)
+            #             await sio.emit(
+            #                 "daily_summary",
+            #                 {"network24h": net24, "threatSummary": threats},
+            #                 to=sid,
+            #             )
+            #     except Empty:
+            #         pass
 
             yield
 
@@ -269,15 +270,15 @@ async def create_app() -> FastAPI:
 # Socket.IO events
 @sio.event
 async def connect(sid, environ):
-    interfaces = get_if_list()
-    await sio.emit("interfaces", interfaces, to=sid)
+    # interfaces = get_if_list()
+    # await sio.emit("interfaces", interfaces, to=sid)
     logger.info(f"Client connected: {sid[:8]}...")
 
 
-@sio.on("get_interfaces")
-async def get_interfaces(sid):
-    interfaces = get_if_list()
-    await sio.emit("interfaces", interfaces, to=sid)
+# @sio.on("get_interfaces")
+# async def get_interfaces(sid):
+#     interfaces = get_if_list()
+#     await sio.emit("interfaces", interfaces, to=sid)
 
 
 @sio.event
