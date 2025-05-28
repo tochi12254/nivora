@@ -11,7 +11,7 @@ from collections import OrderedDict
 import csv
 import json
 import os
-
+import traceback
 import threading
 from multiprocessing import Queue
 import multiprocessing
@@ -157,7 +157,7 @@ class FlowStatistics:
     subflow_forward_bytes: int = 0
     subflow_backward_packets: int = 0
     subflow_backward_bytes: int = 0
-    forward_payload_lengths: List[int]  = field(default_factory=list)
+    forward_payload_lengths: List[int] = field(default_factory=list)
     backward_payload_lengths: List[int] = field(default_factory=list)
     last_flow_time: Optional[float] = None
 
@@ -200,7 +200,7 @@ class AdvancedFeatureExtractor:
         st = self.flows[flow_key]
         f = {}
 
-        f["Flow_Duration"] = (st.last_seen - st.start_time) * 1e6  # Convert to microseconds
+        f["Flow_Duration"] = st.duration * 1e6  # Convert to microseconds
         f["Total_Fwd_Packets"] = st.forward_packets
         f["Total_Backward_Packets"] = st.backward_packets
         f["Total_Length_of_Fwd_Packets"] = st.total_length_forward
@@ -214,19 +214,19 @@ class AdvancedFeatureExtractor:
                 if use_percentiles:
                     result.update({"p25": 0, "p50": 0, "p75": 0})
                 return result
-            
+
             result = {
                 "min": min(clean_data),
                 "max": max(clean_data),
                 "mean": mean(clean_data),
                 "std": stdev(clean_data) if len(clean_data) > 1 else 0,
             }
-            
+
             if use_percentiles:
                 result["p25"] = np.percentile(clean_data, 25) if clean_data else 0
                 result["p50"] = np.percentile(clean_data, 50) if clean_data else 0
                 result["p75"] = np.percentile(clean_data, 75) if clean_data else 0
-                
+
             return result
 
         fwd_stats = safe_stats(st.forward_packet_lengths)
@@ -329,7 +329,7 @@ class AdvancedFeatureExtractor:
         f["unique_destinations_count"] = len(st.unique_dest_ips)
         f["protocols_count"] = len(st.protocols_seen)
         f["requests_per_minute"] = f["connection_rate"]
-        f["Init_Win_bytes_forward"]  = flow_stats.init_win_forward or 0
+        f["Init_Win_bytes_forward"] = flow_stats.init_win_forward or 0
         f["Init_Win_bytes_backward"] = flow_stats.init_win_backward or 0
 
         f["Label"] = "BENIGN"
@@ -344,21 +344,22 @@ class AdvancedFeatureExtractor:
         if not flow_key:
             return None
 
+        now = packet_info["timestamp"]  # Current packet's timestamp
+
         if flow_key not in self.flows:
-            self.flows[flow_key] = FlowStatistics()
+            self.flows[flow_key] = FlowStatistics(
+                start_time=now, last_seen=now, last_activity=now
+            )
             self.flow_packets[flow_key] = []
             st = self.flows[flow_key]
-            st.start_time = packet_info['timestamp']
-            st.last_seen = packet_info['timestamp']
-            st.last_activity = packet_info['timestamp']
-        else: 
+        else:
             st = self.flows[flow_key]
+            st.start_time = min(st.start_time, now)
+            st.last_seen = max(st.last_seen, now)
+            # last_activity will be updated later
 
-        now = packet_info['timestamp']
-
-        # Update timing
-        st.last_seen = now
-        st.duration = now - st.start_time
+        # Update duration
+        st.duration = max(0, st.last_seen - st.start_time)
 
         # Store packet
         st.packets.append(packet)
@@ -513,12 +514,24 @@ class AdvancedFeatureExtractor:
                     return {}
 
                 # Get or create flow statistics
-                if flow_key not in self.flows:
-                    self.flows[flow_key] = FlowStatistics()
-                    self.flow_packets[flow_key] = []
+                now = packet.time  # Current packet's timestamp
 
-                flow_stats = self.flows[flow_key]
-                now = packet.time
+                if flow_key not in self.flows:
+                    self.flows[flow_key] = FlowStatistics(
+                        start_time=now, last_seen=now, last_activity=now
+                    )
+                    self.flow_packets[flow_key] = []
+                    flow_stats = self.flows[flow_key]
+                else:
+                    flow_stats = self.flows[flow_key]
+                    # Ensure start_time is the minimum and last_seen is the maximum
+                    flow_stats.start_time = min(flow_stats.start_time, now)
+                    flow_stats.last_seen = max(flow_stats.last_seen, now)
+
+                # Update duration consistently
+                flow_stats.duration = max(
+                    0, flow_stats.last_seen - flow_stats.start_time
+                )
 
                 # Append packet
                 self.flow_packets[flow_key].append(packet)
@@ -530,8 +543,8 @@ class AdvancedFeatureExtractor:
                 header_len = packet_info.get("header_length", 0)
 
                 flow_stats.total_packets += 1
-                flow_stats.duration = now - flow_stats.start_time
-                flow_stats.last_seen = now
+                # flow_stats.duration = now - flow_stats.start_time # This was the old line
+                # flow_stats.last_seen = now # This is already set prior to duration calculation
 
                 if direction == "forward":
                     flow_stats.forward_packets += 1
@@ -613,12 +626,23 @@ class AdvancedFeatureExtractor:
                 return features
 
         except Exception as e:
-            logger.error(f"Feature extraction error: {e}")
+            # Capture the full traceback—including the chain of causes—and log it
+            tb = traceback.format_exc()
+            logger.error(
+                "Feature extraction error: %s\nFull traceback:\n%s",
+                e,
+                tb
+            )
+            # Optionally, if you want to see __cause__ / __context__ explicitly:
+            if e.__cause__:
+                logger.error("Underlying cause: %s", repr(e.__cause__))
+            elif e.__context__:
+                logger.error("Context exception: %s", repr(e.__context__))
             return {}
 
     def _extract_basic_info(self, packet: Packet) -> Optional[Dict]:
         """Extract basic packet information"""
-        timestamp = packet.time if hasattr(packet, 'time') else time.time()
+        timestamp = packet.time if hasattr(packet, "time") else time.time()
         try:
             info = {
                 "timestamp": timestamp,
@@ -785,17 +809,24 @@ class AdvancedFeatureExtractor:
             packet_metrics.timestamp if packet_metrics.timestamp else time.time()
         )
 
-        # Update basic flow info
-        if flow_stats.total_packets == 0:
+        # current_time is packet_metrics.timestamp
+
+        if (
+            flow_stats.total_packets == 0
+        ):  # This implies it's the first packet metric being processed for this flow_stats object
             flow_stats.start_time = current_time
             flow_stats.last_forward_time = current_time
             flow_stats.last_backward_time = current_time
             flow_stats.last_flow_time = current_time
             flow_stats.last_activity = current_time
             flow_stats.last_seen = current_time
+        else:
+            # Ensure start_time is the minimum and last_seen is the maximum
+            flow_stats.start_time = min(flow_stats.start_time, current_time)
+            flow_stats.last_seen = max(flow_stats.last_seen, current_time)
 
-        flow_stats.last_seen = current_time
-        flow_stats.duration = current_time - flow_stats.start_time
+        flow_stats.duration = max(0, flow_stats.last_seen - flow_stats.start_time)
+        # flow_stats.total_packets will be incremented after this block, so increment it here.
         flow_stats.total_packets += 1
 
         # Determine flow direction
@@ -806,11 +837,19 @@ class AdvancedFeatureExtractor:
 
         if is_forward:
             if flow_stats.last_forward_time is not None:
+                if current_time < flow_stats.last_forward_time:
+                    logger.warning(
+                        f"Timestamp anomaly: current_time ({current_time}) < last_forward_time ({flow_stats.last_forward_time}) for flow {flow_key}"
+                    )
                 iat_forward = max(0, current_time - flow_stats.last_forward_time)
                 flow_stats.forward_iat.append(iat_forward)
             flow_stats.last_forward_time = current_time
         else:
             if flow_stats.last_backward_time is not None:
+                if current_time < flow_stats.last_backward_time:
+                    logger.warning(
+                        f"Timestamp anomaly: current_time ({current_time}) < last_backward_time ({flow_stats.last_backward_time}) for flow {flow_key}"
+                    )
                 iat_backward = max(0, current_time - flow_stats.last_backward_time)
                 flow_stats.backward_iat.append(iat_backward)
             flow_stats.last_backward_time = current_time
@@ -822,7 +861,7 @@ class AdvancedFeatureExtractor:
         else:
             flow_stats.active_times.append(time_since_last)
         flow_stats.last_activity = current_time
-    
+
         ##Newly added code to handle TCP window size
         tcp = pkt.getlayer(TCP)
         if tcp:
@@ -839,12 +878,16 @@ class AdvancedFeatureExtractor:
         # Corrected code in _update_flow_statistics method
         if is_forward:
             if flow_stats.last_forward_time is not None:
-                iat = max(0, current_time - flow_stats.last_forward_time)  # Ensure non-negative
+                iat = max(
+                    0, current_time - flow_stats.last_forward_time
+                )  # Ensure non-negative
                 flow_stats.forward_iat.append(iat)
             flow_stats.last_forward_time = current_time
         else:
             if flow_stats.last_backward_time is not None:
-                iat = max(0, current_time - flow_stats.last_backward_time)  # Ensure non-negative
+                iat = max(
+                    0, current_time - flow_stats.last_backward_time
+                )  # Ensure non-negative
                 flow_stats.backward_iat.append(iat)
             flow_stats.last_backward_time = current_time
 
@@ -853,6 +896,10 @@ class AdvancedFeatureExtractor:
         #     flow_stats.flow_iat.append(current_time - flow_packets[-1].time)
 
         if flow_stats.last_flow_time is not None:
+            if current_time < flow_stats.last_flow_time:
+                logger.warning(
+                    f"Timestamp anomaly: current_time ({current_time}) < last_flow_time ({flow_stats.last_flow_time}) for flow {flow_key}"
+                )
             iat_flow = max(0, current_time - flow_stats.last_flow_time)
             flow_stats.flow_iat.append(iat_flow)
         flow_stats.last_flow_time = current_time
@@ -871,25 +918,58 @@ class AdvancedFeatureExtractor:
 
         # Update inter-arrival times
         if len(flow_packets) > 0:
-            iat = current_time - flow_packets[-1].time
+            # General flow IAT
+            if current_time < flow_packets[-1].time:
+                logger.warning(
+                    f"Timestamp anomaly (flow_packets general): current_time ({current_time}) < prev_packet_timestamp ({flow_packets[-1].time}) for flow {flow_key}"
+                )
+            iat = max(0, current_time - flow_packets[-1].time)
             flow_stats.flow_iat.append(iat)
 
             if is_forward:
                 # Find last forward packet
-                for idx, pkt in enumerate(reversed(flow_packets)):
-                    if (
-                        idx % 2 == 0
-                    ) == is_forward:  # Use index from reversed iteration
-                        forward_iat = current_time - pkt.time
+                # Iterate in reverse to find the most recent packet in the same direction
+                for pkt_metric in reversed(flow_packets[:-1]):  # Exclude current packet
+                    # Determine direction of pkt_metric based on its relation to flow_key
+                    
+                    pkt_metric_is_forward = (
+                        (
+                            pkt[IP].src == flow_key.src_ip
+                            and pkt[TCP].sport == flow_key.src_port
+                        )
+                        if pkt.haslayer(IP) and pkt.haslayer(TCP)
+                        else False
+                    )  # Default if not IP/TCP
+
+                    if pkt_metric_is_forward:
+                        if current_time < pkt_metric.timestamp:
+                            logger.warning(
+                                f"Timestamp anomaly (flow_packets forward): current_time ({current_time}) < pkt_metric.timestamp ({pkt_metric.timestamp}) for flow {flow_key}"
+                            )
+                        forward_iat = max(0, current_time - pkt_metric.timestamp)
                         flow_stats.forward_iat.append(forward_iat)
                         break
-            else:
+            else:  # Backward packet
                 # Find last backward packet
-                for pkt in reversed(flow_packets):
+                # Iterate in reverse to find the most recent packet in the same direction
+                for pkt_metric in reversed(flow_packets[:-1]):  # Exclude current packet
+                    pkt_metric_is_forward = (
+                        (
+                            pkt[IP].src == flow_key.src_ip
+                            and pkt[TCP].sport == flow_key.src_port
+                        )
+                        if pkt.haslayer(IP) and pkt.haslayer(TCP)
+                        else False
+                    )  # Default if not IP/TCP
+
                     if (
-                        flow_packets.index(pkt) % 2 == 0
-                    ) != is_forward:  # Same direction
-                        backward_iat = current_time - pkt.time
+                        not pkt_metric_is_forward
+                    ):  # If this packet in flow_packets was backward
+                        if current_time < pkt_metric.timestamp:
+                            logger.warning(
+                                f"Timestamp anomaly (flow_packets backward): current_time ({current_time}) < pkt_metric.timestamp ({pkt_metric.timestamp}) for flow {flow_key}"
+                            )
+                        backward_iat = max(0, current_time - pkt_metric.timestamp)
                         flow_stats.backward_iat.append(backward_iat)
                         break
 
@@ -936,7 +1016,9 @@ class AdvancedFeatureExtractor:
 
         # Update activity tracking
         # Corrected code in _update_flow_statistics method
-        time_since_last = max(0, current_time - flow_stats.last_activity)  # Ensure non-negative
+        time_since_last = max(
+            0, current_time - flow_stats.last_activity
+        )  # Ensure non-negative
         if time_since_last > 1.0:  # 1 second threshold for idle time
             flow_stats.idle_times.append(time_since_last)
         else:
@@ -966,8 +1048,16 @@ class AdvancedFeatureExtractor:
                 "Bwd_PSH_Flags": flow_stats.backward_psh_flags,
                 "Bwd_URG_Flags": flow_stats.backward_urg_flags,
                 "act_data_pkt_fwd": flow_stats.act_data_pkt_fwd,
-                "min_seg_size_forward": min(flow_stats.forward_payload_lengths) if flow_stats.forward_payload_lengths else 0,
-                "min_seg_size_backward": min(flow_stats.backward_payload_lengths) if flow_stats.backward_payload_lengths else 0,
+                "min_seg_size_forward": (
+                    min(flow_stats.forward_payload_lengths)
+                    if flow_stats.forward_payload_lengths
+                    else 0
+                ),
+                "min_seg_size_backward": (
+                    min(flow_stats.backward_payload_lengths)
+                    if flow_stats.backward_payload_lengths
+                    else 0
+                ),
                 "Init_Win_bytes_forward": flow_stats.init_win_forward,
                 "Init_Win_bytes_backward": flow_stats.init_win_backward,
             }
@@ -1695,7 +1785,9 @@ class AdvancedFeatureExtractor:
 class ThreatDetector:
     """Real-time threat detection using extracted features"""
 
-    def __init__(self, feature_extractor: AdvancedFeatureExtractor,sio_queue:Queue = None):
+    def __init__(
+        self, feature_extractor: AdvancedFeatureExtractor, sio_queue: Queue = None
+    ):
         self.feature_extractor = feature_extractor
         self.sio_queue = sio_queue  # Optional Socket.IO queue for real-time updates
         self.threat_thresholds = {
@@ -1719,7 +1811,9 @@ class ThreatDetector:
         if not features:
             return threats
 
-        total_packets = features.get("Total_Fwd_Packets", 0) + features.get("Total_Backward_Packets", 0)
+        total_packets = features.get("Total_Fwd_Packets", 0) + features.get(
+            "Total_Backward_Packets", 0
+        )
         flow_duration = features.get("Flow_Duration", 0)
         pps = features.get("Flow_Packets_s", 0)
         syn_count = features.get("SYN_Flag_Count", 0)
@@ -1728,13 +1822,25 @@ class ThreatDetector:
         src_ip = packet[IP].src if packet.haslayer(IP) else "Unknown"
         timestamp = time.time()
         packet_size = features.get("packet_size", 0)
-        is_dns_amp = packet.haslayer(UDP) and packet.haslayer(DNS) and packet[UDP].dport == 53 and len(packet) > 512
+        is_dns_amp = (
+            packet.haslayer(UDP)
+            and packet.haslayer(DNS)
+            and packet[UDP].dport == 53
+            and len(packet) > 512
+        )
 
         # === Step 2: Critical ports & services ===
         critical_ports = {
-            21: "FTP", 22: "SSH", 23: "Telnet", 25: "SMTP",
-            80: "HTTP", 443: "HTTPS", 445: "SMB", 3306: "MySQL",
-            3389: "RDP", 8080: "HTTP-ALT"
+            21: "FTP",
+            22: "SSH",
+            23: "Telnet",
+            25: "SMTP",
+            80: "HTTP",
+            443: "HTTPS",
+            445: "SMB",
+            3306: "MySQL",
+            3389: "RDP",
+            8080: "HTTP-ALT",
         }
         service = critical_ports.get(dst_port, "Unknown")
         is_critical = dst_port in critical_ports
@@ -1747,73 +1853,83 @@ class ThreatDetector:
 
         # 4.1 Port Scan
         if port_scan_score > self.threat_thresholds.get("port_scan_threshold", 10):
-            threats.append({
-                "type": "PORT_SCAN",
-                "severity": "HIGH" if is_critical else "MEDIUM",
-                "confidence": 0.95,
-                "details": f"Scan on {service} (port {dst_port}) - score {port_scan_score}",
-                "src_ip": src_ip,
-                "dst_port": dst_port,
-                "service": service,
-                "actions": ["block_port" if is_critical else "notify_user"],
-                "timestamp": timestamp,
-            })
+            threats.append(
+                {
+                    "type": "PORT_SCAN",
+                    "severity": "HIGH" if is_critical else "MEDIUM",
+                    "confidence": 0.95,
+                    "details": f"Scan on {service} (port {dst_port}) - score {port_scan_score}",
+                    "src_ip": src_ip,
+                    "dst_port": dst_port,
+                    "service": service,
+                    "actions": ["block_port" if is_critical else "notify_user"],
+                    "timestamp": timestamp,
+                }
+            )
 
         # 4.2 DDoS (High packet rate)
         if pps > self.threat_thresholds.get("high_packet_rate", 500):
-            threats.append({
-                "type": "DDOS_ATTACK",
-                "severity": "CRITICAL" if is_critical else "HIGH",
-                "confidence": 0.9,
-                "details": f"High packet rate: {pps:.2f} pps targeting {service} (port {dst_port})",
-                "src_ip": src_ip,
-                "dst_port": dst_port,
-                "service": service,
-                "actions": ["block_ip", "notify_user"],
-                "timestamp": timestamp,
-            })
+            threats.append(
+                {
+                    "type": "DDOS_ATTACK",
+                    "severity": "CRITICAL" if is_critical else "HIGH",
+                    "confidence": 0.9,
+                    "details": f"High packet rate: {pps:.2f} pps targeting {service} (port {dst_port})",
+                    "src_ip": src_ip,
+                    "dst_port": dst_port,
+                    "service": service,
+                    "actions": ["block_ip", "notify_user"],
+                    "timestamp": timestamp,
+                }
+            )
 
         # 4.3 SYN Flood
         if syn_count > self.threat_thresholds.get("syn_flood_threshold", 100):
-            threats.append({
-                "type": "SYN_FLOOD",
-                "severity": "HIGH",
-                "confidence": 0.85,
-                "details": f"{syn_count} SYN packets to {service} (port {dst_port})",
-                "src_ip": src_ip,
-                "dst_port": dst_port,
-                "service": service,
-                "actions": ["block_ip", "notify_user"],
-                "timestamp": timestamp,
-            })
+            threats.append(
+                {
+                    "type": "SYN_FLOOD",
+                    "severity": "HIGH",
+                    "confidence": 0.85,
+                    "details": f"{syn_count} SYN packets to {service} (port {dst_port})",
+                    "src_ip": src_ip,
+                    "dst_port": dst_port,
+                    "service": service,
+                    "actions": ["block_ip", "notify_user"],
+                    "timestamp": timestamp,
+                }
+            )
 
         # 4.4 Suspicious Packet Size
         if total_packets >= 5 and (packet_size < 64 or packet_size > 1400):
-            threats.append({
-                "type": "SUSPICIOUS_PACKET_SIZE",
-                "severity": "MEDIUM",
-                "confidence": 0.65,
-                "details": f"Suspicious size: {packet_size} bytes on {service} (port {dst_port})",
-                "src_ip": src_ip,
-                "dst_port": dst_port,
-                "service": service,
-                "actions": ["monitor_flow"],
-                "timestamp": timestamp,
-            })
+            threats.append(
+                {
+                    "type": "SUSPICIOUS_PACKET_SIZE",
+                    "severity": "MEDIUM",
+                    "confidence": 0.65,
+                    "details": f"Suspicious size: {packet_size} bytes on {service} (port {dst_port})",
+                    "src_ip": src_ip,
+                    "dst_port": dst_port,
+                    "service": service,
+                    "actions": ["monitor_flow"],
+                    "timestamp": timestamp,
+                }
+            )
 
         # 4.5 DNS Amplification
         if is_dns_amp:
-            threats.append({
-                "type": "DNS_AMPLIFICATION",
-                "severity": "HIGH",
-                "confidence": 0.8,
-                "details": f"DNS response >512 bytes: {len(packet)} bytes",
-                "src_ip": src_ip,
-                "dst_port": 53,
-                "service": "DNS",
-                "actions": ["block_ip", "notify_user"],
-                "timestamp": timestamp,
-            })
+            threats.append(
+                {
+                    "type": "DNS_AMPLIFICATION",
+                    "severity": "HIGH",
+                    "confidence": 0.8,
+                    "details": f"DNS response >512 bytes: {len(packet)} bytes",
+                    "src_ip": src_ip,
+                    "dst_port": 53,
+                    "service": "DNS",
+                    "actions": ["block_ip", "notify_user"],
+                    "timestamp": timestamp,
+                }
+            )
 
         # === Step 5: Emit and store threats ===
         for threat in threats:
@@ -1828,7 +1944,6 @@ class ThreatDetector:
                 self.sio_queue.put_nowait(("threat_detected", threat))
 
         return threats
-    
 
     def get_threat_summary(self) -> Dict[str, Any]:
         """Get summary of detected threats"""
@@ -1855,7 +1970,6 @@ class EnhancedPacketProcessor:
         self.threat_detector = ThreatDetector(self.feature_extractor)
         self._pkt_counts: Dict[FlowKey, int] = defaultdict(int)
         self.prediction_model = None  # Placeholder for ML model
-
 
     def load_model(self, model_path: str):
         """Load pre-trained threat detection model"""
@@ -1890,8 +2004,6 @@ class EnhancedPacketProcessor:
             # Clear flow-specific data to free memory
             self.feature_extractor.clear_flow(flow_key)
             del self._pkt_counts[flow_key]
-
-    
 
     def prepare_feature_vector(self, features: Dict[str, Any]) -> List[float]:
         """Prepare feature vector for ML model in the exact order used during training."""
@@ -2098,9 +2210,6 @@ class EnhancedPacketProcessor:
             writer = csv.DictWriter(f, fieldnames=COLUMN_ORDER)
             writer.writeheader()
             writer.writerows(processed)
-
-   
-
 
     def get_system_status(self) -> Dict[str, Any]:
         """Get comprehensive system status"""
