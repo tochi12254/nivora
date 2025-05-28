@@ -1,7 +1,8 @@
 
 import React from "react";
 import DataTable from "./DataTable";
-import { HttpActivity } from "@/types";
+import { HttpActivity } from "../types";
+
 
 interface HttpActivityTableProps {
   activities: HttpActivity[];

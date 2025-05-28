@@ -1,8 +1,39 @@
+// frontend/src/hooks/useSocket.ts
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { throttle } from 'lodash';
+import { useDispatch } from 'react-redux';
+import { addSystemTelemetry, addHttpActivity } from '@/app/slices/socketSlice';
 
-// ==================== Event Interfaces ====================
-interface PacketMetadata {
+// ==================== Event export interfaces ====================
+export interface ThreatData { id: string; message: string; severity: 'low' | 'medium' | 'high'; }
+export interface PhishingData { url: string; confidence: number; }
+export interface TrainingProgress { epoch: number; accuracy: number; loss: number; }
+export interface NetworkAnomaly { type: string; packetCount: number; }
+export interface AccessData { user: string; sourceIp: string; }
+export interface FirewallData { rule: string; action: 'block' | 'allow'; }
+export interface UrlClassification { url: string; category: string; confidence: number; }
+export interface ServiceStatus { name: string; status: 'running' | 'stopped'; uptime?: number; }
+export interface Alert { message: string; timestamp: string; }
+export interface HttpActivity { endpoint: string; method: string; statusCode: number; }
+export interface DnsQuery { domain: string; recordType: string; }
+export interface ErrorData { error: string; code?: number; }
+export interface SshConnection { ip: string; user?: string; }
+export interface FirewallEvent { ip: string; type: 'block' | 'allow'; reason: string; }
+export interface Rule { id: string; name: string; description: string; }
+export interface SystemStats { cpu: number; memory: number; network: number; }
+export interface SystemStatus { online: boolean; services: string[]; }
+export interface IPv6Activity { source: string; destination: string; payloadSize: number; }
+export interface CriticalAlert { type: string; source: string; mitigation: string; }
+export interface SystemTelemetry { cpu: number; memory: number; processes: ProcessInfo[]; }
+export interface ThreatResponse { action: string; target: string; success: boolean; }
+export interface ProcessInspection { pid: number; name: string; suspicious: boolean; }
+export interface ConnectionAnalysis { protocol: string; count: number; riskScore: number; }
+export interface FileQuarantined { path: string; hash: string; reason: string; }
+export interface SystemSnapshot { timestamp: string; metrics: SystemStats; }
+export interface ProcessInfo { pid: number; name: string; cpu: number; memory: number; }
+export interface AnalysisError { data: any}
+export interface PacketMetadata {
   timestamp: number;
   src_ip: string | null;
   dst_ip: string | null;
@@ -12,185 +43,245 @@ interface PacketMetadata {
   dst_port: number | null;
   payload: string | null;
 }
-interface ThreatData { id: string; message: string; severity: 'low' | 'medium' | 'high'; }
-interface PhishingData { url: string; confidence: number; }
-interface TrainingProgress { epoch: number; accuracy: number; loss: number; }
-interface NetworkAnomaly { type: string; packetCount: number; }
-interface AccessData { user: string; sourceIp: string; }
-interface FirewallData { rule: string; action: 'block' | 'allow'; }
-interface UrlClassification { url: string; category: string; confidence: number; }
-interface ServiceStatus { name: string; status: 'running' | 'stopped'; uptime?: number; }
-interface Alert { message: string; timestamp: string; }
-interface HttpActivity { endpoint: string; method: string; statusCode: number; }
-interface DnsQuery { domain: string; recordType: string; }
-interface ErrorData { error: string; code?: number; }
-interface SshConnection { ip: string; user?: string; }
-interface FirewallEvent { ip: string; type: 'block' | 'allow'; reason: string; }
-interface Rule { id: string; name: string; description: string; }
-interface SystemStats { cpu: number; memory: number; network: number; }
-interface SystemStatus { online: boolean; services: string[]; }
-interface IPv6Activity { source: string; destination: string; payloadSize: number; }
-interface CriticalAlert { type: string; source: string; mitigation: string; }
-interface SystemTelemetry { cpu: number; memory: number; processes: ProcessInfo[]; }
-interface ThreatResponse { action: string; target: string; success: boolean; }
-interface ProcessInspection { pid: number; name: string; suspicious: boolean; }
-interface ConnectionAnalysis { protocol: string; count: number; riskScore: number; }
-interface FileQuarantined { path: string; hash: string; reason: string; }
-interface SystemSnapshot { timestamp: string; metrics: SystemStats; }
-interface ProcessInfo { pid: number; name: string; cpu: number; memory: number; }
 
-export type PacketSnifferEvent =
-  | { type: 'packet_data'; data: PacketMetadata }
-  | { type: 'network_anomaly'; data: NetworkAnomaly }
-  | { type: 'http_activity'; data: HttpActivity }
-  | { type: 'dns_activity'; data: DnsQuery }
-  | { type: 'ipv6_activity'; data: IPv6Activity }
-  | { type: 'connection_analysis'; data: ConnectionAnalysis }
+// ==================== Event Type Definitions ====================
+export type SocketEvent =
   | { type: 'threat_detected'; data: ThreatData }
+  | { type: 'analysis_error'; data: AnalysisError}
+  | { type: 'network_metrics'; data: any }
   | { type: 'phishing_link_detected'; data: PhishingData }
-  | { type: 'unauthorized_access'; data: AccessData }
-  | { type: 'critical_alert'; data: CriticalAlert }
-  | { type: 'security_alert'; data: Alert }
-  | { type: 'file_quarantined'; data: FileQuarantined }
-  | { type: 'threat_response'; data: ThreatResponse }
-  | { type: 'firewall_blocked'; data: FirewallData }
-  | { type: 'firewall_event'; data: FirewallEvent }
-  | { type: 'ssh_connection'; data: SshConnection }
-  | { type: 'system_stats'; data: SystemStats }
-  | { type: 'system_status'; data: SystemStatus }
-  | { type: 'system_telemetry'; data: SystemTelemetry }
-  | { type: 'system_error'; data: ErrorData }
-  | { type: 'service_status'; data: ServiceStatus }
-  | { type: 'process_inspection'; data: ProcessInspection }
-  | { type: 'system_snapshot'; data: SystemSnapshot }
   | { type: 'training_progress'; data: TrainingProgress }
   | { type: 'training_completed'; data: null }
+  | { type: 'network_anomaly'; data: NetworkAnomaly }
+  | { type: 'unauthorized_access'; data: AccessData }
+  | { type: 'firewall_blocked'; data: FirewallData }
   | { type: 'url_classification_result'; data: UrlClassification }
-  | { type: 'get_rules'; data: Rule[] }
+  | { type: 'service_status'; data: ServiceStatus }
   | { type: 'user_alert'; data: Alert }
+  | { type: 'security_alert'; data: Alert }
+  | { type: 'http_activity'; data: HttpActivity }
+  | { type: 'behavior_analysis'; data: HttpActivity }
+  | { type: 'payload_analysis'; data: HttpActivity }
+  | { type: 'tcp_activity'; data: any }
+  | { type: 'udp_activity'; data: HttpActivity }
+  | { type: 'arp_activity'; data: HttpActivity }
+  | { type: 'icmp_activity'; data: HttpActivity }
+  | { type: 'dns_activity'; data: DnsQuery }
   | { type: 'database_error'; data: ErrorData }
+  | { type: 'ssh_connection'; data: SshConnection }
+  | { type: 'firewall_event'; data: FirewallEvent }
   | { type: 'detection_error'; data: ErrorData }
-  | { type: 'rules_updated'; data: { count: number } };
+  | { type: 'rules_updated'; data: { count: number } }
+  | { type: 'get_rules'; data: Rule[] }
+  | { type: 'system_stats'; data: SystemStats }
+  | { type: 'system_error'; data: ErrorData }
+  | { type: 'system_status'; data: SystemStatus }
+  | { type: 'ipv6_activity'; data: IPv6Activity }
+  | { type: 'critical_alert'; data: CriticalAlert }
+  | { type: 'system_telemetry'; data: SystemTelemetry }
+  | { type: 'threat_response'; data: ThreatResponse }
+  | { type: 'process_inspection'; data: ProcessInspection }
+  | { type: 'connection_analysis'; data: ConnectionAnalysis }
+  | { type: 'file_quarantined'; data: FileQuarantined }
+  | { type: 'system_snapshot'; data: SystemSnapshot }
+  | { type: 'packet_data'; data: PacketMetadata };
 
-interface UsePacketSnifferSocketReturn {
+// ==================== Hook Return Type ====================
+export interface UseSocketReturn {
   socket: Socket | null;
   isConnected: boolean;
   connectionError: string | null;
   connect: () => void;
   disconnect: () => void;
-  emitEvent: <T extends PacketSnifferEvent['type']>(
+  emitEvent: <T extends SocketEvent['type']>(
     type: T,
-    data: Extract<PacketSnifferEvent, { type: T }>['data']
+    data: Extract<SocketEvent, { type: T }>['data']
   ) => void;
-  subscribe: <T extends PacketSnifferEvent['type']>(
+  subscribe: <T extends SocketEvent['type']>(
     eventType: T,
-    handler: (data: Extract<PacketSnifferEvent, { type: T }>['data']) => void
+    handler: (data: Extract<SocketEvent, { type: T }>['data']) => void
   ) => void;
-  unsubscribe: <T extends PacketSnifferEvent['type']>(
+  unsubscribe: <T extends SocketEvent['type']>(
     eventType: T,
-    handler: (data: Extract<PacketSnifferEvent, { type: T }>['data']) => void
+    handler: (data: Extract<SocketEvent, { type: T }>['data']) => void
   ) => void;
 }
 
-export function usePacketSnifferSocket(): UsePacketSnifferSocketReturn {
+// ==================== Event Handlers Configuration ====================
+
+
+// ==================== Socket Event Types ====================
+const ALL_SOCKET_EVENTS: SocketEvent['type'][] = [
+  'threat_detected', 'network_metrics', 'phishing_link_detected',
+  'training_progress', 'training_completed', 'network_anomaly',
+  'unauthorized_access', 'firewall_blocked', 'url_classification_result',
+  'service_status', 'user_alert', 'security_alert', 'http_activity', 'tcp_activity', 'icmp_activity',
+  'udp_activity','arp_activity','behavior_analysis',
+  'dns_activity', 'database_error', 'ssh_connection', 'firewall_event','payload_analysis',
+  'detection_error', 'rules_updated', 'get_rules', 'system_stats',
+  'system_error', 'system_status', 'ipv6_activity', 'critical_alert',
+  'system_telemetry', 'threat_response', 'process_inspection',
+  'connection_analysis', 'file_quarantined', 'system_snapshot', 'packet_data'
+];
+
+// ==================== Main Hook Implementation ====================
+export default function usePacketSniffer(): UseSocketReturn {
+  
+  const dispatch = useDispatch();
+
+  const EVENT_HANDLERS_CONFIG = {
+    // High-priority security events
+    'threat_detected': (data: ThreatData) => console.warn('⚠️ Threat Detected:', data),
+    'critical_alert': (data: CriticalAlert) => console.error('🔥 Critical Alert:', data),
+    'unauthorized_access': (data: AccessData) => console.warn('🚨 Unauthorized Access:', data),
+    'phishing_link_detected': (data: PhishingData) => console.warn('🎣 Phishing Link:', data),
+    
+    // System monitoring events
+    'system_error': (data: ErrorData) => console.error('❌ System Error:', data),
+    'system_status': (data: SystemStatus) => console.info('🖥️ System Status:', data),
+    'service_status': (data: ServiceStatus) => console.info('🛠️ Service Status:', data),
+    'analysis_error': (data: AnalysisError) => console.log("Analysis Error", data),
+    
+    // Network events
+    'network_anomaly': throttle((data: NetworkAnomaly) =>
+      console.log('🌐 Network Anomaly:', data), 1000),
+    'firewall_event': (data: FirewallEvent) => console.info('🔥 Firewall Event:', data),
+    'packet_data': (data: PacketMetadata) => console.debug('📦 Packet Data:', data),
+  
+    
+    // Training events
+    'training_progress': (data: TrainingProgress) => console.info('🏋️ Training Progress:', data),
+    'training_completed': () => console.info('✅ Training Completed'),
+    
+    // Telemetry events (throttled)
+    'system_telemetry': throttle((data: SystemTelemetry[]) => {
+      console.log('📊 System Telemetry:', data);
+      
+    }, 500),
+    
+    'system_stats': (data: SystemStats) => console.debug('📈 System Stats:', data),
+    'http_activity': (data: HttpActivity[]) => {
+      dispatch(addHttpActivity(data as HttpActivity[]));
+      console.log('🌐 HTTP Activity:', data);
+    },
+    'tcp_activity': (data: any[]) => {
+      console.log('🌐 TCP Activity:', data);
+    },
+    'behavior_analysis': (data: HttpActivity[]) => {
+      console.log('🌐 Behavior analysis:', data);
+    },
+    'payload_analysis': (data: HttpActivity[]) => {
+      console.log('🌐 Payload analysis:', data);
+    },
+    'icmp_activity': (data: HttpActivity[]) => {
+      console.log('🌐 ICMP Activity:', data);
+    },
+    'udp_activity': (data: HttpActivity[]) => {
+      console.log('🌐 UDP Activity:', data);
+    },
+    'arp_activity': (data: HttpActivity[]) => {
+      console.log('🌐 ARP Activity:', data);
+    },
+
+
+    
+    // Default handler for unconfigured events
+    'default': (type: string, data: any) => console.log(`ℹ️ Event: ${type}`, data)
+  };
+  
+
   const socketRef = useRef<Socket | null>(null);
-  const handlers = useRef(new Map<string, Set<Function>>());
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const initialized = useRef(false);
+  const handlers = useRef(new Map<SocketEvent['type'], Set<Function>>());
 
-  const handleEvent = useCallback((event: PacketSnifferEvent) => {
-    handlers.current.get(event.type)?.forEach((handler) => handler(event.data));
+  // ==================== Event Handler ====================
+  const handleEvent = useCallback((event: SocketEvent) => {
+    // Call registered handlers first
+    const eventHandlers = handlers.current.get(event.type);
+    eventHandlers?.forEach(handler => handler(event.data));
+
+    // Then call configured handlers
+    const configuredHandler = EVENT_HANDLERS_CONFIG[event.type] || 
+      ((data: any) => EVENT_HANDLERS_CONFIG.default(event.type, data));
+    configuredHandler(event.data);
   }, []);
 
+  // ==================== Connection Management ====================
   const connect = useCallback(() => {
     if (socketRef.current?.connected || initialized.current) return;
 
-    const socket = io('http://127.0.0.1:8000/packet_sniffer', {
+    const newSocket = io('http://127.0.0.1:8000/packet_sniffer', {
+      path: '/socket.io',             // Matches your FastAPI mount
       transports: ['websocket'],
+      reconnectionAttempts: 5,
+      reconnectionDelay: 3000,
       autoConnect: false,
+      upgrade: false,
     });
 
-    socket.on('connect', () => {
-      setIsConnected(true);
-      setConnectionError(null);
-      console.log('[Socket] PacketSniffer connected');
+    
+
+    // Connection lifecycle handlers
+    newSocket
+      .on('connect', () => {
+        setIsConnected(true);
+        setConnectionError(null);
+        console.log("✅ Socket connected to:", newSocket.nsp);
+      })
+      .on('connect_error', (err) => {
+        setConnectionError(err.message);
+        console.error('❌ Connection Error:', err);
+      })
+      .on('disconnect', () => {
+        setIsConnected(false);
+        console.warn('⚠️ Socket Disconnected');
+      });
+
+    // Register all event listeners
+    ALL_SOCKET_EVENTS.forEach(event => {
+      newSocket.on(event, (data: any) => handleEvent({ type: event, data } as SocketEvent));
     });
 
-    socket.on('connect_error', (err) => {
-      setConnectionError(err.message);
-      console.error('[Socket] PacketSniffer connection error:', err);
-    });
-
-    socket.on('disconnect', () => {
-      setIsConnected(false);
-      console.warn('[Socket] PacketSniffer disconnected');
-    });
-
-    // Generic event proxy handler
-    const allEventTypes: PacketSnifferEvent['type'][] = [
-      'packet_data', 'network_anomaly', 'http_activity', 'dns_activity', 'ipv6_activity',
-      'connection_analysis', 'threat_detected', 'phishing_link_detected', 'unauthorized_access',
-      'critical_alert', 'security_alert', 'file_quarantined', 'threat_response',
-      'firewall_blocked', 'firewall_event', 'ssh_connection', 'system_stats', 'system_status',
-      'system_telemetry', 'system_error', 'service_status', 'process_inspection',
-      'system_snapshot', 'training_progress', 'training_completed', 'url_classification_result',
-      'get_rules', 'user_alert', 'database_error', 'detection_error', 'rules_updated'
-    ];
-
-    allEventTypes.forEach((event) => {
-      socket.on(event, (data) => handleEvent({ type: event, data } as PacketSnifferEvent));
-    });
-
-    socket.connect();
-    socketRef.current = socket;
+    newSocket.connect();
+    socketRef.current = newSocket;
     initialized.current = true;
   }, [handleEvent]);
 
+  // ==================== Disconnection Handler ====================
   const disconnect = useCallback(() => {
     if (socketRef.current) {
       socketRef.current.disconnect();
       socketRef.current = null;
       initialized.current = false;
       setIsConnected(false);
+      console.log('🔌 Socket Disconnected');
     }
   }, []);
 
-  const emitEvent = useCallback(
-    <T extends PacketSnifferEvent['type']>(
-      type: T,
-      data: Extract<PacketSnifferEvent, { type: T }>['data']
-    ) => {
-      if (socketRef.current?.connected) {
-        socketRef.current.emit(type, data);
-      }
-    },
-    []
-  );
+  // ==================== Event Emission ====================
+  const emitEvent = useCallback<UseSocketReturn['emitEvent']>((type, data) => {
+    if (socketRef.current?.connected) {
+      socketRef.current.emit(type, data);
+    } else {
+      console.warn('⚠️ Cannot emit event - socket not connected');
+    }
+  }, []);
 
-  const subscribe = useCallback(
-    <T extends PacketSnifferEvent['type']>(
-      eventType: T,
-      handler: (data: Extract<PacketSnifferEvent, { type: T }>['data']) => void
-    ) => {
-      if (!handlers.current.has(eventType)) {
-        handlers.current.set(eventType, new Set());
-      }
-      handlers.current.get(eventType)!.add(handler);
-    },
-    []
-  );
+  // ==================== Subscription Management ====================
+  const subscribe = useCallback<UseSocketReturn['subscribe']>((eventType, handler) => {
+    if (!handlers.current.has(eventType)) {
+      handlers.current.set(eventType, new Set());
+    }
+    handlers.current.get(eventType)?.add(handler);
+  }, []);
 
-  const unsubscribe = useCallback(
-    <T extends PacketSnifferEvent['type']>(
-      eventType: T,
-      handler: (data: Extract<PacketSnifferEvent, { type: T }>['data']) => void
-    ) => {
-      handlers.current.get(eventType)?.delete(handler);
-    },
-    []
-  );
+  const unsubscribe = useCallback<UseSocketReturn['unsubscribe']>((eventType, handler) => {
+    handlers.current.get(eventType)?.delete(handler);
+  }, []);
 
+  // ==================== Lifecycle Management ====================
   useEffect(() => {
     connect();
     return () => {
@@ -198,6 +289,7 @@ export function usePacketSnifferSocket(): UsePacketSnifferSocketReturn {
       handlers.current.clear();
     };
   }, [connect, disconnect]);
+
 
   return {
     socket: socketRef.current,

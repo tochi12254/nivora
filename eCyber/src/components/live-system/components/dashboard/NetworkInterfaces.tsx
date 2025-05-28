@@ -9,7 +9,7 @@ import {
   AccordionItem,
   AccordionTrigger
 } from "@/components/ui/accordion";
-import { NetworkInterface } from "@/lib/socket";
+import { NetworkInterface } from "../../lib/socket";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 

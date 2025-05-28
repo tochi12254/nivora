@@ -2,35 +2,38 @@
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { throttle } from 'lodash';
+import { useDispatch } from 'react-redux';
+import { addSystemTelemetry } from '@/app/slices/socketSlice';
 
-// ==================== Event Interfaces ====================
-interface ThreatData { id: string; message: string; severity: 'low' | 'medium' | 'high'; }
-interface PhishingData { url: string; confidence: number; }
-interface TrainingProgress { epoch: number; accuracy: number; loss: number; }
-interface NetworkAnomaly { type: string; packetCount: number; }
-interface AccessData { user: string; sourceIp: string; }
-interface FirewallData { rule: string; action: 'block' | 'allow'; }
-interface UrlClassification { url: string; category: string; confidence: number; }
-interface ServiceStatus { name: string; status: 'running' | 'stopped'; uptime?: number; }
-interface Alert { message: string; timestamp: string; }
-interface HttpActivity { endpoint: string; method: string; statusCode: number; }
-interface DnsQuery { domain: string; recordType: string; }
-interface ErrorData { error: string; code?: number; }
-interface SshConnection { ip: string; user?: string; }
-interface FirewallEvent { ip: string; type: 'block' | 'allow'; reason: string; }
-interface Rule { id: string; name: string; description: string; }
-interface SystemStats { cpu: number; memory: number; network: number; }
-interface SystemStatus { online: boolean; services: string[]; }
-interface IPv6Activity { source: string; destination: string; payloadSize: number; }
-interface CriticalAlert { type: string; source: string; mitigation: string; }
-interface SystemTelemetry { cpu: number; memory: number; processes: ProcessInfo[]; }
-interface ThreatResponse { action: string; target: string; success: boolean; }
-interface ProcessInspection { pid: number; name: string; suspicious: boolean; }
-interface ConnectionAnalysis { protocol: string; count: number; riskScore: number; }
-interface FileQuarantined { path: string; hash: string; reason: string; }
-interface SystemSnapshot { timestamp: string; metrics: SystemStats; }
-interface ProcessInfo { pid: number; name: string; cpu: number; memory: number; }
-interface PacketMetadata {
+// ==================== Event export interfaces ====================
+export interface ThreatData { id: string; message: string; severity: 'low' | 'medium' | 'high'; }
+export interface PhishingData { url: string; confidence: number; }
+export interface TrainingProgress { epoch: number; accuracy: number; loss: number; }
+export interface NetworkAnomaly { type: string; packetCount: number; }
+export interface AccessData { user: string; sourceIp: string; }
+export interface FirewallData { rule: string; action: 'block' | 'allow'; }
+export interface UrlClassification { url: string; category: string; confidence: number; }
+export interface ServiceStatus { name: string; status: 'running' | 'stopped'; uptime?: number; }
+export interface Alert { message: string; timestamp: string; }
+export interface HttpActivity { endpoint: string; method: string; statusCode: number; }
+export interface DnsQuery { domain: string; recordType: string; }
+export interface ErrorData { error: string; code?: number; }
+export interface SshConnection { ip: string; user?: string; }
+export interface FirewallEvent { ip: string; type: 'block' | 'allow'; reason: string; }
+export interface Rule { id: string; name: string; description: string; }
+export interface SystemStats { cpu: number; memory: number; network: number; }
+export interface SystemStatus { online: boolean; services: string[]; }
+export interface IPv6Activity { source: string; destination: string; payloadSize: number; }
+export interface CriticalAlert { type: string; source: string; mitigation: string; }
+export interface SystemTelemetry { cpu: number; memory: number; processes: ProcessInfo[]; }
+export interface ThreatResponse { action: string; target: string; success: boolean; }
+export interface ProcessInspection { pid: number; name: string; suspicious: boolean; }
+export interface ConnectionAnalysis { protocol: string; count: number; riskScore: number; }
+export interface FileQuarantined { path: string; hash: string; reason: string; }
+export interface SystemSnapshot { timestamp: string; metrics: SystemStats; }
+export interface ProcessInfo { pid: number; name: string; cpu: number; memory: number; }
+export interface AnalysisError { data: any}
+export interface PacketMetadata {
   timestamp: number;
   src_ip: string | null;
   dst_ip: string | null;
@@ -44,6 +47,7 @@ interface PacketMetadata {
 // ==================== Event Type Definitions ====================
 export type SocketEvent =
   | { type: 'threat_detected'; data: ThreatData }
+  | { type: 'analysis_error'; data: AnalysisError}
   | { type: 'network_metrics'; data: any }
   | { type: 'phishing_link_detected'; data: PhishingData }
   | { type: 'training_progress'; data: TrainingProgress }
@@ -77,7 +81,7 @@ export type SocketEvent =
   | { type: 'packet_data'; data: PacketMetadata };
 
 // ==================== Hook Return Type ====================
-interface UseSocketReturn {
+export interface UseSocketReturn {
   socket: Socket | null;
   isConnected: boolean;
   connectionError: string | null;
@@ -98,36 +102,7 @@ interface UseSocketReturn {
 }
 
 // ==================== Event Handlers Configuration ====================
-const EVENT_HANDLERS_CONFIG = {
-  // High-priority security events
-  'threat_detected': (data: ThreatData) => console.warn('⚠️ Threat Detected:', data),
-  'critical_alert': (data: CriticalAlert) => console.error('🔥 Critical Alert:', data),
-  'unauthorized_access': (data: AccessData) => console.warn('🚨 Unauthorized Access:', data),
-  'phishing_link_detected': (data: PhishingData) => console.warn('🎣 Phishing Link:', data),
-  
-  // System monitoring events
-  'system_error': (data: ErrorData) => console.error('❌ System Error:', data),
-  'system_status': (data: SystemStatus) => console.info('🖥️ System Status:', data),
-  'service_status': (data: ServiceStatus) => console.info('🛠️ Service Status:', data),
-  
-  // Network events
-  'network_anomaly': throttle((data: NetworkAnomaly) => 
-    console.log('🌐 Network Anomaly:', data), 1000),
-  'firewall_event': (data: FirewallEvent) => console.info('🔥 Firewall Event:', data),
-  'packet_data': (data: PacketMetadata) => console.debug('📦 Packet Data:', data),
-  
-  // Training events
-  'training_progress': (data: TrainingProgress) => console.info('🏋️ Training Progress:', data),
-  'training_completed': () => console.info('✅ Training Completed'),
-  
-  // Telemetry events (throttled)
-  'system_telemetry': throttle((data: SystemTelemetry) => 
-    console.log('📊 System Telemetry:', data), 5000),
-  'system_stats': (data: SystemStats) => console.log('📈 System Stats:', data),
-  
-  // Default handler for unconfigured events
-  'default': (type: string, data: any) => console.log(`ℹ️ Event: ${type}`, data)
-};
+
 
 // ==================== Socket Event Types ====================
 const ALL_SOCKET_EVENTS: SocketEvent['type'][] = [
@@ -144,6 +119,45 @@ const ALL_SOCKET_EVENTS: SocketEvent['type'][] = [
 
 // ==================== Main Hook Implementation ====================
 export default function useSocket(): UseSocketReturn {
+  
+  const dispatch = useDispatch();
+
+  const EVENT_HANDLERS_CONFIG = {
+    // High-priority security events
+    'threat_detected': (data: ThreatData) => console.warn('⚠️ Threat Detected:', data),
+    'critical_alert': (data: CriticalAlert) => console.error('🔥 Critical Alert:', data),
+    'unauthorized_access': (data: AccessData) => console.warn('🚨 Unauthorized Access:', data),
+    'phishing_link_detected': (data: PhishingData) => console.warn('🎣 Phishing Link:', data),
+    
+    // System monitoring events
+    'system_error': (data: ErrorData) => console.error('❌ System Error:', data),
+    'system_status': (data: SystemStatus) => console.info('🖥️ System Status:', data),
+    'service_status': (data: ServiceStatus) => console.info('🛠️ Service Status:', data),
+    'analysis_error': (data: AnalysisError) => console.log("Analysis Error", data),
+    
+    // Network events
+    'network_anomaly': throttle((data: NetworkAnomaly) =>
+      console.log('🌐 Network Anomaly:', data), 1000),
+    'firewall_event': (data: FirewallEvent) => console.info('🔥 Firewall Event:', data),
+    'packet_data': (data: PacketMetadata) => console.debug('📦 Packet Data:', data),
+    
+    // Training events
+    'training_progress': (data: TrainingProgress) => console.info('🏋️ Training Progress:', data),
+    'training_completed': () => console.info('✅ Training Completed'),
+    
+    // Telemetry events (throttled)
+    'system_telemetry': throttle((data: SystemTelemetry[]) => {
+      console.log('📊 System Telemetry:', data);
+      // dispatch(addSystemTelemetry(data)); // 🔥 This is now valid
+    }, 500),
+    
+    'system_stats': (data: SystemStats) => console.debug('📈 System Stats:', data),
+    
+    // Default handler for unconfigured events
+    'default': (type: string, data: any) => console.log(`ℹ️ Event: ${type}`, data)
+  };
+  
+
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);

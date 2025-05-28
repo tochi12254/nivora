@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { NetworkConnection, ProcessItem } from "@/lib/socket";
+import { ProcessItem, NetworkConnection } from "../../lib/socket";
 
 interface InspectionModalProps {
   isOpen: boolean;

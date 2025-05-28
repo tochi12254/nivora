@@ -86,6 +86,7 @@ class PacketSniffer:
         self.start_time = time.time()
         self.end_time = time.time()
         self._state_checked = False
+        self._stop_event = Event()
 
         ##Machine learning part
 
@@ -93,7 +94,7 @@ class PacketSniffer:
             cleanup_interval=300, flow_timeout=120
         )
         self.packet_processor = EnhancedPacketProcessor()
-        self.threat_detector = ThreatDetector(self.feature_extractor)
+        self.threat_detector = ThreatDetector(self.feature_extractor, self.sio_queue)
         # If you’ll do ML inference:
         # self.enhanced_processor = EnhancedPacketProcessor()
         # self.enhanced_processor.load_model("path/to/your/model.pkl")
@@ -721,15 +722,18 @@ class PacketSniffer:
                     feature_vector = self.packet_processor.prepare_feature_vector(features)
 
                     # Optional: Save features for inspection/debug
-                    save_features_to_json(features)
-                    save_feature_vectors_to_json(feature_vector)
+                    if len(features) > 1:
+                        feature_vector = self.packet_processor.prepare_feature_vector(features)
+                        save_feature_vectors_to_json(feature_vector)
+                        save_features_to_json(features)
+                        
 
                     # Step 3: Feed into enhanced_processor to detect end-of-flow (FIN/RST)
-                    self.enhanced_processor.process_packet(packet)  # Handles per-flow export + memory cleanup
+                    self.packet_processor.process_packet(packet)  # Handles per-flow export + memory cleanup
 
                     # Optional: Periodic backup to CSV (e.g. to catch flows with no FIN/RST)
                     if self.packet_counter.value % 300 == 0:
-                        self.feature_extractor._cleanup_expired_flows(timeout=60.0)  #   
+                        self.feature_extractor.cleanup_old_flows(timeout=60.0)  #   
                 except Exception as e:
                     logger.debug("Feature extraction failed: %s", e)
 
@@ -2666,6 +2670,7 @@ class PacketSniffer:
             )
             self._async_sniffer.start()
             logger.info("AsyncSniffer started on %s", interface)
+            await self._stop_event.wait()
 
         # 3) start reporter
         if not self.reporter_process or not self.reporter_process.is_alive():
@@ -2706,6 +2711,9 @@ class PacketSniffer:
             self.reporter_process.join(timeout=5)
             self.reporter_process = None
             self.end_time = time.perf_counter()
+            
+            if self._stop_event:
+                self._stop_event.set()
 
             logger.info("processed %d packets in %d seconds", self.packet_counter.value, (self.end_time - self.start_time))
         # send stopping status

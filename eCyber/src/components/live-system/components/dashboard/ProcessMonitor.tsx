@@ -3,7 +3,7 @@ import { AlertTriangle, Check, Search, FileTerminal, ShieldCheck, Shield } from 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ProcessItem } from "@/lib/socket";
+import { ProcessItem } from "../../lib/socket";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { 

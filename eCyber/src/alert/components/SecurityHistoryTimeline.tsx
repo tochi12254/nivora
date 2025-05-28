@@ -2,17 +2,15 @@
 import React, { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { 
-  ThreatDetection, 
-  PhishingDetection, 
+
+import { ThreatDetection, PhishingDetection, 
   FirewallEvent, 
   HttpActivity, 
   DnsActivity, 
   PacketAnalysis, 
   ThreatResponse, 
   QuarantinedFile,
-  IPv6Activity
-} from "@/types";
+  IPv6Activity } from "../types";
 
 type TimelineEvent = {
   id: string;
@@ -64,7 +62,7 @@ const SecurityHistoryTimeline = ({
       id: crypto.randomUUID(),
       timestamp: p.timestamp,
       type: "phishing",
-      title: `Phishing URL: ${p.url.substring(0, 30)}...`,
+      title: `Phishing URL: ${p?.url?.substring(0, 30)}...`,
       description: `Confidence: ${p.confidenceScore.toFixed(1)}%, Categories: ${p.categories.join(', ')}`,
       severity: p.confidenceScore > 80 ? "High" : p.confidenceScore > 50 ? "Medium" : "Low" as "High" | "Medium" | "Low"
     })),
@@ -80,7 +78,7 @@ const SecurityHistoryTimeline = ({
       id: h.id,
       timestamp: h.timestamp,
       type: "http",
-      title: `HTTP ${h.method} ${h.path.substring(0, 30)}...`,
+      title: `HTTP ${h.method} ${h?.path?.substring(0, 30)}...`,
       description: `Status: ${h.statusCode}, Threat Score: ${h.threatScore}`,
       severity: h.threatScore > 80 ? "Critical" : h.threatScore > 60 ? "High" : h.threatScore > 30 ? "Medium" : "Low" as "Critical" | "High" | "Medium" | "Low"
     })),
@@ -123,7 +121,7 @@ const SecurityHistoryTimeline = ({
       timestamp: i.timestamp,
       type: "ipv6",
       title: `IPv6 Traffic: ${i.protocol}`,
-      description: `${i.sourceIPv6.substring(0, 20)}... → ${i.destinationIPv6.substring(0, 20)}...`,
+      description: `${i.sourceIPv6?.substring(0, 20)}... → ${i.destinationIPv6?.substring(0, 20)}...`,
       severity: i.tunneled ? "Medium" : i.baselineDeviation > 50 ? "Medium" : "Low" as "Medium" | "Low"
     }))
   ];

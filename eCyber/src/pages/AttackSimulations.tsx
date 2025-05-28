@@ -1,5 +1,6 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Socket } from 'socket.io-client';
 import { useTheme } from '@/components/theme/ThemeProvider';
 import { 
   Shield, AlertTriangle, Network, Database, User, 
@@ -30,9 +31,30 @@ import DomainMonitor from '@/components/attack-simulations/DomainMonitor';
 import VulnerabilityScanner from '@/components/attack-simulations/VulnerabilityScanner';
 import URLClassifier from '@/components/attack-simulations/URLClassifier';
 
+import { useTelemetrySocket } from '@/components/live-system/lib/socket';
+
 const AttackSimulations = () => {
+
+  const {
+    getSocket
+  } = useTelemetrySocket();
+
   const { theme } = useTheme();
   const [activeTab, setActiveTab] = useState("attack-simulations");
+  const socket: Socket | null = getSocket()
+
+  useEffect(() => {
+    if (socket) {
+      socket.on('interfaces', (data: any) => {
+        console.log("Network Interfaces: ", data)
+      })
+
+      return () => {
+        socket.off('interfaces');
+      }
+    }
+    
+  },[socket])
 
   return (
     <div className="container mx-auto py-8 animate-fade-in">

@@ -3,14 +3,17 @@ import hashlib
 import numpy as np
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any,Set
+from typing import Dict, List, Optional, Tuple, Any, Set
 import logging
 from dataclasses import dataclass, field
-import statistics   
+import statistics
 from collections import OrderedDict
-import csv 
+import csv
 import json
+import os
+
 import threading
+from multiprocessing import Queue
 import multiprocessing
 from scapy.all import (
     sniff,
@@ -34,11 +37,17 @@ from scapy.layers.http import HTTPRequest, HTTPResponse
 from scapy.layers.inet6 import IPv6ExtHdrFragment
 from scapy.packet import Packet
 from statistics import mean, stdev
+
 logger = logging.getLogger(__name__)
+
+
 def new_deque():
     return deque()
+
+
 def default_int():
     return defaultdict(int)
+
 
 @dataclass
 class FlowKey:
@@ -59,8 +68,10 @@ class FlowKey:
 @dataclass
 class PacketMetrics:
     """Individual packet metrics"""
+
     size: int
     payload_size: int
+    pkt: Packet
     header_size: int
     timestamp: float = field(default_factory=time.time)
     flags: str = ""
@@ -84,7 +95,8 @@ class FlowStatistics:
     duration: float = 0.0
     unique_dest_ips: Set[str] = field(default_factory=set)
     protocols_seen: Set[int] = field(default_factory=set)
-
+    last_forward_time: Optional[float] = None
+    last_backward_time: Optional[float] = None
     # Packet counts
     total_packets: int = 0
     forward_packets: int = 0
@@ -103,8 +115,9 @@ class FlowStatistics:
     backward_urg_flags: int = 0
     act_data_pkt_fwd: int = 0
     min_seg_size_forward: int = 0
-    init_win_forward: int = 0
-    init_win_backward: int = 0
+    init_win_forward: Optional[int] = None
+    init_win_backward: Optional[int] = None
+
     # Timing statistics
     forward_iat: List[float] = field(default_factory=list)  # Inter-arrival times
     backward_iat: List[float] = field(default_factory=list)
@@ -144,12 +157,14 @@ class FlowStatistics:
     subflow_forward_bytes: int = 0
     subflow_backward_packets: int = 0
     subflow_backward_bytes: int = 0
-
+    forward_payload_lengths: List[int]  = field(default_factory=list)
+    backward_payload_lengths: List[int] = field(default_factory=list)
+    last_flow_time: Optional[float] = None
 
 
 class AdvancedFeatureExtractor:
     """Advanced feature extraction for network packets aligned with CICIDS datasets"""
-    
+
     def __init__(self, cleanup_interval: int = 300, flow_timeout: int = 120):
         self.flows: Dict[FlowKey, FlowStatistics] = {}
         self.flow_packets: Dict[FlowKey, List[PacketMetrics]] = {}
@@ -157,7 +172,6 @@ class AdvancedFeatureExtractor:
         self.flow_timeout = flow_timeout
         self.host_windows = defaultdict(new_deque)
         self.last_cleanup = time.time()
-        
 
         self.lock = multiprocessing.Lock()
 
@@ -181,7 +195,146 @@ class AdvancedFeatureExtractor:
             "RDP": [3389],
             "VNC": [5900, 5901, 5902],
         }
-    
+
+    def compute_features(self, flow_key, pkt_count: int) -> Dict[str, Any]:
+        st = self.flows[flow_key]
+        f = {}
+
+        f["Flow_Duration"] = (st.last_seen - st.start_time) * 1e6  # Convert to microseconds
+        f["Total_Fwd_Packets"] = st.forward_packets
+        f["Total_Backward_Packets"] = st.backward_packets
+        f["Total_Length_of_Fwd_Packets"] = st.total_length_forward
+        f["Total_Length_of_Bwd_Packets"] = st.total_length_backward
+
+        def safe_stats(data, use_percentiles=True):
+            """Safe statistics calculation with non-negative enforcement"""
+            clean_data = [x for x in data if x >= 0]  # Filter negatives
+            if not clean_data:
+                result = {"min": 0, "max": 0, "mean": 0, "std": 0}
+                if use_percentiles:
+                    result.update({"p25": 0, "p50": 0, "p75": 0})
+                return result
+            
+            result = {
+                "min": min(clean_data),
+                "max": max(clean_data),
+                "mean": mean(clean_data),
+                "std": stdev(clean_data) if len(clean_data) > 1 else 0,
+            }
+            
+            if use_percentiles:
+                result["p25"] = np.percentile(clean_data, 25) if clean_data else 0
+                result["p50"] = np.percentile(clean_data, 50) if clean_data else 0
+                result["p75"] = np.percentile(clean_data, 75) if clean_data else 0
+                
+            return result
+
+        fwd_stats = safe_stats(st.forward_packet_lengths)
+        bwd_stats = safe_stats(st.backward_packet_lengths)
+
+        for name, stats in [("Fwd", fwd_stats), ("Bwd", bwd_stats)]:
+            for suffix, val in stats.items():
+                suffix_map = {"p25": "25th", "p50": "50th", "p75": "75th"}
+                key_suffix = suffix_map.get(suffix, suffix.capitalize())
+                f[f"{name}_Packet_Length_{key_suffix}"] = val
+
+        for direction, iats in [
+            ("Flow", st.flow_iat),
+            ("Fwd", st.forward_iat),
+            ("Bwd", st.backward_iat),
+        ]:
+            if iats:
+                f[f"{direction}_IAT_Total"] = sum(iats) if direction != "Flow" else None
+                f[f"{direction}_IAT_Mean"] = mean(iats)
+                f[f"{direction}_IAT_Std"] = stdev(iats) if len(iats) > 1 else 0
+                f[f"{direction}_IAT_Max"] = max(iats)
+                f[f"{direction}_IAT_Min"] = min(iats)
+            else:
+                for suffix in ["Total", "Mean", "Std", "Max", "Min"]:
+                    if direction != "Flow" or suffix != "Total":
+                        f[f"{direction}_IAT_{suffix}"] = 0
+
+        for flag in ["FIN", "SYN", "RST", "PSH", "ACK", "URG", "CWE", "ECE"]:
+            f[f"{flag}_Flag_Count"] = st.tcp_flags_counts.get(flag, 0)
+
+        if st.forward_header_lengths:
+            f["Fwd_Header_Length"] = mean(st.forward_header_lengths)
+        else:
+            f["Fwd_Header_Length"] = 0.0
+
+        if st.backward_header_lengths:
+            f["Bwd_Header_Length"] = mean(st.backward_header_lengths)
+        else:
+            f["Bwd_Header_Length"] = 0.0
+
+        dur = f["Flow_Duration"] / 1e6 if f["Flow_Duration"] > 0 else 1
+        total_bytes = st.total_length_forward + st.total_length_backward
+        total_pkts = st.forward_packets + st.backward_packets
+
+        f["Flow_Bytes_s"] = total_bytes / dur
+        f["Flow_Packets_s"] = total_pkts / dur
+        f["Fwd_Packets_s"] = st.forward_packets / dur
+        f["Bwd_Packets_s"] = st.backward_packets / dur
+        f["Down_Up_Ratio"] = (
+            st.backward_packets / st.forward_packets if st.forward_packets > 0 else 0
+        )
+        f["Average_Packet_Size"] = total_bytes / total_pkts if total_pkts > 0 else 0
+        f["Avg_Fwd_Segment_Size"] = (
+            mean(st.forward_packet_lengths) if st.forward_packet_lengths else 0
+        )
+        f["Avg_Bwd_Segment_Size"] = (
+            mean(st.backward_packet_lengths) if st.backward_packet_lengths else 0
+        )
+
+        if len(st.active_times) >= 2:
+            f["Active_Mean"] = mean(st.active_times)
+            f["Active_Std"] = stdev(st.active_times)
+            f["Active_Max"] = max(st.active_times)
+            f["Active_Min"] = min(st.active_times)
+        else:
+            for k in ["Mean", "Std", "Max", "Min"]:
+                f[f"Active_{k}"] = 0
+
+        f["Subflow_Fwd_Packets"] = st.subflow_forward_packets or st.forward_packets
+        f["Subflow_Fwd_Bytes"] = st.subflow_forward_bytes or st.total_length_forward
+        f["Subflow_Bwd_Packets"] = st.subflow_backward_packets or st.backward_packets
+        f["Subflow_Bwd_Bytes"] = st.subflow_backward_bytes or st.total_length_backward
+
+        now = time.time()
+        flow_stats = self.flows[flow_key]
+        hwin = self.host_windows[flow_key.src_ip]
+        while hwin and now - hwin[0][0] > 60:
+            hwin.popleft()
+
+        dst_ports = {pkt[TCP].dport for pkt in st.packets if TCP in pkt}
+        f["port_scan_score"] = len(dst_ports)
+        f["connection_rate"] = len({(d, p) for _, _, d, p in hwin})
+        f["host_flows_60s"] = len(
+            {
+                k
+                for k, v in self.flows.items()
+                if k.src_ip == flow_key.src_ip and (now - v.last_seen) <= 60
+            }
+        )
+        f["host_bytes_60s"] = sum(size for _, size, _, _ in hwin)
+
+        f["tcp_window_size"] = st.tcp_window_size
+        f["tcp_urgent_pointer"] = st.tcp_urgent_pointer
+        f["tcp_sequence_number"] = st.tcp_sequence_number
+        f["tcp_acknowledgment_number"] = st.tcp_acknowledgment_number
+        f["tcp_reserved_bits"] = st.tcp_reserved_bits
+        f["tcp_checksum"] = st.tcp_checksum
+        f["tcp_options_count"] = st.tcp_options_count
+
+        f["unique_destinations_count"] = len(st.unique_dest_ips)
+        f["protocols_count"] = len(st.protocols_seen)
+        f["requests_per_minute"] = f["connection_rate"]
+        f["Init_Win_bytes_forward"]  = flow_stats.init_win_forward or 0
+        f["Init_Win_bytes_backward"] = flow_stats.init_win_backward or 0
+
+        f["Label"] = "BENIGN"
+        return f
+
     def update_flow(self, packet: Packet) -> Optional[FlowStatistics]:
         packet_info = self._extract_basic_info(packet)
         if not packet_info:
@@ -194,9 +347,14 @@ class AdvancedFeatureExtractor:
         if flow_key not in self.flows:
             self.flows[flow_key] = FlowStatistics()
             self.flow_packets[flow_key] = []
+            st = self.flows[flow_key]
+            st.start_time = packet_info['timestamp']
+            st.last_seen = packet_info['timestamp']
+            st.last_activity = packet_info['timestamp']
+        else: 
+            st = self.flows[flow_key]
 
-        st = self.flows[flow_key]
-        now = packet.time
+        now = packet_info['timestamp']
 
         # Update timing
         st.last_seen = now
@@ -250,8 +408,14 @@ class AdvancedFeatureExtractor:
                     st.backward_urg_flags += 1
 
             flags = {
-                "FIN": 0x01, "SYN": 0x02, "RST": 0x04, "PSH": 0x08,
-                "ACK": 0x10, "URG": 0x20, "ECE": 0x40, "CWE": 0x80
+                "FIN": 0x01,
+                "SYN": 0x02,
+                "RST": 0x04,
+                "PSH": 0x08,
+                "ACK": 0x10,
+                "URG": 0x20,
+                "ECE": 0x40,
+                "CWE": 0x80,
             }
             for name, bit in flags.items():
                 if tcp.flags & bit:
@@ -268,17 +432,55 @@ class AdvancedFeatureExtractor:
 
         # Update sliding window (host_bytes_60s, connection_rate)
         src_ip = ip.src
-        self.host_windows[src_ip].append((now, length, ip.dst, tcp.dport if TCP in packet else 0))
+        self.host_windows[src_ip].append(
+            (now, length, ip.dst, tcp.dport if TCP in packet else 0)
+        )
 
         return st
+
+    def clear_flow(self, fk: FlowKey):
+        """
+        Cleanly remove the state associated with a completed or expired flow.
+        Called after detecting flow termination (e.g., TCP FIN or RST).
+        """
+        flow_exists = fk in self.flows
+
+        if flow_exists:
+            del self.flows[fk]
+
+            # Log flow cleanup (for debugging or audit purposes)
+            print(
+                f"[INFO] Cleared flow: {fk.src_ip}:{fk.src_port} → {fk.dst_ip}:{fk.dst_port} (Protocol {fk.protocol})"
+            )
+
+        else:
+            # Log unexpected cleanup attempt
+            print(
+                f"[WARNING] Attempted to clear unknown flow: {fk.src_ip}:{fk.src_port} → {fk.dst_ip}:{fk.dst_port} (Protocol {fk.protocol})"
+            )
+
+    def _cleanup_old_flows(self, timeout: float = 60.0):
+        now = time.time()
+        expired = [fk for fk, fs in self.flows.items() if now - fs.last_seen > timeout]
+        for fk in expired:
+            pkt_count = self.flows[fk].total_packets
+            features = self.compute_features(fk, pkt_count)
+            if features:
+                self._append_features_row("ml_ready_features.csv", features)
+            del self.flows[fk]
+            if fk in self.flow_packets:
+                del self.flow_packets[fk]
 
     def flow_key(self, packet):
         # build your 5‐tuple key object
         return FlowKey(
-            src_ip=packet[IP].src, dst_ip=packet[IP].dst,
-            src_port=packet[TCP].sport, dst_port=packet[TCP].dport,
-            protocol=6
+            src_ip=packet[IP].src,
+            dst_ip=packet[IP].dst,
+            src_port=packet[TCP].sport,
+            dst_port=packet[TCP].dport,
+            protocol=6,
         )
+
     def default_ip_behavior(self):
         """Default behavior tracking for new IPs"""
         return {
@@ -368,8 +570,14 @@ class AdvancedFeatureExtractor:
                             flow_stats.backward_urg_flags += 1
 
                     flags = {
-                        "FIN": 0x01, "SYN": 0x02, "RST": 0x04, "PSH": 0x08,
-                        "ACK": 0x10, "URG": 0x20, "ECE": 0x40, "CWE": 0x80
+                        "FIN": 0x01,
+                        "SYN": 0x02,
+                        "RST": 0x04,
+                        "PSH": 0x08,
+                        "ACK": 0x10,
+                        "URG": 0x20,
+                        "ECE": 0x40,
+                        "CWE": 0x80,
                     }
                     for name, bit in flags.items():
                         if tcp.flags & bit:
@@ -381,7 +589,9 @@ class AdvancedFeatureExtractor:
                     flow_stats.tcp_acknowledgment_number = tcp.ack
                     flow_stats.tcp_reserved_bits = tcp.reserved
                     flow_stats.tcp_checksum = tcp.chksum
-                    flow_stats.tcp_options_count = len(tcp.options) if tcp.options else 0
+                    flow_stats.tcp_options_count = (
+                        len(tcp.options) if tcp.options else 0
+                    )
 
                 # Add to host-based sliding window
                 self.host_windows[ip.src].append(
@@ -408,9 +618,10 @@ class AdvancedFeatureExtractor:
 
     def _extract_basic_info(self, packet: Packet) -> Optional[Dict]:
         """Extract basic packet information"""
+        timestamp = packet.time if hasattr(packet, 'time') else time.time()
         try:
             info = {
-                "timestamp": time.time(),
+                "timestamp": timestamp,
                 "size": len(packet),
                 "src_ip": None,
                 "dst_ip": None,
@@ -548,6 +759,7 @@ class AdvancedFeatureExtractor:
         return PacketMetrics(
             timestamp=packet_info.get("timestamp", time.time()),
             size=packet_info["size"],
+            pkt=packet,
             payload_size=packet_info.get("payload_size", 0),
             header_size=packet_info.get("header_size", 0),
             flags=str(packet_info.get("tcp_flags", "")),
@@ -567,12 +779,20 @@ class AdvancedFeatureExtractor:
         """Update flow statistics with new packet"""
         flow_stats = self.flows[flow_key]
         flow_packets = self.flow_packets[flow_key]
+        pkt = packet_metrics.pkt
 
-        current_time = packet_metrics.timestamp  if packet_metrics.timestamp else time.time()
+        current_time = (
+            packet_metrics.timestamp if packet_metrics.timestamp else time.time()
+        )
 
         # Update basic flow info
         if flow_stats.total_packets == 0:
             flow_stats.start_time = current_time
+            flow_stats.last_forward_time = current_time
+            flow_stats.last_backward_time = current_time
+            flow_stats.last_flow_time = current_time
+            flow_stats.last_activity = current_time
+            flow_stats.last_seen = current_time
 
         flow_stats.last_seen = current_time
         flow_stats.duration = current_time - flow_stats.start_time
@@ -583,6 +803,59 @@ class AdvancedFeatureExtractor:
             packet_info["src_ip"] == flow_key.src_ip
             and packet_info["src_port"] == flow_key.src_port
         )
+
+        if is_forward:
+            if flow_stats.last_forward_time is not None:
+                iat_forward = max(0, current_time - flow_stats.last_forward_time)
+                flow_stats.forward_iat.append(iat_forward)
+            flow_stats.last_forward_time = current_time
+        else:
+            if flow_stats.last_backward_time is not None:
+                iat_backward = max(0, current_time - flow_stats.last_backward_time)
+                flow_stats.backward_iat.append(iat_backward)
+            flow_stats.last_backward_time = current_time
+
+        # Activity tracking with non-negative values
+        time_since_last = max(0, current_time - flow_stats.last_activity)
+        if time_since_last > 1.0:
+            flow_stats.idle_times.append(time_since_last)
+        else:
+            flow_stats.active_times.append(time_since_last)
+        flow_stats.last_activity = current_time
+    
+        ##Newly added code to handle TCP window size
+        tcp = pkt.getlayer(TCP)
+        if tcp:
+            if is_forward and flow_stats.init_win_forward is None:
+                flow_stats.init_win_forward = tcp.window
+            elif not is_forward and flow_stats.init_win_backward is None:
+                flow_stats.init_win_backward = tcp.window
+        payload_len = len(pkt[TCP].payload) if pkt.haslayer(TCP) else 0
+        if is_forward:
+            flow_stats.forward_payload_lengths.append(payload_len)
+        else:
+            flow_stats.backward_payload_lengths.append(payload_len)
+
+        # Corrected code in _update_flow_statistics method
+        if is_forward:
+            if flow_stats.last_forward_time is not None:
+                iat = max(0, current_time - flow_stats.last_forward_time)  # Ensure non-negative
+                flow_stats.forward_iat.append(iat)
+            flow_stats.last_forward_time = current_time
+        else:
+            if flow_stats.last_backward_time is not None:
+                iat = max(0, current_time - flow_stats.last_backward_time)  # Ensure non-negative
+                flow_stats.backward_iat.append(iat)
+            flow_stats.last_backward_time = current_time
+
+        # And for the overall flow IAT:
+        # if flow_packets and hasattr(flow_packets[-1], 'time'):
+        #     flow_stats.flow_iat.append(current_time - flow_packets[-1].time)
+
+        if flow_stats.last_flow_time is not None:
+            iat_flow = max(0, current_time - flow_stats.last_flow_time)
+            flow_stats.flow_iat.append(iat_flow)
+        flow_stats.last_flow_time = current_time
 
         # Update directional statistics
         if is_forward:
@@ -598,7 +871,7 @@ class AdvancedFeatureExtractor:
 
         # Update inter-arrival times
         if len(flow_packets) > 0:
-            iat = current_time - flow_packets[-1].timestamp
+            iat = current_time - flow_packets[-1].time
             flow_stats.flow_iat.append(iat)
 
             if is_forward:
@@ -607,7 +880,7 @@ class AdvancedFeatureExtractor:
                     if (
                         idx % 2 == 0
                     ) == is_forward:  # Use index from reversed iteration
-                        forward_iat = current_time - pkt.timestamp
+                        forward_iat = current_time - pkt.time
                         flow_stats.forward_iat.append(forward_iat)
                         break
             else:
@@ -616,7 +889,7 @@ class AdvancedFeatureExtractor:
                     if (
                         flow_packets.index(pkt) % 2 == 0
                     ) != is_forward:  # Same direction
-                        backward_iat = current_time - pkt.timestamp
+                        backward_iat = current_time - pkt.time
                         flow_stats.backward_iat.append(backward_iat)
                         break
 
@@ -662,7 +935,8 @@ class AdvancedFeatureExtractor:
             flow_packets.pop(0)
 
         # Update activity tracking
-        time_since_last = current_time - flow_stats.last_activity
+        # Corrected code in _update_flow_statistics method
+        time_since_last = max(0, current_time - flow_stats.last_activity)  # Ensure non-negative
         if time_since_last > 1.0:  # 1 second threshold for idle time
             flow_stats.idle_times.append(time_since_last)
         else:
@@ -692,7 +966,8 @@ class AdvancedFeatureExtractor:
                 "Bwd_PSH_Flags": flow_stats.backward_psh_flags,
                 "Bwd_URG_Flags": flow_stats.backward_urg_flags,
                 "act_data_pkt_fwd": flow_stats.act_data_pkt_fwd,
-                "min_seg_size_forward": flow_stats.min_seg_size_forward,
+                "min_seg_size_forward": min(flow_stats.forward_payload_lengths) if flow_stats.forward_payload_lengths else 0,
+                "min_seg_size_backward": min(flow_stats.backward_payload_lengths) if flow_stats.backward_payload_lengths else 0,
                 "Init_Win_bytes_forward": flow_stats.init_win_forward,
                 "Init_Win_bytes_backward": flow_stats.init_win_backward,
             }
@@ -1103,6 +1378,15 @@ class AdvancedFeatureExtractor:
         self.last_cleanup = current_time
         logger.debug(f"Cleaned up {len(flows_to_remove)} old flows")
 
+    def _append_features_row(self, filename: str, features: Dict[str, Any]):
+        fieldnames = list(features.keys())
+        write_header = not os.path.exists(filename) or os.path.getsize(filename) == 0
+        with open(filename, "a", newline="") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            if write_header:
+                writer.writeheader()
+            writer.writerow(features)
+
     def get_flow_summary(self, flow_key: FlowKey) -> Dict[str, Any]:
         """Get comprehensive flow summary for threat detection"""
         if flow_key not in self.flows:
@@ -1327,7 +1611,7 @@ class AdvancedFeatureExtractor:
 
         file_exists = os.path.isfile(filename)
 
-        with open(filename, 'a', newline='') as csvfile:  # Append mode
+        with open(filename, "a", newline="") as csvfile:  # Append mode
             # Get fieldnames from first flow
             sample_flow_key, _ = flows_to_export[0]
             packet_info = {
@@ -1363,6 +1647,13 @@ class AdvancedFeatureExtractor:
                 count += 1
 
         logger.info(f"Appended {count} flows to {filename}")
+
+    def _ensure_data_types(self, features: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            k: (float(v) if isinstance(v, (int, float)) else 0.0)
+            for k, v in features.items()
+            if k != "Label"
+        }
 
     def get_statistics(self) -> Dict[str, Any]:
         """Get current extractor statistics"""
@@ -1404,8 +1695,9 @@ class AdvancedFeatureExtractor:
 class ThreatDetector:
     """Real-time threat detection using extracted features"""
 
-    def __init__(self, feature_extractor: AdvancedFeatureExtractor):
+    def __init__(self, feature_extractor: AdvancedFeatureExtractor,sio_queue:Queue = None):
         self.feature_extractor = feature_extractor
+        self.sio_queue = sio_queue  # Optional Socket.IO queue for real-time updates
         self.threat_thresholds = {
             "port_scan_threshold": 50,
             "high_packet_rate": 100,
@@ -1419,103 +1711,124 @@ class ThreatDetector:
         self.threat_stats = defaultdict(int)
 
     def detect_threats(self, packet: Packet) -> List[Dict[str, Any]]:
-        """Detect threats in real-time"""
+        """Detect threats with full context: port, service, severity, and user actions."""
         threats = []
 
-        # Get features for the packet
+        # === Step 1: Extract features ===
         features = self.feature_extractor.get_real_time_features(packet)
         if not features:
             return threats
 
-        # Port scanning detection
-        if (
-            features.get("port_scan_score", 0)
-            > self.threat_thresholds["port_scan_threshold"]
-        ):
-            threats.append(
-                {
-                    "type": "PORT_SCAN",
-                    "severity": "HIGH",
-                    "confidence": 0.9,
-                    "details": f"Port scan detected: {features['port_scan_score']} unique ports accessed",
-                    "src_ip": packet[IP].src if packet.haslayer(IP) else "Unknown",
-                    "timestamp": time.time(),
-                }
-            )
-
-        # DDoS detection (high packet rate)
-        if (
-            features.get("Flow_Packets_s", 0)
-            > self.threat_thresholds["high_packet_rate"]
-        ):
-            threats.append(
-                {
-                    "type": "DDOS_ATTACK",
-                    "severity": "CRITICAL",
-                    "confidence": 0.8,
-                    "details": f"High packet rate detected: {features['Flow_Packets_s']} pps",
-                    "src_ip": packet[IP].src if packet.haslayer(IP) else "Unknown",
-                    "timestamp": time.time(),
-                }
-            )
-
-        # SYN flood detection
-        if (
-            features.get("SYN_Flag_Count", 0)
-            > self.threat_thresholds["syn_flood_threshold"]
-        ):
-            threats.append(
-                {
-                    "type": "SYN_FLOOD",
-                    "severity": "HIGH",
-                    "confidence": 0.85,
-                    "details": f"SYN flood detected: {features['SYN_Flag_Count']} SYN packets",
-                    "src_ip": packet[IP].src if packet.haslayer(IP) else "Unknown",
-                    "timestamp": time.time(),
-                }
-            )
-
-        # Suspicious packet size patterns
+        total_packets = features.get("Total_Fwd_Packets", 0) + features.get("Total_Backward_Packets", 0)
+        flow_duration = features.get("Flow_Duration", 0)
+        pps = features.get("Flow_Packets_s", 0)
+        syn_count = features.get("SYN_Flag_Count", 0)
+        port_scan_score = features.get("port_scan_score", 0)
+        dst_port = features.get("dst_port", 0)
+        src_ip = packet[IP].src if packet.haslayer(IP) else "Unknown"
+        timestamp = time.time()
         packet_size = features.get("packet_size", 0)
-        if packet_size < 64 or packet_size > 1400:
-            threats.append(
-                {
-                    "type": "SUSPICIOUS_PACKET_SIZE",
-                    "severity": "MEDIUM",
-                    "confidence": 0.6,
-                    "details": f"Unusual packet size: {packet_size} bytes",
-                    "src_ip": packet[IP].src if packet.haslayer(IP) else "Unknown",
-                    "timestamp": time.time(),
-                }
-            )
+        is_dns_amp = packet.haslayer(UDP) and packet.haslayer(DNS) and packet[UDP].dport == 53 and len(packet) > 512
 
-        # DNS amplification detection
-        if (
-            packet.haslayer(UDP)
-            and packet.haslayer(DNS)
-            and packet[UDP].dport == 53
-            and len(packet) > 512
-        ):
-            threats.append(
-                {
-                    "type": "DNS_AMPLIFICATION",
-                    "severity": "HIGH",
-                    "confidence": 0.7,
-                    "details": f"Large DNS response: {len(packet)} bytes",
-                    "src_ip": packet[IP].src if packet.haslayer(IP) else "Unknown",
-                    "timestamp": time.time(),
-                }
-            )
+        # === Step 2: Critical ports & services ===
+        critical_ports = {
+            21: "FTP", 22: "SSH", 23: "Telnet", 25: "SMTP",
+            80: "HTTP", 443: "HTTPS", 445: "SMB", 3306: "MySQL",
+            3389: "RDP", 8080: "HTTP-ALT"
+        }
+        service = critical_ports.get(dst_port, "Unknown")
+        is_critical = dst_port in critical_ports
 
-        # Log and store detected threats
+        # === Step 3: Evidence filter ===
+        if total_packets < 5 or flow_duration < 1.0:
+            return threats
+
+        # === Step 4: Attack Detection Rules ===
+
+        # 4.1 Port Scan
+        if port_scan_score > self.threat_thresholds.get("port_scan_threshold", 10):
+            threats.append({
+                "type": "PORT_SCAN",
+                "severity": "HIGH" if is_critical else "MEDIUM",
+                "confidence": 0.95,
+                "details": f"Scan on {service} (port {dst_port}) - score {port_scan_score}",
+                "src_ip": src_ip,
+                "dst_port": dst_port,
+                "service": service,
+                "actions": ["block_port" if is_critical else "notify_user"],
+                "timestamp": timestamp,
+            })
+
+        # 4.2 DDoS (High packet rate)
+        if pps > self.threat_thresholds.get("high_packet_rate", 500):
+            threats.append({
+                "type": "DDOS_ATTACK",
+                "severity": "CRITICAL" if is_critical else "HIGH",
+                "confidence": 0.9,
+                "details": f"High packet rate: {pps:.2f} pps targeting {service} (port {dst_port})",
+                "src_ip": src_ip,
+                "dst_port": dst_port,
+                "service": service,
+                "actions": ["block_ip", "notify_user"],
+                "timestamp": timestamp,
+            })
+
+        # 4.3 SYN Flood
+        if syn_count > self.threat_thresholds.get("syn_flood_threshold", 100):
+            threats.append({
+                "type": "SYN_FLOOD",
+                "severity": "HIGH",
+                "confidence": 0.85,
+                "details": f"{syn_count} SYN packets to {service} (port {dst_port})",
+                "src_ip": src_ip,
+                "dst_port": dst_port,
+                "service": service,
+                "actions": ["block_ip", "notify_user"],
+                "timestamp": timestamp,
+            })
+
+        # 4.4 Suspicious Packet Size
+        if total_packets >= 5 and (packet_size < 64 or packet_size > 1400):
+            threats.append({
+                "type": "SUSPICIOUS_PACKET_SIZE",
+                "severity": "MEDIUM",
+                "confidence": 0.65,
+                "details": f"Suspicious size: {packet_size} bytes on {service} (port {dst_port})",
+                "src_ip": src_ip,
+                "dst_port": dst_port,
+                "service": service,
+                "actions": ["monitor_flow"],
+                "timestamp": timestamp,
+            })
+
+        # 4.5 DNS Amplification
+        if is_dns_amp:
+            threats.append({
+                "type": "DNS_AMPLIFICATION",
+                "severity": "HIGH",
+                "confidence": 0.8,
+                "details": f"DNS response >512 bytes: {len(packet)} bytes",
+                "src_ip": src_ip,
+                "dst_port": 53,
+                "service": "DNS",
+                "actions": ["block_ip", "notify_user"],
+                "timestamp": timestamp,
+            })
+
+        # === Step 5: Emit and store threats ===
         for threat in threats:
             self.detected_threats.append(threat)
             self.threat_stats[threat["type"]] += 1
             logger.warning(
-                f"THREAT DETECTED: {threat['type']} from {threat['src_ip']} - {threat['details']}"
+                f"THREAT DETECTED: {threat['type']} from {threat['src_ip']} → {threat['service']}:{threat['dst_port']} - {threat['details']}"
             )
 
+            # Send to frontend via Socket.IO (if configured)
+            if self.sio_queue:
+                self.sio_queue.put_nowait(("threat_detected", threat))
+
         return threats
+    
 
     def get_threat_summary(self) -> Dict[str, Any]:
         """Get summary of detected threats"""
@@ -1542,106 +1855,6 @@ class EnhancedPacketProcessor:
         self.threat_detector = ThreatDetector(self.feature_extractor)
         self._pkt_counts: Dict[FlowKey, int] = defaultdict(int)
         self.prediction_model = None  # Placeholder for ML model
-    def compute_features(self, flow_key, pkt_count: int) -> Dict[str, Any]:
-        st = self.flows[flow_key]
-        f = {}
-
-        f["Flow_Duration"] = st.last_seen - st.start_time
-        f["Total_Fwd_Packets"] = st.forward_packets
-        f["Total_Backward_Packets"] = st.backward_packets
-        f["Total_Length_of_Fwd_Packets"] = st.total_length_forward
-        f["Total_Length_of_Bwd_Packets"] = st.total_length_backward
-
-        def safe_stats(data):
-            return {
-                "min": min(data) if data else 0,
-                "max": max(data) if data else 0,
-                "mean": mean(data) if data else 0,
-                "std": stdev(data) if len(data) > 1 else 0,
-                "p25": np.percentile(data, 25) if len(data) >= 1 else 0,
-                "p50": np.percentile(data, 50) if len(data) >= 1 else 0,
-                "p75": np.percentile(data, 75) if len(data) >= 1 else 0,
-            }
-
-        fwd_stats = safe_stats(st.forward_packet_lengths)
-        bwd_stats = safe_stats(st.backward_packet_lengths)
-
-        for name, stats in [("Fwd", fwd_stats), ("Bwd", bwd_stats)]:
-            for suffix, val in stats.items():
-                suffix_map = {"p25": "25th", "p50": "50th", "p75": "75th"}
-                key_suffix = suffix_map.get(suffix, suffix.capitalize())
-                f[f"{name}_Packet_Length_{key_suffix}"] = val
-
-        for direction, iats in [("Flow", st.flow_iat), ("Fwd", st.forward_iat), ("Bwd", st.backward_iat)]:
-            if iats:
-                f[f"{direction}_IAT_Total"] = sum(iats) if direction != "Flow" else None
-                f[f"{direction}_IAT_Mean"] = mean(iats)
-                f[f"{direction}_IAT_Std"] = stdev(iats) if len(iats) > 1 else 0
-                f[f"{direction}_IAT_Max"] = max(iats)
-                f[f"{direction}_IAT_Min"] = min(iats)
-            else:
-                for suffix in ["Total", "Mean", "Std", "Max", "Min"]:
-                    if direction != "Flow" or suffix != "Total":
-                        f[f"{direction}_IAT_{suffix}"] = 0
-
-        for flag in ["FIN", "SYN", "RST", "PSH", "ACK", "URG", "CWE", "ECE"]:
-            f[f"{flag}_Flag_Count"] = st.tcp_flags_counts.get(flag, 0)
-
-        f["Fwd_Header_Length"] = sum(st.forward_header_lengths)
-        f["Bwd_Header_Length"] = sum(st.backward_header_lengths)
-
-        dur = f["Flow_Duration"] / 1e6 if f["Flow_Duration"] > 0 else 1
-        total_bytes = st.total_length_forward + st.total_length_backward
-        total_pkts = st.forward_packets + st.backward_packets
-
-        f["Flow_Bytes_s"] = total_bytes / dur
-        f["Flow_Packets_s"] = total_pkts / dur
-        f["Fwd_Packets_s"] = st.forward_packets / dur
-        f["Bwd_Packets_s"] = st.backward_packets / dur
-        f["Down_Up_Ratio"] = st.backward_packets / st.forward_packets if st.forward_packets > 0 else 0
-        f["Average_Packet_Size"] = total_bytes / total_pkts if total_pkts > 0 else 0
-        f["Avg_Fwd_Segment_Size"] = mean(st.forward_packet_lengths) if st.forward_packet_lengths else 0
-        f["Avg_Bwd_Segment_Size"] = mean(st.backward_packet_lengths) if st.backward_packet_lengths else 0
-
-        if len(st.active_times) >= 2:
-            f["Active_Mean"] = mean(st.active_times)
-            f["Active_Std"] = stdev(st.active_times)
-            f["Active_Max"] = max(st.active_times)
-            f["Active_Min"] = min(st.active_times)
-        else:
-            for k in ["Mean", "Std", "Max", "Min"]:
-                f[f"Active_{k}"] = 0
-
-        f["Subflow_Fwd_Packets"] = st.subflow_forward_packets or st.forward_packets
-        f["Subflow_Fwd_Bytes"] = st.subflow_forward_bytes or st.total_length_forward
-        f["Subflow_Bwd_Packets"] = st.subflow_backward_packets or st.backward_packets
-        f["Subflow_Bwd_Bytes"] = st.subflow_backward_bytes or st.total_length_backward
-
-        now = time.time()
-        hwin = self.host_windows[flow_key.src_ip]
-        while hwin and now - hwin[0][0] > 60:
-            hwin.popleft()
-
-        dst_ports = {pkt[TCP].dport for pkt in st.packets if TCP in pkt}
-        f["port_scan_score"] = len(dst_ports)
-        f["connection_rate"] = len({(d, p) for _, _, d, p in hwin})
-        f["host_flows_60s"] = len({k for k, v in self.flows.items() if k.src_ip == flow_key.src_ip and (now - v.last_seen) <= 60})
-        f["host_bytes_60s"] = sum(size for _, size, _, _ in hwin)
-
-        f["tcp_window_size"] = st.tcp_window_size
-        f["tcp_urgent_pointer"] = st.tcp_urgent_pointer
-        f["tcp_sequence_number"] = st.tcp_sequence_number
-        f["tcp_acknowledgment_number"] = st.tcp_acknowledgment_number
-        f["tcp_reserved_bits"] = st.tcp_reserved_bits
-        f["tcp_checksum"] = st.tcp_checksum
-        f["tcp_options_count"] = st.tcp_options_count
-
-        f["unique_destinations_count"] = len(st.unique_dest_ips)
-        f["protocols_count"] = len(st.protocols_seen)
-        f["requests_per_minute"] = f["connection_rate"]
-
-        f["Label"] = "BENIGN"
-        return f
 
 
     def load_model(self, model_path: str):
@@ -1679,14 +1892,6 @@ class EnhancedPacketProcessor:
             del self._pkt_counts[flow_key]
 
     
-    def _append_features_row(self, filename: str, features: Dict[str, Any]):
-        fieldnames = list(features.keys())
-        write_header = not os.path.exists(filename) or os.path.getsize(filename) == 0
-        with open(filename, "a", newline="") as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            if write_header:
-                writer.writeheader()
-            writer.writerow(features)
 
     def prepare_feature_vector(self, features: Dict[str, Any]) -> List[float]:
         """Prepare feature vector for ML model in the exact order used during training."""
@@ -1774,42 +1979,99 @@ class EnhancedPacketProcessor:
     # x_scaled = preprocessor.transform([x_raw])
     # pred = model.decision_function(x_scaled)  # or predict_proba, etc.
 
-    
     def _ensure_data_types(self, features: Dict[str, Any]) -> Dict[str, Any]:
-        return {k: (float(v) if isinstance(v, (int, float)) else 0.0) for k, v in features.items() if k != "Label"}
-    
+        return {
+            k: (float(v) if isinstance(v, (int, float)) else 0.0)
+            for k, v in features.items()
+            if k != "Label"
+        }
+
     @staticmethod
     def json_to_custom_csv(json_path, csv_path):
         # Define column order exactly matching your features
         COLUMN_ORDER = [
-            "Flow_Duration", "Total_Fwd_Packets", "Total_Backward_Packets",
-            "Total_Length_of_Fwd_Packets", "Total_Length_of_Bwd_Packets",
-            "Bwd_PSH_Flags", "Bwd_URG_Flags", "act_data_pkt_fwd",
-            "min_seg_size_forward", "Init_Win_bytes_forward",
-            "Init_Win_bytes_backward", "Fwd_Packet_Length_Max",
-            "Fwd_Packet_Length_25th", "Fwd_Packet_Length_50th",
-            "Fwd_Packet_Length_75th", "Fwd_Packet_Length_Min",
-            "Fwd_Packet_Length_Mean", "Fwd_Packet_Length_Std",
-            "Bwd_Packet_Length_Max", "Bwd_Packet_Length_Min",
-            "Bwd_Packet_Length_Mean", "Bwd_Packet_Length_25th",
-            "Bwd_Packet_Length_50th", "Bwd_Packet_Length_75th",
-            "Bwd_Packet_Length_Std", "Flow_Bytes_s", "Flow_Packets_s",
-            "Flow_IAT_Mean", "Flow_IAT_25th", "Flow_IAT_50th", "Flow_IAT_75th",
-            "Flow_IAT_Std", "Flow_IAT_Max", "Flow_IAT_Min", "Fwd_IAT_Total",
-            "Fwd_IAT_Mean", "Fwd_IAT_Std", "Fwd_IAT_Max", "Fwd_IAT_Min",
-            "Bwd_IAT_Total", "Bwd_IAT_Mean", "Bwd_IAT_Std", "Bwd_IAT_Max",
-            "Bwd_IAT_Min", "FIN_Flag_Count", "SYN_Flag_Count", "RST_Flag_Count",
-            "PSH_Flag_Count", "ACK_Flag_Count", "URG_Flag_Count", "CWE_Flag_Count",
-            "ECE_Flag_Count", "Fwd_Header_Length", "Bwd_Header_Length",
-            "Fwd_Packets_s", "Bwd_Packets_s", "Down_Up_Ratio",
-            "Average_Packet_Size", "Avg_Fwd_Segment_Size", "Avg_Bwd_Segment_Size",
-            "Active_Mean", "Active_Std", "Active_Max", "Active_Min",
-            "Subflow_Fwd_Packets", "Subflow_Fwd_Bytes", "Subflow_Bwd_Packets",
-            "Subflow_Bwd_Bytes", "unique_destinations_count", "protocols_count",
-            "connection_rate", "port_scan_score", "packet_size_variance",
-            "requests_per_minute", "tcp_window_size", "tcp_urgent_pointer",
-            "tcp_sequence_number", "tcp_acknowledgment_number",
-            "tcp_reserved_bits", "tcp_checksum", "tcp_options_count", "Label"
+            "Flow_Duration",
+            "Total_Fwd_Packets",
+            "Total_Backward_Packets",
+            "Total_Length_of_Fwd_Packets",
+            "Total_Length_of_Bwd_Packets",
+            "Bwd_PSH_Flags",
+            "Bwd_URG_Flags",
+            "act_data_pkt_fwd",
+            "min_seg_size_forward",
+            "Init_Win_bytes_forward",
+            "Init_Win_bytes_backward",
+            "Fwd_Packet_Length_Max",
+            "Fwd_Packet_Length_25th",
+            "Fwd_Packet_Length_50th",
+            "Fwd_Packet_Length_75th",
+            "Fwd_Packet_Length_Min",
+            "Fwd_Packet_Length_Mean",
+            "Fwd_Packet_Length_Std",
+            "Bwd_Packet_Length_Max",
+            "Bwd_Packet_Length_Min",
+            "Bwd_Packet_Length_Mean",
+            "Bwd_Packet_Length_25th",
+            "Bwd_Packet_Length_50th",
+            "Bwd_Packet_Length_75th",
+            "Bwd_Packet_Length_Std",
+            "Flow_Bytes_s",
+            "Flow_Packets_s",
+            "Flow_IAT_Mean",
+            "Flow_IAT_25th",
+            "Flow_IAT_50th",
+            "Flow_IAT_75th",
+            "Flow_IAT_Std",
+            "Flow_IAT_Max",
+            "Flow_IAT_Min",
+            "Fwd_IAT_Total",
+            "Fwd_IAT_Mean",
+            "Fwd_IAT_Std",
+            "Fwd_IAT_Max",
+            "Fwd_IAT_Min",
+            "Bwd_IAT_Total",
+            "Bwd_IAT_Mean",
+            "Bwd_IAT_Std",
+            "Bwd_IAT_Max",
+            "Bwd_IAT_Min",
+            "FIN_Flag_Count",
+            "SYN_Flag_Count",
+            "RST_Flag_Count",
+            "PSH_Flag_Count",
+            "ACK_Flag_Count",
+            "URG_Flag_Count",
+            "CWE_Flag_Count",
+            "ECE_Flag_Count",
+            "Fwd_Header_Length",
+            "Bwd_Header_Length",
+            "Fwd_Packets_s",
+            "Bwd_Packets_s",
+            "Down_Up_Ratio",
+            "Average_Packet_Size",
+            "Avg_Fwd_Segment_Size",
+            "Avg_Bwd_Segment_Size",
+            "Active_Mean",
+            "Active_Std",
+            "Active_Max",
+            "Active_Min",
+            "Subflow_Fwd_Packets",
+            "Subflow_Fwd_Bytes",
+            "Subflow_Bwd_Packets",
+            "Subflow_Bwd_Bytes",
+            "unique_destinations_count",
+            "protocols_count",
+            "connection_rate",
+            "port_scan_score",
+            "packet_size_variance",
+            "requests_per_minute",
+            "tcp_window_size",
+            "tcp_urgent_pointer",
+            "tcp_sequence_number",
+            "tcp_acknowledgment_number",
+            "tcp_reserved_bits",
+            "tcp_checksum",
+            "tcp_options_count",
+            "Label",
         ]
 
         with open(json_path) as f:
@@ -1832,33 +2094,13 @@ class EnhancedPacketProcessor:
             processed.append(ordered)
 
         # Write to CSV
-        with open(csv_path, 'w', newline='') as f:
+        with open(csv_path, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=COLUMN_ORDER)
             writer.writeheader()
             writer.writerows(processed)
-            
-    def _cleanup_expired_flows(self, timeout: float = 60.0):
-        """Flush flows that have been idle too long"""
-        now = time.time()
-        expired_keys = [k for k, v in self.flows.items() if now - v.last_seen > timeout]
 
-        for fk in expired_keys:
-            pkt_count = self.flows[fk].total_packets
-            features = self.compute_features(fk, pkt_count)
-            if features:
-                self._append_features_row("ml_ready_features.csv", features)
-            self.clear_flow(fk)
-    def _cleanup_old_flows(self, timeout: float = 60.0):
-        now = time.time()
-        expired = [fk for fk, fs in self.flows.items() if now - fs.last_seen > timeout]
-        for fk in expired:
-            pkt_count = self.flows[fk].total_packets
-            features = self.compute_features(fk, pkt_count)
-            if features:
-                self._append_features_row("ml_ready_features.csv", features)
-            del self.flows[fk]
-            if fk in self.flow_packets:
-                del self.flow_packets[fk]
+   
+
 
     def get_system_status(self) -> Dict[str, Any]:
         """Get comprehensive system status"""

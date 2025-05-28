@@ -9,7 +9,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem
 } from "@/components/ui/dropdown-menu";
-import { NetworkConnection } from "@/lib/socket";
+import { NetworkConnection } from "../../lib/socket";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {

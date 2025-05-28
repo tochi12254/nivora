@@ -1,15 +1,17 @@
 import { cn } from "@/lib/utils";
-import { SystemOverviewItem } from "@/lib/socket";
+import { SystemOverviewItem } from "../../lib/socket";
 import { 
   Shield, Cpu, Database, HardDrive, Network, 
-  Activity, Clock, Info, AlertTriangle, Check
+  Activity, Clock, Info, AlertTriangle, Check, 
+  Server, Thermometer, Battery
 } from "lucide-react";
 
 interface StatusCardProps {
   item: SystemOverviewItem;
+  onClick?: () => void;
 }
 
-export function StatusCard({ item }: StatusCardProps) {
+export function StatusCard({ item, onClick }: StatusCardProps) {
   const getStatusColor = (color?: string) => {
     if (!color) return "bg-secondary text-secondary-foreground";
     
@@ -33,8 +35,8 @@ export function StatusCard({ item }: StatusCardProps) {
         return <Shield className="h-5 w-5" />;
       case "cpu":
         return <Cpu className="h-5 w-5" />;
-      case "memory":
-        return <Database className="h-5 w-5" />; // Changed Memory to Database
+      case "memory-stick": // Changed from "memory" to "memory-stick"
+        return <HardDrive className="h-5 w-5" />; // Using HardDrive instead of Memory 
       case "hard-drive":
         return <HardDrive className="h-5 w-5" />;
       case "network":
@@ -43,18 +45,28 @@ export function StatusCard({ item }: StatusCardProps) {
         return <Activity className="h-5 w-5" />;
       case "clock":
         return <Clock className="h-5 w-5" />;
+      case "server":
+        return <Server className="h-5 w-5" />;
+      case "thermometer":
+        return <Thermometer className="h-5 w-5" />;
+      case "battery":
+        return <Battery className="h-5 w-5" />;
       default:
         return <Info className="h-5 w-5" />;
     }
   };
   
   return (
-    <div className={cn(
-      "flex flex-col p-4 rounded-lg border transition-all",
-      "border-border/50 bg-card hover:bg-card/80",
-      item.color ? "hover:shadow-md hover:shadow-" + item.color + "/10" : "",
-      item.color && item.color === "red" ? "animate-pulse" : ""
-    )}>
+    <div 
+      className={cn(
+        "flex flex-col p-4 rounded-lg border transition-all",
+        "border-border/50 bg-card hover:bg-card/80",
+        item.color ? "hover:shadow-md hover:shadow-" + item.color + "/10" : "",
+        item.color && item.color === "red" ? "animate-pulse" : "",
+        onClick ? "cursor-pointer" : ""
+      )}
+      onClick={onClick}
+    >
       <div className="flex justify-between items-center mb-2">
         <h3 className="text-sm font-medium text-muted-foreground">{item.title}</h3>
         <div className={cn(

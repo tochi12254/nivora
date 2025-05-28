@@ -1,7 +1,7 @@
 
 import { Check, Shield, X, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { SecurityOverview as SecurityOverviewType } from "@/lib/socket";
+import { SecurityOverview as SecurityOverviewType} from "../../lib/socket";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";

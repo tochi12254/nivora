@@ -118,12 +118,12 @@ async def create_app() -> FastAPI:
         sniffer_namespace = PacketSnifferNamespace("/packet_sniffer", sio_queue)
         sio.register_namespace(sniffer_namespace)
 
-        intel = ThreatIntel() 
-        await intel.load_from_cache()        
-        asyncio.create_task(intel.fetch_and_cache_feeds())
-        ips = EnterpriseIPS(
-            "rules.json", sio,intel, multiprocessing.cpu_count(), sio_queue, output_queue
-        )
+        # intel = ThreatIntel() 
+        # await intel.load_from_cache()        
+        # asyncio.create_task(intel.fetch_and_cache_feeds())
+        # ips = EnterpriseIPS(
+        #     "rules.json", sio,intel, multiprocessing.cpu_count(), sio_queue, output_queue
+        # )
 
         sniffer = PacketSniffer(sio_queue)
 
@@ -162,7 +162,7 @@ async def create_app() -> FastAPI:
             await sniffer_service.start()
             await sniffer.start("Wi-Fi")
             await monitor.start()
-            await ips.start()
+            # await ips.start()
             logger.info("System monitoring started")
             # Start packet sniffer with IPS integration
 
@@ -201,7 +201,7 @@ async def create_app() -> FastAPI:
             # await ips_adapter.stop()
             # autofill_task.cancel()
             await engine.dispose()
-            await ips.stop()
+            # await ips.stop()
             # health_status = {
             #             "ips_queue_size": ips.input_queue.qsize(),
             #             "sniffer_packets": sniffer.packet_counter.value,

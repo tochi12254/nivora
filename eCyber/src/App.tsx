@@ -24,7 +24,8 @@ import { ThreatMitre } from "./pages/threats/ThreatMitre";
 import { ThreatIntel } from "./pages/threats/ThreatIntel";
 import { ThreatOsint } from "./pages/threats/ThreatOsint";
 import Alerts from "./alert/Alerts";
-import useSocket from "./hooks/useSocket";
+import  useSocket  from "./hooks/useSocket"
+import usePacketSniffer from "./hooks/usePacketSnifferSocket";
 
 // Create a new query client with correct configuration
 const queryClient = new QueryClient({
@@ -38,8 +39,8 @@ const queryClient = new QueryClient({
 
 const App = () => {
 
-
-  useSocket();
+  // useSocket();
+  usePacketSniffer();
   
   // Apply theme on initial load
   useEffect(() => {

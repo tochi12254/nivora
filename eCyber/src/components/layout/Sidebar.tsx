@@ -1,5 +1,6 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios'
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -126,6 +127,25 @@ const threatFeeds = [
 
 const Sidebar = () => {
   const location = useLocation();
+
+
+    const [systemInfo, setSystemInfo] = useState<any[]>();
+  
+    useEffect(() => {
+      (
+        async () => {
+          try {
+            const info = await axios.get("http://127.0.0.1:8000/api/system/system_info");
+            if (info.data) {
+              setSystemInfo(info.data);
+  
+            }
+          } catch (error: any) {
+            console.error("Error getting system info: ", error)
+          }
+        }
+      )();
+    }, []);
 
   return (
     <SidebarProvider defaultOpen={true}>
@@ -284,27 +304,48 @@ const Sidebar = () => {
               <Zap size={14} className="mr-1" />
               SYSTEM STATUS
             </h3>
-            <div className="space-y-1">
-              <div className="flex items-center justify-between text-xs p-2">
-                <span className="text-muted-foreground">CPU Load</span>
-                <div className="w-24 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                  <div className="h-full bg-green-500 rounded-full" style={{ width: '32%' }}></div>
-                </div>
-              </div>
-              <div className="flex items-center justify-between text-xs p-2">
-                <span className="text-muted-foreground">Memory</span>
-                <div className="w-24 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                  <div className="h-full bg-amber-500 rounded-full" style={{ width: '68%' }}></div>
-                </div>
-              </div>
-              <div className="flex items-center justify-between text-xs p-2">
-                <span className="text-muted-foreground">Storage</span>
-                <div className="w-24 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                  <div className="h-full bg-blue-500 rounded-full" style={{ width: '45%' }}></div>
-                </div>
+            <div className="space-y-2">
+              {systemInfo && (
+                <>
+                  <div className="flex items-center justify-between text-xs p-2">
+                      <span className="text-muted-foreground">CPU Load</span>
+                      <span className="text-white">{systemInfo?.cpu?.percent}%</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-green-500 rounded-full"
+                        style={{ width: `${systemInfo?.cpu?.percent}%` }}
+                      ></div>
+                    </div>
+          
+                    <div className="flex items-center justify-between text-xs p-2">
+                      <span className="text-muted-foreground">Memory</span>
+                      <span className="text-white">{systemInfo?.memory?.percent}%</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-amber-500 rounded-full"
+                        style={{ width: `${systemInfo.memory.percent}%` }}
+                      ></div>
+                    </div>
+          
+                    <div className="flex items-center justify-between text-xs p-2">
+                      <span className="text-muted-foreground">Disk</span>
+                      <span className="text-white">{systemInfo?.disk.percent?.toFixed(1)}%</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-blue-500 rounded-full"
+                        style={{ width: `${systemInfo?.disk?.percent}%` }}
+                      ></div>
+                    </div>
+                  </>
+                )}
+                {!systemInfo && (
+                  <p className="text-xs text-muted-foreground">Loading system info...</p>
+                )}
               </div>
             </div>
-          </div>
         </SidebarContent>
         
         <SidebarFooter>
@@ -315,7 +356,7 @@ const Sidebar = () => {
                 <span className="text-xs text-sidebar-foreground/70">System Online</span>
               </div>
               <Badge variant="outline" className="text-xs border-isimbi-purple text-isimbi-purple">
-                v1.4.2
+                v1.0.0
               </Badge>
             </div>
           </div>

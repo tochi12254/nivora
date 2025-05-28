@@ -17,12 +17,13 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import Header from '../components/layout/Header';
-import Sidebar from '../components/layout/Sidebar';
+// import Header from '../components/layout/Header';
+// import Sidebar from '../components/layout/Sidebar';
 import MetricsCard from '../components/dashboard/MetricsCard';
 import ThreatMap from '../components/dashboard/ThreatMap';
 import ActivityStream from '../components/dashboard/ActivityStream';
 import AIAssistant from '../components/common/AIAssistant';
+import { useTelemetrySocket } from '@/components/live-system/lib/socket';
 
 // Mock data for activity stream
 const mockActivities = [
@@ -121,8 +122,11 @@ const routeToTabMap = {
 const Dashboard = () => {
   const location = useLocation();
   const navigate = useNavigate();
+
+  const { getSocket, isOfflineMode } = useTelemetrySocket();
   
   // State for last updated time and dynamic data
+  const [offline, setOffline] = useState(isOfflineMode());
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [threatMetrics, setThreatMetrics] = useState({
     critical: 8,
@@ -134,6 +138,32 @@ const Dashboard = () => {
   
   // Determine active tab based on current route
   const activeTab = routeToTabMap[location.pathname] || 'overview';
+
+  // Daily report summary
+  const [dailySummary, setDailySummary] = useState<{
+    network24h: { sent_mb: number; recv_mb: number };
+    threatSummary: {
+      counts: { critical: number; warning: number; info: number };
+      details: Record<string, any[]>;
+    };
+  } | null>(null);
+
+
+  useEffect(() => {
+    if (!offline) {
+      const socket = getSocket();
+      socket.on('daily_summary', (data) => {
+        setDailySummary(data);
+      });
+  
+      // 2. Immediately request it on load
+      socket.emit('request_daily_summary');
+  
+      return () => {
+        socket.off('daily_summary');
+      };
+    }
+  }, [offline]);
   
   // Handle tab change
   const handleTabChange = (value: string) => {
@@ -183,6 +213,11 @@ const Dashboard = () => {
     
     return () => clearInterval(interval);
   }, [isAnomalyDetected]);
+
+
+  if (dailySummary) {
+    console.log("Daily summary: ", dailySummary);
+  }
   
   return (
     <div className="flex h-screen bg-background">

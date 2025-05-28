@@ -3,17 +3,9 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Bell, RefreshCw, Wifi, WifiOff, Shield, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  getSocket, 
-    SystemTelemetryData, 
-    disconnectSocket, 
-    getMockTelemetryData,
-    isOfflineMode,
-    enableOfflineMode,
-    disableOfflineMode,
-    SecurityItem,
-    threatDetectionService
- } from "../../lib/socket";
+import { useSelector } from "react-redux";
+
+import { useTelemetrySocket } from "../../lib/socket";
 import { StatusCard } from "./StatusCard";
 import { Charts } from "./Charts";
 import { ProcessMonitor } from "./ProcessMonitor";
@@ -42,10 +34,32 @@ import {
   CardTitle,
   CardContent,
 } from "@/components/ui/card";
+import { RootState } from "@/app/store";
+
+import { SystemTelemetryData } from "../../lib/socket";
+import { SecurityItem } from "../../lib/socket";
 
 export function SystemDashboard() {
-  const [telemetryData, setTelemetryData] = useState<SystemTelemetryData | null>(null);
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+
+  const { getSocket,
+
+    disconnectSocket,
+    getMockTelemetryData,
+    isOfflineMode,
+    enableOfflineMode,
+    disableOfflineMode,
+    
+    threatDetectionService } = useTelemetrySocket();
+  
+  const cached = localStorage.getItem('lastTelemetry');
+  const initialTelemetry: SystemTelemetryData | null = cached
+    ? JSON.parse(cached)
+    : null;
+  
+  const [telemetryData, setTelemetryData] = useState<SystemTelemetryData | null>(initialTelemetry);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(
+    initialTelemetry ? new Date(JSON.parse(cached!)!.timestamp) : new Date()
+  );
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [refreshInterval, setRefreshInterval] = useState(5);
   const [offline, setOffline] = useState(isOfflineMode());
@@ -53,21 +67,24 @@ export function SystemDashboard() {
   const [securityDialogOpen, setSecurityDialogOpen] = useState(false);
   const [threatLevel, setThreatLevel] = useState<'low' | 'medium' | 'high'>('low');
 
+    
+  
+
   useEffect(() => {
     // If we're in offline mode, use mock data
-    if (offline) {
-      const mockData = getMockTelemetryData();
-      setTelemetryData(mockData);
-      setLastUpdate(new Date());
+    // if (offline) {
+    //   const mockData = getMockTelemetryData();
+    //   setTelemetryData(mockData);
+    //   setLastUpdate(new Date());
       
-      // Generate security recommendations
-      const recommendations = threatDetectionService.generateSecurityRecommendations(mockData);
-      setSecurityRecommendations(recommendations);
+    //   // Generate security recommendations
+    //   const recommendations = threatDetectionService.generateSecurityRecommendations(mockData);
+    //   setSecurityRecommendations(recommendations);
       
-      // Calculate threat level
-      calculateThreatLevel(mockData);
-      return;
-    }
+    //   // Calculate threat level
+    //   calculateThreatLevel(mockData);
+    //   return;
+    // }
 
     const socket = getSocket();
     
@@ -87,6 +104,7 @@ export function SystemDashboard() {
       }
 
       setTelemetryData(data);
+      localStorage.setItem('lastTelemetry', JSON.stringify(data));
       setLastUpdate(new Date());
       
       // Generate security recommendations
@@ -118,7 +136,8 @@ export function SystemDashboard() {
 
     if (socket) {
       socket.on('system_telemetry', handleTelemetryData);
-    }
+      socket.on('ips_mitigation', (data:any) => console.log("Mitigation data: ", data))
+    };
 
     // Check offline status periodically
     const checkOfflineStatus = () => {
@@ -133,6 +152,7 @@ export function SystemDashboard() {
     return () => {
       if (socket) {
         socket.off('system_telemetry', handleTelemetryData);
+        socket.off('ips_mitigation');
       }
       clearInterval(offlineStatusInterval);
       disconnectSocket();
@@ -192,9 +212,9 @@ export function SystemDashboard() {
       // Calculate threat level
       calculateThreatLevel(mockData);
       
-      toast.info('Refreshed threat intelligence data');
+      // toast.info('Refreshed threat intelligence data');
     } else {
-      toast.info('Refreshing system data...');
+      // toast.info('Refreshing system data...');
       const socket = getSocket();
       // In a real scenario this would trigger a refresh from the socket
       // For our mock implementation, the interval will pick up the next update

@@ -1,5 +1,5 @@
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import ThreatLevelIndicator from "../components/ThreatLevelIndicator";
@@ -23,24 +23,41 @@ import { Button } from "../components/ui/button";
 import { useToast } from "../hooks/use-toast";
 import { Separator } from "../components/ui/separator";
 
-// Import mock data
-import { 
-  threatLevelData,
-  activeThreatCounts, 
-  systemStatusData, 
-  recentCriticalAlerts,
-  threatDetections,
-  phishingDetections,
-  firewallEvents,
-  httpActivities,
-  dnsActivities,
-  packetAnalyses,
-  ipv6Activities,
-  threatResponses,
-  quarantinedFiles
-} from "../mockData";
+import { useAlerts } from "../mockData";
+import { RootState } from "@/app/store";
+import { useSelector } from "react-redux";
+
+import { HttpActivity } from "../types";
 
 const Index = () => {
+
+  const {
+    threatLevelData,
+    activeThreatCounts,
+    systemStatusData,
+    recentCriticalAlerts,
+    threatDetections,
+    phishingDetections,
+    firewallEvents,
+    // httpActivities,
+    dnsActivities,
+    packetAnalyses,
+    ipv6Activities,
+    threatResponses,
+    quarantinedFiles
+  
+  } = useAlerts();
+
+  const httpActivities = useSelector((state: RootState) => state.socket.httpActivities);
+
+
+  // const cached = localStorage.getItem('httpActivity');
+  // const initialHttpActivity: HttpActivity[] | null = cached
+  //   ? JSON.parse(cached)
+  //   : null;
+    
+  
+  // const [httpActivity, setHttpActivity] = useState<HttpActivity[] | null>(initialHttpActivity);
   const [activeTab, setActiveTab] = useState("threats");
   const [networkActiveTab, setNetworkActiveTab] = useState("http");
   const [automatedResponsesActiveTab, setAutomatedResponsesActiveTab] = useState("responses");
@@ -50,20 +67,31 @@ const Index = () => {
     automatedResponses: true,
     history: true
   });
+
+  // const socket = useSocket('http://127.0.0.1:8000/packet_sniffer', 'socket.io', {});
+
+  // useSocket('http://127.0.0.1:8000/packet_sniffer', 'socket.io', {})
+
   const { toast } = useToast();
+
+
+  
+  
 
   // Combined timeline data for heatmap
   const allTimelineEvents = [
     ...threatDetections.map(t => ({ timestamp: t.timestamp, type: "threat" })),
     ...phishingDetections.map(p => ({ timestamp: p.timestamp, type: "phishing" })),
     ...firewallEvents.map(f => ({ timestamp: f.timestamp, type: "firewall" })),
-    ...httpActivities.map(h => ({ timestamp: h.timestamp, type: "http" })),
+    ...httpActivities.map(h => ({ timestamp: h?.timestamp, type: "http" })),
     ...dnsActivities.map(d => ({ timestamp: d.timestamp, type: "dns" })),
     ...packetAnalyses.map(p => ({ timestamp: p.timestamp, type: "packet" })),
     ...threatResponses.map(r => ({ timestamp: r.timestamp, type: "response" })),
     ...quarantinedFiles.map(q => ({ timestamp: q.timestamp, type: "quarantine" })),
     ...ipv6Activities.map(i => ({ timestamp: i.timestamp, type: "ipv6" }))
   ];
+
+
 
   const toggleSection = (section: keyof typeof sectionsExpanded) => {
     setSectionsExpanded(prev => ({
@@ -88,6 +116,11 @@ const Index = () => {
 
   // Fix for the type error: Ensure the current threat level is a valid ThreatSeverity
   const currentThreatLevel = threatLevelData.current as "Critical" | "High" | "Medium" | "Low";
+
+  // if (httpActivities) {
+  //   console.log('Http Activity available: ', httpActivities);
+  // }
+
 
   return (
     <div className="min-h-screen bg-background p-2 sm:p-4 md:p-8">
