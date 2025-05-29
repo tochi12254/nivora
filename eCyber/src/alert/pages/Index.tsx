@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import ThreatLevelIndicator from "../components/ThreatLevelIndicator";
@@ -31,24 +31,123 @@ import { HttpActivity } from "../types";
 
 const Index = () => {
 
-  const {
-    threatLevelData,
-    activeThreatCounts,
-    systemStatusData,
-    recentCriticalAlerts,
-    threatDetections,
-    phishingDetections,
-    firewallEvents,
-    // httpActivities,
-    dnsActivities,
-    packetAnalyses,
-    ipv6Activities,
-    threatResponses,
-    quarantinedFiles
+  // B2: Replace Mock Data with Redux State
+  const threatDetections = useSelector((state: RootState) => state.threatDetections.threatDetectionsData);
+  const phishingDetections = useSelector((state: RootState) => state.phishingDetections.phishingDetectionsData);
+  const firewallEvents = useSelector((state: RootState) => state.firewallEvents.firewallEventsData);
+  const dnsActivities = useSelector((state: RootState) => state.dnsActivity.dnsActivities);
+  const packetAnalyses = useSelector((state: RootState) => state.packetData.packetEntries);
+  const ipv6Activities = useSelector((state: RootState) => state.ipv6Activity.ipv6ActivitiesData);
+  const threatResponses = useSelector((state: RootState) => state.threatResponses.threatResponsesData);
+  const quarantinedFiles = useSelector((state: RootState) => state.quarantinedFiles.quarantinedFilesData);
+  const recentCriticalAlerts = useSelector((state: RootState) => state.securityAlerts.recentAlerts);
   
-  } = useAlerts();
+  const httpActivities = useSelector((state: RootState) => state.socket.httpActivities); // Already using Redux
 
-  const httpActivities = useSelector((state: RootState) => state.socket.httpActivities);
+  // Data for cards that will be fully implemented in Step 4 - using mock for now or parts of it
+  // Data for cards that will be fully implemented in Step 4 - using mock for now or parts of it
+  // const {
+  //   threatLevelData, // To be replaced 
+  //   activeThreatCounts, // To be replaced
+  // } = useAlerts(); // Removing useAlerts() for these
+
+  // --- Task 3a: ThreatLevelIndicator ---
+  // Assuming Alert type has a 'severity' field as per task description.
+  // If Alert type from Redux (state.securityAlerts.recentAlerts) doesn't have severity, this will need adjustment or backend change.
+  // For now, we'll try to use `threatDetections` as it's more likely to have severity.
+  // If `recentCriticalAlerts` is preferred, ensure `Alert` type in its slice includes severity.
+  const allAlertsForLevel = useSelector((state: RootState) => state.threatDetections.threatDetectionsData); // Using threatDetections for severity
+
+  const currentThreatLevelData = useMemo(() => {
+    if (!allAlertsForLevel || allAlertsForLevel.length === 0) {
+      return { level: "Low" as "Critical" | "High" | "Medium" | "Low", description: "No threats detected." };
+    }
+    // Assuming Alert has a 'severity' field.
+    // Type definition for Alert in usePacketSnifferSocket might need update if severity is not optional.
+    type Severity = "Critical" | "High" | "Medium" | "Low" | "Info";
+    const severityOrder: Record<Severity, number> = { "Critical": 1, "High": 2, "Medium": 3, "Low": 4, "Info": 5 };
+    
+    let highestSeverity: Severity = "Info";
+    let highestAlertMessage = "System nominal. Current threat level is low.";
+
+    allAlertsForLevel.forEach(alert => {
+      const alertSeverity = (alert as any).severity as Severity || "Info"; // Cast if severity is not strictly typed on Alert
+      if (severityOrder[alertSeverity] < severityOrder[highestSeverity]) {
+        highestSeverity = alertSeverity;
+        highestAlertMessage = alert.message;
+      }
+    });
+    
+    // Ensure the level matches the component's expected prop type
+    const finalLevel = (highestSeverity === "Info" ? "Low" : highestSeverity) as "Critical" | "High" | "Medium" | "Low";
+
+    return {
+      level: finalLevel,
+      description: `Highest recent alert: ${highestAlertMessage}`
+    };
+  }, [allAlertsForLevel]);
+  
+  // const currentThreatLevel = currentThreatLevelData.level; // Used by ThreatLevelIndicator component
+
+  // --- Task 3b: ThreatsCountCard ---
+  // Using threatDetections from Redux state
+  const activeThreatCounts = useMemo(() => {
+    const counts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+    (threatDetections || []).forEach(alert => {
+      const severity = ((alert as any).severity || "info").toLowerCase() as keyof typeof counts; // Cast if severity is not on Alert type
+      if (counts[severity] !== undefined) {
+        counts[severity]++;
+      } else if (severity === "critical" || severity === "high" || severity === "medium" || severity === "low") {
+        counts[severity]++; // Fallback for case variations if any
+      } else {
+        counts.info++; // Default to info if severity is unknown
+      }
+    });
+    return counts;
+  }, [threatDetections]);
+
+  // --- Task 3c: SystemHealthCard ---
+  const systemStats = useSelector((state: RootState) => state.systemMetrics.systemStats);
+  const systemStatus = useSelector((state: RootState) => state.systemMetrics.systemStatus);
+  
+  const systemStatusData = useMemo(() => {
+    const healthData: { name: string; status: 'Operational' | 'Degraded' | 'Offline'; description?: string }[] = [];
+
+    // Overall System Health
+    let overallStatus: 'Operational' | 'Degraded' | 'Offline' = 'Offline';
+    if (systemStatus?.online) {
+      overallStatus = 'Operational';
+      if (systemStats && (systemStats.cpu > 80 || systemStats.memory > 80)) { // Example: Degraded if CPU/Mem > 80%
+        overallStatus = 'Degraded';
+      }
+    }
+    healthData.push({
+      name: "Overall System",
+      status: overallStatus,
+      description: `CPU: ${systemStats?.cpu?.toFixed(1) ?? 'N/A'}% | Memory: ${systemStats?.memory?.toFixed(1) ?? 'N/A'}% | Network: ${systemStats?.network?.toFixed(1) ?? 'N/A'} kB/s`
+    });
+
+    // Individual Services
+    (systemStatus?.services || []).forEach(serviceName => {
+      // Assuming services listed are online and operational unless other data suggests otherwise
+      // This part could be more sophisticated if individual service health data becomes available
+      healthData.push({
+        name: serviceName,
+        status: systemStatus?.online ? 'Operational' : 'Offline', // Simplified: if system is online, service is.
+        description: "Running smoothly"
+      });
+    });
+     if (!systemStatus?.services?.length && systemStatus?.online) {
+        healthData.push({
+            name: "Core Services",
+            status: "Operational",
+            description: "All core services operational."
+        });
+    }
+
+
+    return healthData;
+  }, [systemStats, systemStatus]);
 
 
   // const cached = localStorage.getItem('httpActivity');
@@ -78,20 +177,89 @@ const Index = () => {
   
   
 
-  // Combined timeline data for heatmap
-  const allTimelineEvents = [
-    ...threatDetections.map(t => ({ timestamp: t.timestamp, type: "threat" })),
-    ...phishingDetections.map(p => ({ timestamp: p.timestamp, type: "phishing" })),
-    ...firewallEvents.map(f => ({ timestamp: f.timestamp, type: "firewall" })),
-    ...httpActivities.map(h => ({ timestamp: h?.timestamp, type: "http" })),
-    ...dnsActivities.map(d => ({ timestamp: d.timestamp, type: "dns" })),
-    ...packetAnalyses.map(p => ({ timestamp: p.timestamp, type: "packet" })),
-    ...threatResponses.map(r => ({ timestamp: r.timestamp, type: "response" })),
-    ...quarantinedFiles.map(q => ({ timestamp: q.timestamp, type: "quarantine" })),
-    ...ipv6Activities.map(i => ({ timestamp: i.timestamp, type: "ipv6" }))
-  ];
+  // --- Task 3d: allTimelineEvents Timestamp Handling ---
+  const allTimelineEvents = useMemo(() => {
+    const events = [];
+
+    // Helper to add events if timestamp is valid
+    const addEventWithTimestamp = (item: any, type: string, timestampField: string = 'timestamp') => {
+      const timestamp = item[timestampField];
+      if (timestamp !== undefined && timestamp !== null && (typeof timestamp === 'string' || typeof timestamp === 'number')) {
+        // Ensure timestamp is a string for consistency if it's a number (like epoch)
+        events.push({ timestamp: String(timestamp), type });
+      } else {
+        console.warn(`Event of type '${type}' excluded from timeline due to missing or invalid timestamp:`, item);
+      }
+    };
+    
+    // Threat Detections (Alert type - assuming 'timestamp' exists and is valid)
+    // The task description says Alert has severity, and implies timestamp.
+    // The actual Alert type in usePacketSnifferSocket.ts is { message: string, timestamp: string; }
+    (threatDetections || []).forEach(t => addEventWithTimestamp(t, "threat", "timestamp"));
+
+    // HTTP Activities (HttpActivity type - assuming 'timestamp' exists, might be number)
+    // HttpActivity type in usePacketSnifferSocket.ts is { endpoint: string; method: string; statusCode: number; } - NO TIMESTAMP!
+    // This was an error in previous steps or assumption. HttpActivity in socketSlice.ts does NOT have timestamp.
+    // For now, these will be excluded unless the type definition in socketSlice or the data itself includes a timestamp.
+    // The `httpActivities` from `state.socket.httpActivities` uses `HttpActivity` from `@/alert/types` which is:
+    // export interface HttpActivity { id: string; path: string; method: string; statusCode: number; timestamp: string; }
+    // So, it *does* have a timestamp.
+    (httpActivities || []).forEach(h => addEventWithTimestamp(h, "http", "timestamp"));
+
+    // Packet Analyses (PacketMetadata type - 'timestamp' is number)
+    (packetAnalyses || []).forEach(p => addEventWithTimestamp(p, "packet", "timestamp"));
+
+    // Recent Critical Alerts (Alert type - 'timestamp' exists)
+    (recentCriticalAlerts || []).forEach(a => addEventWithTimestamp(a, "critical_alert", "timestamp"));
+
+    // Event types that LACK a timestamp field in their current definitions in usePacketSnifferSocket.ts:
+    // - PhishingData: { url: string; confidence: number; }
+    // - FirewallEvent: { ip: string; type: 'block' | 'allow'; reason: string; }
+    // - DnsQuery: { domain: string; recordType: string; }
+    // - ThreatResponse: { action: string; target: string; success: boolean; }
+    // - FileQuarantined: { path: string; hash: string; reason: string; }
+    // - IPv6Activity: { source: string; destination: string; payloadSize: number; }
+    // These will be logged and excluded by addEventWithTimestamp if no valid timestamp field is found.
+    
+    if (process.env.NODE_ENV === 'development') {
+        (phishingDetections || []).forEach(p => { if (!p.timestamp) console.warn("PhishingDetection event lacks 'timestamp'. Excluding from timeline:", p); });
+        (firewallEvents || []).forEach(f => { if (!f.timestamp) console.warn("FirewallEvent event lacks 'timestamp'. Excluding from timeline:", f); });
+        (dnsActivities || []).forEach(d => { if (!d.timestamp) console.warn("DnsActivity event lacks 'timestamp'. Excluding from timeline:", d); });
+        (threatResponses || []).forEach(r => { if (!r.timestamp) console.warn("ThreatResponse event lacks 'timestamp'. Excluding from timeline:", r); });
+        (quarantinedFiles || []).forEach(q => { if (!q.timestamp) console.warn("QuarantinedFile event lacks 'timestamp'. Excluding from timeline:", q); });
+        (ipv6Activities || []).forEach(i => { if (!i.timestamp) console.warn("IPv6Activity event lacks 'timestamp'. Excluding from timeline:", i); });
+    }
 
 
+    return events;
+  }, [
+    threatDetections, 
+    httpActivities, 
+    packetAnalyses, 
+    recentCriticalAlerts,
+    // Add other event arrays here if they are supposed to have timestamps
+    phishingDetections, firewallEvents, dnsActivities, threatResponses, quarantinedFiles, ipv6Activities 
+  ]);
+
+  // Helper function to ensure timestamp is a string for components that expect it.
+  // This remains useful for table components that might expect string timestamps.
+  // This is a temporary fix. Ideally, all event types should have a consistent timestamp property.
+  const ensureStringTimestamp = (data: any[], timestampField: string = 'timestamp') => {
+    return data.map(item => ({ ...item, timestamp: String(item[timestampField] || new Date(0).toISOString()) }));
+  };
+  
+  // Ensuring data passed to tables has string timestamps where components might expect them
+  // This is based on the original structure of mock data.
+  // Actual components might need more specific data transformations.
+  const safeThreatDetections = ensureStringTimestamp(threatDetections);
+  const safePhishingDetections = phishingDetections.map(p => ({...p, timestamp: p.url, severity: 'medium'})); // PhishingDetectionsTable expects severity
+  const safeFirewallEvents = firewallEvents.map(f => ({...f, timestamp: String(new Date().getTime())})); // FirewallEventsTable expects timestamp
+  const safeDnsActivities = dnsActivities.map(d => ({...d, timestamp: String(new Date().getTime())})); // DnsActivityTable expects timestamp
+  const safePacketAnalyses = packetAnalyses.map(pA => ({...pA, timestamp: String(pA.timestamp)})); // PacketAnalysisTable expects timestamp
+  const safeIPv6Activities = ipv6Activities.map(iA => ({...iA, timestamp: String(new Date().getTime())})); // IPv6ActivityTable expects timestamp
+  const safeThreatResponses = threatResponses.map(tR => ({...tR, timestamp: String(new Date().getTime())})); // ThreatResponseTable expects timestamp
+  const safeQuarantinedFiles = quarantinedFiles.map(qF => ({...qF, timestamp: String(new Date().getTime())})); // QuarantinedFilesTable expects timestamp
+  const safeRecentCriticalAlerts = ensureStringTimestamp(recentCriticalAlerts);
 
   const toggleSection = (section: keyof typeof sectionsExpanded) => {
     setSectionsExpanded(prev => ({
@@ -115,7 +283,7 @@ const Index = () => {
   };
 
   // Fix for the type error: Ensure the current threat level is a valid ThreatSeverity
-  const currentThreatLevel = threatLevelData.current as "Critical" | "High" | "Medium" | "Low";
+  const currentThreatLevel = currentThreatLevelData.level;
 
   // if (httpActivities) {
   //   console.log('Http Activity available: ', httpActivities);
@@ -154,7 +322,7 @@ const Index = () => {
           <CardContent className="flex justify-center px-3 sm:px-6">
             <ThreatLevelIndicator
               level={currentThreatLevel}
-              description={threatLevelData.description}
+              description={currentThreatLevelData.description}
             />
           </CardContent>
         </Card>
@@ -165,7 +333,7 @@ const Index = () => {
       </div>
 
       <div className="mb-6 md:mb-8">
-        <RecentAlertsCard alerts={recentCriticalAlerts} className="transition-all duration-200 hover:shadow-lg" />
+        <RecentAlertsCard alerts={safeRecentCriticalAlerts} className="transition-all duration-200 hover:shadow-lg" />
       </div>
 
       <div className="mb-6 md:mb-8">
@@ -194,19 +362,19 @@ const Index = () => {
             
             <TabsContent value="threats" className="animate-slide-in">
               <div className="overflow-x-auto">
-                <ThreatDetectionsTable threats={threatDetections} />
+                <ThreatDetectionsTable threats={safeThreatDetections} />
               </div>
             </TabsContent>
             
             <TabsContent value="phishing" className="animate-slide-in">
               <div className="overflow-x-auto">
-                <PhishingDetectionsTable detections={phishingDetections} />
+                <PhishingDetectionsTable detections={safePhishingDetections} />
               </div>
             </TabsContent>
             
             <TabsContent value="firewall" className="animate-slide-in">
               <div className="space-y-6 overflow-x-auto">
-                <FirewallEventsTable events={firewallEvents} />
+                <FirewallEventsTable events={safeFirewallEvents} />
               </div>
             </TabsContent>
           </Tabs>
@@ -270,7 +438,7 @@ const Index = () => {
                       Tracks DNS queries, identifies potentially malicious domains, detects unusual TTL values, and correlates with threat intelligence feeds.
                     </p>
                     <div className="overflow-x-auto">
-                      <DnsActivityTable activities={dnsActivities} />
+                      <DnsActivityTable activities={safeDnsActivities} />
                     </div>
                   </CardContent>
                 </Card>
@@ -288,7 +456,7 @@ const Index = () => {
                       Analyzes packets for suspicious characteristics, monitors protocol distributions, and detects network anomalies like port scans.
                     </p>
                     <div className="overflow-x-auto">
-                      <PacketAnalysisTable packets={packetAnalyses} />
+                      <PacketAnalysisTable packets={safePacketAnalyses} />
                     </div>
                   </CardContent>
                 </Card>
@@ -306,7 +474,7 @@ const Index = () => {
                       Monitors IPv6 traffic patterns, detects baseline deviations, and identifies potential tunneled traffic for evading security controls.
                     </p>
                     <div className="overflow-x-auto">
-                      <IPv6ActivityTable activities={ipv6Activities} />
+                      <IPv6ActivityTable activities={safeIPv6Activities} />
                     </div>
                   </CardContent>
                 </Card>
@@ -353,7 +521,7 @@ const Index = () => {
                       Records of automated security actions taken in response to detected threats, including IP blocks, process termination, and more.
                     </p>
                     <div className="overflow-x-auto">
-                      <ThreatResponseTable responses={threatResponses} />
+                      <ThreatResponseTable responses={safeThreatResponses} />
                     </div>
                   </CardContent>
                 </Card>
@@ -371,7 +539,7 @@ const Index = () => {
                       Files automatically quarantined due to detection of malicious content, suspicious behavior, or unauthorized modifications.
                     </p>
                     <div className="overflow-x-auto">
-                      <QuarantinedFilesTable files={quarantinedFiles} />
+                      <QuarantinedFilesTable files={safeQuarantinedFiles} />
                     </div>
                   </CardContent>
                 </Card>
@@ -403,15 +571,15 @@ const Index = () => {
         {sectionsExpanded.history && (
           <div className="grid grid-cols-1 gap-4 md:gap-6">
             <SecurityHistoryTimeline 
-              threats={threatDetections}
-              phishing={phishingDetections}
-              firewall={firewallEvents}
-              http={httpActivities}
-              dns={dnsActivities}
-              packets={packetAnalyses}
-              responses={threatResponses}
-              quarantined={quarantinedFiles}
-              ipv6={ipv6Activities}
+              threats={safeThreatDetections}
+              phishing={safePhishingDetections}
+              firewall={safeFirewallEvents}
+              http={httpActivities || []} // httpActivities is already from redux
+              dns={safeDnsActivities}
+              packets={safePacketAnalyses}
+              responses={safeThreatResponses}
+              quarantined={safeQuarantinedFiles}
+              ipv6={safeIPv6Activities}
               className="transition-all duration-200 hover:shadow-lg"
             />
             

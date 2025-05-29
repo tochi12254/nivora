@@ -3,8 +3,99 @@ import { useEffect, useCallback, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { throttle } from 'lodash';
 import { useDispatch } from 'react-redux';
-import { addSystemTelemetry, addHttpActivity } from '@/app/slices/socketSlice';
+import {
+  addSystemTelemetry,
+  addHttpActivity,
+  addTcpActivity,
+  addUdpActivity,
+  addIcmpActivity,
+  addArpActivity,
+  addPayloadAnalysisEvent,
+  addBehaviorAnalysisEvent,
+  // Import other actions from socketSlice if they were missed or are needed by other events
+} from '@/app/slices/socketSlice';
+import {
+  addDnsActivity,
+  addFirewallEvent as addRealtimeFirewallEvent, // Alias to avoid conflict if any
+  addThreatDetection,
+  addIPv6Activity,
+  addPacketEntry,
+  updateSystemStats,
+  updateSystemStatus,
+  addSecurityAlert,
+  addPhishingDetection,
+  addThreatResponse,
+  addQuarantinedFile,
+} from '@/app/slices/realtimeDataSlice';
+// Make sure all types used in dispatch are imported if not already defined in this file
+// import {
+//   DnsQuery,
+//   FirewallEvent,
+//   Alert, // Already defined
+//   IPv6Activity, // Already defined
+//   PacketMetadata, // Already defined
+//   SystemStats, // Already defined
+//   SystemStatus, // Already defined
+//   HttpActivity, // Already defined
+//   // Import specific data types for new activities if not defined below
+//   // For example, if TcpActivityData is not defined in this file yet
+// } from './usePacketSnifferSocket'; // Assuming types are exported from here or defined below
 
+// Placeholder types for new activities if not already in the file from previous step
+// These should match what's defined in socketSlice.ts
+interface TcpActivityData {
+  timestamp: string;
+  src_ip: string;
+  dst_ip: string;
+  src_port: number;
+  dst_port: number;
+  flags: string[];
+  length: number;
+}
+
+interface UdpActivityData {
+  timestamp: string;
+  src_ip: string;
+  dst_ip: string;
+  src_port: number;
+  dst_port: number;
+  length: number;
+}
+
+interface IcmpActivityData {
+  timestamp: string;
+  src_ip: string;
+  dst_ip: string;
+  icmp_type: number;
+  icmp_code: number;
+}
+
+interface ArpActivityData {
+  timestamp: string;
+  sender_mac: string;
+  sender_ip: string;
+  target_mac: string;
+  target_ip: string;
+  operation: 'request' | 'reply';
+}
+
+interface PayloadAnalysisData {
+  timestamp: string;
+  src_ip: string;
+  dst_ip: string;
+  protocol: string;
+  payload_snippet: string;
+  analysis_result: string;
+  signature_matched?: string;
+}
+
+interface BehaviorAnalysisData {
+  timestamp: string;
+  entity_id: string;
+  behavior_type: string;
+  score: number;
+  details: Record<string, any>;
+}
 // ==================== Event export interfaces ====================
 export interface ThreatData { id: string; message: string; severity: 'low' | 'medium' | 'high'; }
 export interface PhishingData { url: string; confidence: number; }
@@ -59,13 +150,13 @@ export type SocketEvent =
   | { type: 'service_status'; data: ServiceStatus }
   | { type: 'user_alert'; data: Alert }
   | { type: 'security_alert'; data: Alert }
-  | { type: 'http_activity'; data: HttpActivity }
-  | { type: 'behavior_analysis'; data: HttpActivity }
-  | { type: 'payload_analysis'; data: HttpActivity }
-  | { type: 'tcp_activity'; data: any }
-  | { type: 'udp_activity'; data: HttpActivity }
-  | { type: 'arp_activity'; data: HttpActivity }
-  | { type: 'icmp_activity'; data: HttpActivity }
+  | { type: 'http_activity'; data: HttpActivity } // Assuming array based on existing handler
+  | { type: 'behavior_analysis'; data: BehaviorAnalysisData[] }
+  | { type: 'payload_analysis'; data: PayloadAnalysisData[] }
+  | { type: 'tcp_activity'; data: TcpActivityData[] }
+  | { type: 'udp_activity'; data: UdpActivityData[] }
+  | { type: 'arp_activity'; data: ArpActivityData[] }
+  | { type: 'icmp_activity'; data: IcmpActivityData[] }
   | { type: 'dns_activity'; data: DnsQuery }
   | { type: 'database_error'; data: ErrorData }
   | { type: 'ssh_connection'; data: SshConnection }
@@ -130,65 +221,140 @@ export default function usePacketSniffer(): UseSocketReturn {
   const dispatch = useDispatch();
 
   const EVENT_HANDLERS_CONFIG = {
-    // High-priority security events
-    'threat_detected': (data: ThreatData) => console.warn('⚠️ Threat Detected:', data),
-    'critical_alert': (data: CriticalAlert) => console.error('🔥 Critical Alert:', data),
-    'unauthorized_access': (data: AccessData) => console.warn('🚨 Unauthorized Access:', data),
-    'phishing_link_detected': (data: PhishingData) => console.warn('🎣 Phishing Link:', data),
+    // High-priority security events & RealtimeDataSlice dispatches
+    'threat_detected': (data: Alert) => { // Assuming ThreatData is compatible with Alert or needs mapping
+      console.warn('⚠️ Threat Detected:', data);
+      dispatch(addThreatDetection(data as Alert));
+      // Optionally, if all threat_detected events are also general security alerts:
+      dispatch(addSecurityAlert(data as Alert));
+    },
+    'critical_alert': (data: Alert) => { // Assuming CriticalAlert is compatible with Alert
+      console.error('🔥 Critical Alert:', data);
+      dispatch(addSecurityAlert(data as Alert));
+      // Optionally, if critical alerts should also go to threat detections:
+      // dispatch(addThreatDetection(data as Alert));
+    },
+    'security_alert': (data: Alert) => {
+        console.info('🛡️ Security Alert:', data);
+        dispatch(addSecurityAlert(data as Alert));
+    },
+    'user_alert': (data: Alert) => { // Assuming UserAlert is compatible with Alert
+        console.info('👤 User Alert:', data);
+        dispatch(addSecurityAlert(data as Alert));
+    },
+    'unauthorized_access': (data: AccessData) => console.warn('🚨 Unauthorized Access:', data), // No specific slice for this yet, handled by socketSlice
+    'phishing_link_detected': (data: PhishingData) => {
+      console.warn('🎣 Phishing Link:', data);
+      dispatch(addPhishingDetection(data as PhishingData));
+    },
     
-    // System monitoring events
-    'system_error': (data: ErrorData) => console.error('❌ System Error:', data),
-    'system_status': (data: SystemStatus) => console.info('🖥️ System Status:', data),
-    'service_status': (data: ServiceStatus) => console.info('🛠️ Service Status:', data),
+    // System monitoring events & RealtimeDataSlice dispatches
+    'system_error': (data: ErrorData) => console.error('❌ System Error:', data), // No specific slice for this yet, handled by socketSlice
+    'system_status': (data: SystemStatus) => {
+      console.info('🖥️ System Status:', data);
+      dispatch(updateSystemStatus(data as SystemStatus));
+    },
+    'service_status': (data: ServiceStatus) => {
+        console.info('🛠️ Service Status:', data);
+        // Potential: dispatch(updateSystemStatus(transformServiceStatusToSystemStatus(data)));
+        // For now, just logging as per instructions, or if SystemStatus can take it directly:
+        // dispatch(updateSystemStatus({ online: true, services: [data.name] } as SystemStatus)); // Example: adapt as needed
+    },
+    'system_stats': (data: SystemStats) => {
+      console.debug('📈 System Stats:', data);
+      dispatch(updateSystemStats(data as SystemStats));
+    },
     'analysis_error': (data: AnalysisError) => console.log("Analysis Error", data),
     
-    // Network events
+    // Network events & RealtimeDataSlice/socketSlice dispatches
     'network_anomaly': throttle((data: NetworkAnomaly) =>
-      console.log('🌐 Network Anomaly:', data), 1000),
-    'firewall_event': (data: FirewallEvent) => console.info('🔥 Firewall Event:', data),
-    'packet_data': (data: PacketMetadata) => console.debug('📦 Packet Data:', data),
+      console.log('🌐 Network Anomaly:', data), 1000), // No specific slice for this yet, handled by socketSlice
+    'firewall_event': (data: FirewallEvent) => {
+      console.info('🔥 Firewall Event (realtime):', data);
+      dispatch(addRealtimeFirewallEvent(data as FirewallEvent));
+    },
+    'firewall_blocked': (data: FirewallData) => { // This is from socketSlice.ts originally
+        console.info('🧱 Firewall Blocked (socketSlice):', data);
+        // Assuming FirewallData might be different from FirewallEvent.
+        // If it should also go to the realtimeDataSlice's firewallEvents:
+        // dispatch(addRealtimeFirewallEvent(data as FirewallEvent)); // Requires FirewallData to be compatible/mapped to FirewallEvent
+        // For now, keeping it separate as per instructions.
+        // If you have a specific action in socketSlice for 'firewall_blocked', use it here.
+        // Otherwise, if it's for the realtime slice:
+        dispatch(addRealtimeFirewallEvent(data as unknown as FirewallEvent)); // Type assertion needed if FirewallData and FirewallEvent differ significantly
+    },
+    'packet_data': (data: PacketMetadata) => {
+      // console.debug('📦 Packet Data:', data); // Throttled if too verbose
+      dispatch(addPacketEntry(data as PacketMetadata));
+    },
+    'dns_activity': (data: DnsQuery) => {
+        console.log('DNS Activity:', data);
+        dispatch(addDnsActivity(data as DnsQuery));
+    },
+    'ipv6_activity': (data: IPv6Activity) => {
+        console.log('IPv6 Activity:', data);
+        dispatch(addIPv6Activity(data as IPv6Activity));
+    },
   
-    
     // Training events
     'training_progress': (data: TrainingProgress) => console.info('🏋️ Training Progress:', data),
     'training_completed': () => console.info('✅ Training Completed'),
     
     // Telemetry events (throttled)
-    'system_telemetry': throttle((data: SystemTelemetry[]) => {
+    'system_telemetry': throttle((data: SystemTelemetry[]) => { // Assuming SystemTelemetry is an array
       console.log('📊 System Telemetry:', data);
-      
+      // The existing import was addSystemTelemetry, so data should be SystemTelemetry, not SystemTelemetry[]
+      // dispatch(addSystemTelemetry(data as SystemTelemetry)); // If it's a single object
+      // If it's an array and the slice expects an array:
+      // dispatch(addSystemTelemetry(data)); // This was the original import, let's stick to it.
+      // However, the slice `addSystemTelemetry` takes `SystemTelemetry[]` but is assigned to `state.systemTelemetry = action.payload`
+      // which makes `state.systemTelemetry` an array. This seems fine.
+       dispatch(addSystemTelemetry(data as SystemTelemetry[]));
+
+
     }, 500),
     
-    'system_stats': (data: SystemStats) => console.debug('📈 System Stats:', data),
-    'http_activity': (data: HttpActivity[]) => {
+    // HTTP and other protocol activities from socketSlice
+    'http_activity': (data: HttpActivity[]) => { // Assuming array based on previous code
       dispatch(addHttpActivity(data as HttpActivity[]));
       console.log('🌐 HTTP Activity:', data);
     },
-    'tcp_activity': (data: any[]) => {
+    'tcp_activity': (data: TcpActivityData[]) => {
       console.log('🌐 TCP Activity:', data);
+      dispatch(addTcpActivity(data as TcpActivityData[]));
     },
-    'behavior_analysis': (data: HttpActivity[]) => {
-      console.log('🌐 Behavior analysis:', data);
-    },
-    'payload_analysis': (data: HttpActivity[]) => {
-      console.log('🌐 Payload analysis:', data);
-    },
-    'icmp_activity': (data: HttpActivity[]) => {
-      console.log('🌐 ICMP Activity:', data);
-    },
-    'udp_activity': (data: HttpActivity[]) => {
+    'udp_activity': (data: UdpActivityData[]) => {
       console.log('🌐 UDP Activity:', data);
+      dispatch(addUdpActivity(data as UdpActivityData[]));
     },
-    'arp_activity': (data: HttpActivity[]) => {
+    'icmp_activity': (data: IcmpActivityData[]) => {
+      console.log('🌐 ICMP Activity:', data);
+      dispatch(addIcmpActivity(data as IcmpActivityData[]));
+    },
+    'arp_activity': (data: ArpActivityData[]) => {
       console.log('🌐 ARP Activity:', data);
+      dispatch(addArpActivity(data as ArpActivityData[]));
     },
-
-
+    'payload_analysis': (data: PayloadAnalysisData[]) => {
+      console.log('🔍 Payload Analysis:', data);
+      dispatch(addPayloadAnalysisEvent(data as PayloadAnalysisData[]));
+    },
+    'behavior_analysis': (data: BehaviorAnalysisData[]) => {
+      console.log('🧠 Behavior Analysis:', data);
+      dispatch(addBehaviorAnalysisEvent(data as BehaviorAnalysisData[]));
+    },
+    'threat_response': (data: ThreatResponse) => {
+      console.log('🛡️ Threat Response:', data);
+      dispatch(addThreatResponse(data as ThreatResponse));
+    },
+    'file_quarantined': (data: FileQuarantined) => {
+      console.log('📦 File Quarantined:', data);
+      dispatch(addQuarantinedFile(data as FileQuarantined));
+    },
     
     // Default handler for unconfigured events
     'default': (type: string, data: any) => console.log(`ℹ️ Event: ${type}`, data)
   };
-  
 
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);

@@ -40,6 +40,62 @@ interface PacketMetadata {
   payload: string | null;
 }
 
+// Placeholder interfaces for new activity types
+interface TcpActivityData {
+  timestamp: string;
+  src_ip: string;
+  dst_ip: string;
+  src_port: number;
+  dst_port: number;
+  flags: string[]; // e.g., SYN, ACK, FIN
+  length: number;
+}
+
+interface UdpActivityData {
+  timestamp: string;
+  src_ip: string;
+  dst_ip: string;
+  src_port: number;
+  dst_port: number;
+  length: number;
+}
+
+interface IcmpActivityData {
+  timestamp: string;
+  src_ip: string;
+  dst_ip: string;
+  icmp_type: number;
+  icmp_code: number;
+}
+
+interface ArpActivityData {
+  timestamp: string;
+  sender_mac: string;
+  sender_ip: string;
+  target_mac: string;
+  target_ip: string;
+  operation: 'request' | 'reply';
+}
+
+interface PayloadAnalysisData {
+  timestamp: string;
+  src_ip: string;
+  dst_ip: string;
+  protocol: string;
+  payload_snippet: string;
+  analysis_result: string; // e.g., 'benign', 'suspicious', 'malicious'
+  signature_matched?: string;
+}
+
+interface BehaviorAnalysisData {
+  timestamp: string;
+  entity_id: string; // e.g., user_id, device_ip
+  behavior_type: string; // e.g., 'unusual_login_time', 'large_data_exfiltration'
+  score: number; // 0-100
+  details: Record<string, any>;
+}
+
+
 interface SocketState {
   isConnected: boolean;
   connectionError: string | null;
@@ -60,6 +116,12 @@ interface SocketState {
   ipv6Activities: IPv6Activity[];
   packetData: PacketMetadata[];
   connectionAnalyses: ConnectionAnalysis[];
+  tcpActivities: TcpActivityData[];
+  udpActivities: UdpActivityData[];
+  icmpActivities: IcmpActivityData[];
+  arpActivities: ArpActivityData[];
+  payloadAnalysisEvents: PayloadAnalysisData[];
+  behaviorAnalysisEvents: BehaviorAnalysisData[];
   
   // System events
   systemStats: SystemStats[];
@@ -103,6 +165,12 @@ const initialState: SocketState = {
   ipv6Activities: [],
   packetData: [],
   connectionAnalyses: [],
+  tcpActivities: [],
+  udpActivities: [],
+  icmpActivities: [],
+  arpActivities: [],
+  payloadAnalysisEvents: [],
+  behaviorAnalysisEvents: [],
   systemStats: [],
   systemStatus: null,
   systemTelemetry: [],
@@ -202,6 +270,30 @@ const socketSlice = createSlice({
     addConnectionAnalysis(state, action: PayloadAction<ConnectionAnalysis>) {
       state.connectionAnalyses.push(action.payload);
       state.lastUpdated['connection_analysis'] = new Date().toISOString();
+    },
+    addTcpActivity(state, action: PayloadAction<TcpActivityData>) {
+      state.tcpActivities = [action.payload, ...state.tcpActivities].slice(0, 150);
+      state.lastUpdated['tcp_activity'] = new Date().toISOString();
+    },
+    addUdpActivity(state, action: PayloadAction<UdpActivityData>) {
+      state.udpActivities = [action.payload, ...state.udpActivities].slice(0, 150);
+      state.lastUpdated['udp_activity'] = new Date().toISOString();
+    },
+    addIcmpActivity(state, action: PayloadAction<IcmpActivityData>) {
+      state.icmpActivities = [action.payload, ...state.icmpActivities].slice(0, 100);
+      state.lastUpdated['icmp_activity'] = new Date().toISOString();
+    },
+    addArpActivity(state, action: PayloadAction<ArpActivityData>) {
+      state.arpActivities = [action.payload, ...state.arpActivities].slice(0, 100);
+      state.lastUpdated['arp_activity'] = new Date().toISOString();
+    },
+    addPayloadAnalysisEvent(state, action: PayloadAction<PayloadAnalysisData>) {
+      state.payloadAnalysisEvents = [action.payload, ...state.payloadAnalysisEvents].slice(0, 100);
+      state.lastUpdated['payload_analysis_event'] = new Date().toISOString();
+    },
+    addBehaviorAnalysisEvent(state, action: PayloadAction<BehaviorAnalysisData>) {
+      state.behaviorAnalysisEvents = [action.payload, ...state.behaviorAnalysisEvents].slice(0, 100);
+      state.lastUpdated['behavior_analysis_event'] = new Date().toISOString();
     },
     
     // System event reducers
@@ -304,6 +396,12 @@ export const {
   addIpv6Activity,
   addPacketData,
   addConnectionAnalysis,
+  addTcpActivity,
+  addUdpActivity,
+  addIcmpActivity,
+  addArpActivity,
+  addPayloadAnalysisEvent,
+  addBehaviorAnalysisEvent,
   addSystemStat,
   setSystemStatus,
   addSystemTelemetry,

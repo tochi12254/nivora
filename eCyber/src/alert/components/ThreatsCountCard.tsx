@@ -1,7 +1,7 @@
 
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ThreatCount } from "@/types";
+import { ThreatCount } from "../types";
 import ThreatBadge from "./ThreatBadge";
 
 interface ThreatsCountCardProps {
@@ -10,7 +10,9 @@ interface ThreatsCountCardProps {
 }
 
 const ThreatsCountCard = ({ threatCounts, className }: ThreatsCountCardProps) => {
-  const totalThreats = threatCounts.reduce((acc, threat) => acc + threat.count, 0);
+  const totalThreats = Array.isArray(threatCounts)
+    ? threatCounts.reduce((acc, threat) => acc + threat.count, 0)
+    : 0;
 
   return (
     <Card className={className}>
@@ -24,7 +26,8 @@ const ThreatsCountCard = ({ threatCounts, className }: ThreatsCountCardProps) =>
             <span className="text-sm font-normal text-muted-foreground ml-2">total</span>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            {threatCounts.map((threat) => (
+          {Array.isArray(threatCounts) &&
+            threatCounts.map((threat) => (
               <div 
                 key={threat.severity} 
                 className="flex items-center justify-between p-2 rounded-md bg-card border"
@@ -33,7 +36,8 @@ const ThreatsCountCard = ({ threatCounts, className }: ThreatsCountCardProps) =>
                 <span className="text-lg font-semibold">{threat.count}</span>
               </div>
             ))}
-          </div>
+        </div>
+
         </div>
       </CardContent>
     </Card>
