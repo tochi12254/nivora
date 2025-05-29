@@ -84,9 +84,18 @@ def default_recent_packet():
 
 
 class PacketSniffer:
-    def __init__(self, sio_queue: Queue):
+    def __init__(self, sio_queue: Queue, phishing_blocker: Optional[PhishingBlocker] = None):
+        """
+        Initializes the PacketSniffer.
 
+        Args:
+            sio_queue (Queue): A multiprocessing queue for sending events to a Socket.IO server.
+            phishing_blocker (Optional[PhishingBlocker]): An instance of PhishingBlocker
+                                                          for analyzing HTTP traffic for phishing attempts.
+                                                          If None, phishing analysis will be skipped.
+        """
         self.sio_queue = sio_queue
+        self.phishing_blocker = phishing_blocker # Store the PhishingBlocker instance
         self._http_listeners: list[Callable[[Dict], bool]] = []
         self.manager = Manager()
         self.packet_counter = mp.Value("i", 0)
@@ -1374,8 +1383,31 @@ class PacketSniffer:
                     self.sio_queue.put_nowait(("http_activity", data))
                 except Full:
                     logger.warning("sio_queue is full. Dropping event: http_activity")
+
+                # <<< Integration with PhishingBlocker >>>
+                if self.phishing_blocker:
+                    try:
+                        # Prepare data for PhishingBlocker. This should include essential HTTP details.
+                        # PhishingBlocker.submit_http_for_analysis is a synchronous method that
+                        # schedules the asynchronous PhishingBlocker.process_http_activity,
+                        # ensuring the sniffer's packet processing loop is not blocked.
+                        blocker_data = {
+                            "host": http_data.get("host"), # Target host/domain
+                            "path": http_data.get("path"), # Request path
+                            "source_ip": http_data.get("source_ip"), # Source IP of the request
+                            "headers": header_fields, # Extracted HTTP headers
+                            # Additional fields like 'method', 'user_agent' can be added if PhishingBlocker uses them.
+                        }
+                        if blocker_data["host"]: # Only submit if a host is present.
+                            logger.info(f"Submitting HTTP data for host '{blocker_data['host']}' to PhishingBlocker for analysis.")
+                            self.phishing_blocker.submit_http_for_analysis(blocker_data)
+                        else:
+                            logger.debug("Skipping PhishingBlocker submission: Host information is missing in http_data.")
+                    except Exception as pb_e: # Catch any errors during the submission process.
+                        logger.error(f"Error submitting HTTP data to PhishingBlocker: {pb_e}", exc_info=True)
+
             except Exception as e:
-                logger.critical(f"Notification failed: {str(e)}", exc_info=True)
+                logger.critical(f"Notification or PhishingBlocker submission failed: {str(e)}", exc_info=True)
 
         except Exception as e:
             logger.critical(f"HTTP analysis failed completely: {str(e)}", exc_info=True)

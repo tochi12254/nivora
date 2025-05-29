@@ -129,7 +129,12 @@ async def create_app() -> FastAPI:
         await intel.load_from_cache()
         asyncio.create_task(intel.fetch_and_cache_feeds())
         ips = EnterpriseIPS(
-            "rules.json", sio,intel, multiprocessing.cpu_count(), sio_queue, output_queue
+            "rules.json",
+            sio,
+            intel,
+            multiprocessing.cpu_count(),
+            sio_queue,
+            output_queue,
         )
 
         sniffer = PacketSniffer(sio_queue)
@@ -141,6 +146,8 @@ async def create_app() -> FastAPI:
         # cyber_defender = activate_cyber_defense(monitor)
 
         # phishing_blocker = PhishingBlocker(sio)
+        # phishing_blocker = PhishingBlocker(sio)  # Initialize PhishingBlocker
+        logger.info("PhishingBlocker initialized.")
 
         # Initialize IPS Adapter
         # ips_adapter = IPSPacketAdapter(ips)
@@ -154,6 +161,9 @@ async def create_app() -> FastAPI:
         app.state.firewall = firewall
         app.state.signature_engine = signature_engine
         app.state.ids_signature_engine = ids_signature_engine
+        # app.state.phishing_blocker = (
+        #     phishing_blocker  # Store PhishingBlocker in app state
+        # )
         # app.state.ips_engine = ips
         # app.state.ips_adapter = ips_adapter
         app.state.db = AsyncSessionLocal
@@ -198,17 +208,28 @@ async def create_app() -> FastAPI:
             # Shutdown tasks
             logger.info("🛑 Gracefully shutting down...")
 
+            # if hasattr(app.state, "phishing_blocker") and app.state.phishing_blocker:
+            #     logger.info("Stopping PhishingBlocker...")
+            #     # PhishingBlocker.stop() is an async method
+            #     await app.state.phishing_blocker.stop()
+            #     logger.info("PhishingBlocker stopped.")
+
             if monitor:
                 await monitor.stop()
-            if sniffer:
+            if sniffer:  # sniffer.stop() is synchronous
+                # To avoid blocking, it should ideally be run in an executor if it's long,
+                # or made async. For now, calling it as is.
+                logger.info("Stopping PacketSniffer...")
                 sniffer.stop()
-            if sniffer_service:
+                logger.info("PacketSniffer stopped.")
+            if sniffer_service:  # sniffer_service.stop() is async
                 await sniffer_service.stop()
 
             # await ips_adapter.stop()
             # autofill_task.cancel()
-            await engine.dispose()
-            await ips.stop()
+            await engine.dispose()  # Dispose DB engine
+            if ips:  # ips.stop() is async
+                await ips.stop()
             # health_status = {
             #             "ips_queue_size": ips.input_queue.qsize(),
             #             "sniffer_packets": sniffer.packet_counter.value,
