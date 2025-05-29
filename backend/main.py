@@ -7,11 +7,12 @@ from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import socketio
-from multiprocessing import Queue, Manager 
+from multiprocessing import Queue, Manager
 import multiprocessing
 from queue import Full, Empty
 import asyncio
 import psutil
+
 # Configuration
 from app.core.config import settings
 from app.middleware.blocker_middleware import BlocklistMiddleware
@@ -20,6 +21,7 @@ from app.core.logger import setup_logger
 from socket_events import get_socket_app
 from app.services.system.monitor import SystemMonitor
 from app.services.detection.phishing_blocker import PhishingBlocker
+
 # from app.services.system.malware_detection import activate_cyber_defense
 
 
@@ -37,14 +39,18 @@ from app.api import (
     system as system_router,
     admin as admin_router,
     ids as ids_router,
-    
 )
 
 from api.firewall_api import router as firewall_router
 from api.threat_intel_api import router as intel_router
 from api.nac_api import router as nac_router
 from api.dns_api import router as dns_router
-from app.utils.report import get_24h_network_traffic, get_daily_threat_summary,  handle_network_history
+from app.utils.report import (
+    get_24h_network_traffic,
+    get_daily_threat_summary,
+    handle_network_history,
+)
+
 # from app.api.ips import get_ips_engine
 
 # Services
@@ -55,6 +61,7 @@ from app.services.ips.engine import EnterpriseIPS, ThreatIntel
 
 # from app.services.ips.adapter import IPSPacketAdapter
 from app.services.prevention.firewall import FirewallManager
+
 # from app.services.tasks.autofill_task import run_autofill_task
 
 # Socket.IO
@@ -118,12 +125,12 @@ async def create_app() -> FastAPI:
         sniffer_namespace = PacketSnifferNamespace("/packet_sniffer", sio_queue)
         sio.register_namespace(sniffer_namespace)
 
-        # intel = ThreatIntel() 
-        # await intel.load_from_cache()        
-        # asyncio.create_task(intel.fetch_and_cache_feeds())
-        # ips = EnterpriseIPS(
-        #     "rules.json", sio,intel, multiprocessing.cpu_count(), sio_queue, output_queue
-        # )
+        intel = ThreatIntel()
+        await intel.load_from_cache()
+        asyncio.create_task(intel.fetch_and_cache_feeds())
+        ips = EnterpriseIPS(
+            "rules.json", sio,intel, multiprocessing.cpu_count(), sio_queue, output_queue
+        )
 
         sniffer = PacketSniffer(sio_queue)
 
@@ -162,7 +169,7 @@ async def create_app() -> FastAPI:
             await sniffer_service.start()
             await sniffer.start("Wi-Fi")
             await monitor.start()
-            # await ips.start()
+            await ips.start()
             logger.info("System monitoring started")
             # Start packet sniffer with IPS integration
 
@@ -195,13 +202,13 @@ async def create_app() -> FastAPI:
                 await monitor.stop()
             if sniffer:
                 sniffer.stop()
-            # if sniffer_service:
-            #     await sniffer_service.stop()
+            if sniffer_service:
+                await sniffer_service.stop()
 
             # await ips_adapter.stop()
             # autofill_task.cancel()
             await engine.dispose()
-            # await ips.stop()
+            await ips.stop()
             # health_status = {
             #             "ips_queue_size": ips.input_queue.qsize(),
             #             "sniffer_packets": sniffer.packet_counter.value,
@@ -224,7 +231,6 @@ async def create_app() -> FastAPI:
             "http://127.0.0.1:3000",
             "http://localhost:4000",
             "http://127.0.0.1:4000",
-            
         ],
         allow_credentials=True,
         allow_methods=["*"],
@@ -300,8 +306,8 @@ if __name__ == "__main__":
         await hypercorn.asyncio.serve(app, config)
 
     try:
-        
+
         asyncio.run(run())
-        
+
     except KeyboardInterrupt:
         pass

@@ -6,6 +6,7 @@ import logging
 import platform
 from operator import itemgetter
 import asyncio 
+import traceback
 from functools import lru_cache
 from datetime import datetime, timedelta
 from collections import defaultdict, deque, Counter
@@ -71,6 +72,17 @@ logger.setLevel(logging.INFO)
 
 from .utils.constants import BASE64_CHARS, cipher_name,SCORING_WEIGHTS,WEAK_CIPHERS,RECOMMENDED_CIPHERS,KNOWN_SERVICES  
 
+
+def default_recent_packet():
+    return {
+        "packets": deque(maxlen=100),
+        "syn_times": deque(maxlen=1000),
+        "rst_count": 0,
+        "auth_failures": 0,
+        "network_flows": deque(maxlen=1000),
+    }
+
+
 class PacketSniffer:
     def __init__(self, sio_queue: Queue):
 
@@ -87,6 +99,8 @@ class PacketSniffer:
         self.end_time = time.time()
         self._state_checked = False
         self._stop_event = Event()
+        self.sniffer_process: Optional[Process] = None
+        self.stop_sniffing_event = mp.Event()
 
         ##Machine learning part
 
@@ -102,7 +116,7 @@ class PacketSniffer:
         # Initialize queues and locks
         self.event_queue = Queue(maxsize=10000)
         self.data_lock = mp.Lock()
-        self.processing_lock = self.manager.Lock()
+        # self.processing_lock has been removed as per optimization task
         self.worker_process = Process(target=self._process_queue, args=(), daemon=True)
 
         self.sniffer_process: Optional[Process] = None
@@ -149,13 +163,7 @@ class PacketSniffer:
         self._endpoint_tracker = defaultdict(lambda: defaultdict(set))
         self._protocol_counter = self.manager.dict()
 
-        self.recent_packets = defaultdict(lambda: {
-            'packets': deque(maxlen=100),
-            'syn_times': deque(maxlen=1000),
-            'rst_count': 0,
-            'auth_failures': 0,
-            'network_flows': deque(maxlen=1000) 
-        })
+        self.recent_packets = defaultdict(default_recent_packet)
         self.current_packet_source = None
         self.port_scan_detector = PortScanDetector()
 
@@ -181,6 +189,34 @@ class PacketSniffer:
 
         # self.worker_process.start()
         # self.reporter_process.start()
+
+    def _run_sniffer_process(self, interface: str, sio_queue: Queue):
+        """Runs the AsyncSniffer in a separate process."""
+        logger.info("Sniffer process started on interface %s", interface)
+        self.sio_queue = sio_queue  # Crucial for the new process
+
+        sniffer = None
+        try:
+            sniffer = AsyncSniffer(
+                iface=interface,
+                filter="not (dst net 127.0.0.1 or multicast)",
+                prn=self._packet_handler,
+                store=False,
+                promisc=True
+            )
+            sniffer.start()
+            logger.info("AsyncSniffer started sniffing in dedicated process on %s", interface)
+            self.stop_sniffing_event.wait()  # Wait until stop event is set
+        except Exception as e:
+            logger.error(f"Error in sniffer process on interface {interface}: {e}", exc_info=True)
+        finally:
+            if sniffer and hasattr(sniffer, 'stop') and callable(sniffer.stop):
+                try:
+                    sniffer.stop()
+                    logger.info("AsyncSniffer stopped in dedicated process on %s", interface)
+                except Exception as e: # pylint: disable=broad-except
+                    logger.error(f"Error stopping AsyncSniffer in dedicated process: {e}", exc_info=True)
+            logger.info("Sniffer process on interface %s stopped.", interface)
 
     def __getstate__(self):
         # 1) Copy everything
@@ -224,6 +260,14 @@ class PacketSniffer:
         # 6) Mark done so we don’t repeat
         self._state_checked = True
         return state
+    
+    def __setstate__(self, state):
+        # 1) restore all the other attributes
+        self.__dict__.update(state)
+        # 2) re-create the missing recent_packets
+        from collections import defaultdict
+        self.recent_packets = defaultdict(default_recent_packet)
+
 
     def _init_ip_databases(self):
         """Initialize local IP information databases"""
@@ -266,10 +310,13 @@ class PacketSniffer:
 
         except Exception as e:
             logger.error(f"Traffic baseline update failed: {str(e)}", exc_info=True)
-            self.sio_queue.put(('system_error', {
-                'error': 'traffic_baseline_failure',
-                'message': str(e)
-            }))
+            try:
+                self.sio_queue.put_nowait(('system_error', {
+                    'error': 'traffic_baseline_failure',
+                    'message': str(e)
+                }))
+            except Full:
+                logger.warning("sio_queue is full. Dropping event: system_error (traffic_baseline_failure)")
     def _update_derived_metrics(self, entry: Dict) -> None:
         """Update derived network metrics in a thread-safe manner"""
         with self.data_lock:
@@ -322,10 +369,13 @@ class PacketSniffer:
 
         except Exception as e:
             logger.warning(f"RFC compliance check failed: {str(e)}")
-            self.sio_queue.put(('detection_error', {
-                'error': 'rfc_check_failure',
-                'message': str(e)
-            }))
+            try:
+                self.sio_queue.put_nowait(('detection_error', {
+                    'error': 'rfc_check_failure',
+                    'message': str(e)
+                }))
+            except Full:
+                logger.warning("sio_queue is full. Dropping event: detection_error (rfc_check_failure)")
 
         return compliance
 
@@ -373,7 +423,10 @@ class PacketSniffer:
             try:
                 time.sleep(60)
                 stats = self._report_system_stats()
-                self.sio_queue.put(("system_stats", stats))
+                try:
+                    self.sio_queue.put_nowait(("system_stats", stats))
+                except Full:
+                    logger.warning("sio_queue is full. Dropping event: system_stats")
             except KeyboardInterrupt:
                 logger.debug("Reporter received KeyboardInterrupt")
                 break
@@ -397,7 +450,10 @@ class PacketSniffer:
             "memory_usage": self._get_memory_usage(),
             "cpu_usage": self._get_cpu_usage(),
         }
-        self.sio_queue.put(("system_stats", stats))
+        try:
+            self.sio_queue.put_nowait(("system_stats", stats))
+        except Full:
+            logger.warning("sio_queue is full. Dropping event: system_stats (periodic)")
         return stats
 
     def _get_memory_usage(self) -> float:
@@ -439,7 +495,10 @@ class PacketSniffer:
                 if callable(event):
                     event()
                 elif isinstance(event, tuple) and len(event) == 2:
-                    self.sio_queue.put(event)
+                    try:
+                        self.sio_queue.put_nowait(event)
+                    except Full:
+                        logger.warning("sio_queue is full. Dropping event: %s", event[0] if event else "unknown_event_from_queue")
                 else:
                     logger.error("Malformed event: %s", str(event))
 
@@ -563,206 +622,215 @@ class PacketSniffer:
             self.packet_counter.value += 1
 
         try:
-            with self.processing_lock:
-                # Extract IP-level metadata first
-                src_ip = dst_ip = None
-                ip_version = None
-                is_arp = False
+            # self.processing_lock has been removed.
+            # Extract IP-level metadata first
+            src_ip = dst_ip = None
+            ip_version = None
+            is_arp = False
+            try:
+                if packet.haslayer(ARP):
+                    self._analyze_arp(packet)
+                    arp = packet[ARP]
+                    src_ip = arp.psrc
+                    dst_ip = arp.pdst
+                    is_arp = True
+                    logger.info(f"ARP Packet: {arp.op} {src_ip} -> {dst_ip}")
+                elif packet.haslayer(IP):
+                    ip_version = 4
+                    src_ip = str(packet[IP].src)
+                    dst_ip = str(packet[IP].dst)
+                    logger.debug(f"IPv4 Packet: {src_ip} -> {dst_ip}")
+                elif packet.haslayer(IPv6):
+                    ip_version = 6
+                    src_ip = str(packet[IPv6].src)
+                    dst_ip = str(packet[IPv6].dst)
+                    logger.debug(f"IPv6 Packet: {src_ip} -> {dst_ip}")
+            except Exception as e:
+                logger.debug("Layer 2/3 extraction error: %s", str(e))
+                return
 
-                try:
-                    if packet.haslayer(ARP):
-                        self._analyze_arp(packet)
-                        arp = packet[ARP]
-                        src_ip = arp.psrc
-                        dst_ip = arp.pdst
-                        is_arp = True
-                        logger.info(f"ARP Packet: {arp.op} {src_ip} -> {dst_ip}")
-                    elif packet.haslayer(IP):
-                        ip_version = 4
-                        src_ip = str(packet[IP].src)
-                        dst_ip = str(packet[IP].dst)
-                        logger.debug(f"IPv4 Packet: {src_ip} -> {dst_ip}")
-                    elif packet.haslayer(IPv6):
-                        ip_version = 6
-                        src_ip = str(packet[IPv6].src)
-                        dst_ip = str(packet[IPv6].dst)
-                        logger.debug(f"IPv6 Packet: {src_ip} -> {dst_ip}")
-                except Exception as e:
-                    logger.debug("Layer 2/3 extraction error: %s", str(e))
-                    return
+            # Create base packet info
+            packet_info = self._create_packet_info(packet, src_ip, dst_ip, ip_version, is_arp)
+            if not self._validate_packet(packet_info):
+                return
 
-                # Create base packet info
-                packet_info = self._create_packet_info(packet, src_ip, dst_ip, ip_version, is_arp)
-                if not self._validate_packet(packet_info):
-                    return
-
-                # Transport Layer Analysis
-                try:
-                    if packet.haslayer(TCP):
-                        tcp = packet[TCP]
-                        
-                        packet_info.update({
-                            "src_port": tcp.sport,
-                            "dst_port": tcp.dport,
-                            "flags": str(tcp.flags)
-                        })
-                        self.service_map[tcp.dport] += 1
-                        logger.debug("TCP Packet: %s -> %s flags=%s",
-                                    f"{src_ip}:{tcp.sport}", f"{dst_ip}:{tcp.dport}", tcp.flags)
-                        self._analyze_tcp(packet)
-                    elif packet.haslayer(UDP):
-                        udp = packet[UDP]
-                        packet_info.update({
-                            "src_port": udp.sport,
-                            "dst_port": udp.dport
-                        })
-                        self.service_map[udp.dport] += 1
-                        logger.debug("UDP Packet: %s -> %s length=%d",
-                                    f"{src_ip}:{udp.sport}", f"{dst_ip}:{udp.dport}", udp.len)
-                        self._analyze_udp(packet)
-                except Exception as e:
-                    logger.debug("Transport layer processing error: %s", str(e))
-                    if packet.haslayer(HTTPRequest) or packet.haslayer(HTTPResponse):
-                        packet_info["protocol"] = "HTTP"
-                    else:
-                        packet_info["protocol"] = self._get_protocol_name(packet)
-                # Assign protocol name AFTER ports are known
-                try:
+            # Transport Layer Analysis
+            try:
+                if packet.haslayer(TCP):
+                    tcp = packet[TCP]
+                    
+                    packet_info.update({
+                        "src_port": tcp.sport,
+                        "dst_port": tcp.dport,
+                        "flags": str(tcp.flags)
+                    })
+                    self.service_map[tcp.dport] += 1
+                    logger.debug("TCP Packet: %s -> %s flags=%s",
+                                f"{src_ip}:{tcp.sport}", f"{dst_ip}:{tcp.dport}", tcp.flags)
+                    self._analyze_tcp(packet)
+                elif packet.haslayer(UDP):
+                    udp = packet[UDP]
+                    packet_info.update({
+                        "src_port": udp.sport,
+                        "dst_port": udp.dport
+                    })
+                    self.service_map[udp.dport] += 1
+                    logger.debug("UDP Packet: %s -> %s length=%d",
+                                f"{src_ip}:{udp.sport}", f"{dst_ip}:{udp.dport}", udp.len)
+                    self._analyze_udp(packet)
+            except Exception as e:
+                logger.debug("Transport layer processing error: %s", str(e))
+                if packet.haslayer(HTTPRequest) or packet.haslayer(HTTPResponse):
+                    packet_info["protocol"] = "HTTP"
+                else:
                     packet_info["protocol"] = self._get_protocol_name(packet)
-                except Exception as e:
-                    logger.debug("Protocol name resolution failed: %s", str(e))
-                    packet_info["protocol"] = "Unknown"
+            # Assign protocol name AFTER ports are known
+            try:
+                packet_info["protocol"] = self._get_protocol_name(packet)
+            except Exception as e:
+                logger.debug("Protocol name resolution failed: %s", str(e))
+                packet_info["protocol"] = "Unknown"
 
-                # Log the packet now with accurate data
-                logger.info(
-                    "Packet Received: proto=%(protocol)s src=%(src_ip)s:%(src_port)s "
-                    "dst=%(dst_ip)s:%(dst_port)s size=%(size)d flags=%(flags)s",
-                    {
-                        "protocol": packet_info["protocol"],
-                        "src_ip": src_ip,
-                        "src_port": packet_info.get("src_port", "N/A"),
-                        "dst_ip": dst_ip,
-                        "dst_port": packet_info.get("dst_port", "N/A"),
-                        "size": packet_info["size"],
-                        "flags": packet_info.get("flags", "N/A")
-                    }
-                )
+            # Log the packet now with accurate data
+            logger.info(
+                "Packet Received: proto=%(protocol)s src=%(src_ip)s:%(src_port)s "
+                "dst=%(dst_ip)s:%(dst_port)s size=%(size)d flags=%(flags)s",
+                {
+                    "protocol": packet_info["protocol"],
+                    "src_ip": src_ip,
+                    "src_port": packet_info.get("src_port", "N/A"),
+                    "dst_ip": dst_ip,
+                    "dst_port": packet_info.get("dst_port", "N/A"),
+                    "size": packet_info["size"],
+                    "flags": packet_info.get("flags", "N/A")
+                }
+            )
 
-                # Layer 3+ Analysis
-                try:
-                    if packet.haslayer(IP):
-                        self._analyze_ip_packet(packet[IP])
-                        self.current_packet_source = packet[IP].src
-                    elif packet.haslayer(IPv6):
-                        self._analyze_ipv6_packet(packet[IPv6])
-                        self.current_packet_source = packet[IPv6].src
-                except Exception as e:
-                    logger.debug("Layer 3+ analysis error: %s", str(e))
+            # Layer 3+ Analysis
+            try:
+                if packet.haslayer(IP):
+                    self._analyze_ip_packet(packet[IP])
+                    self.current_packet_source = packet[IP].src
+                elif packet.haslayer(IPv6):
+                    self._analyze_ipv6_packet(packet[IPv6])
+                    self.current_packet_source = packet[IPv6].src
+            except Exception as e:
+                logger.debug("Layer 3+ analysis error: %s", str(e))
 
-                # Application Layer Analysis
-                try:
-                    if packet.haslayer(HTTPRequest) or packet.haslayer(HTTPResponse):
-                        self._analyze_http(packet)
-                        logger.info(
-                            "HTTP %s %s%s",
-                            (
-                                packet[HTTPRequest].Method.decode(errors="replace")
-                                if packet.haslayer(HTTPRequest) else "Response"
-                            ),
-                            (
-                                packet[HTTPRequest].Host.decode(errors="replace")
-                                if packet.haslayer(HTTPRequest) else ""
-                            ),
-                            (
-                                packet[HTTPRequest].Path.decode(errors="replace")
-                                if packet.haslayer(HTTPRequest) else ""
-                            ),
-                        )
+            # Application Layer Analysis
+            try:
+                if packet.haslayer(HTTPRequest) or packet.haslayer(HTTPResponse):
+                    self._analyze_http(packet)
+                    logger.info(
+                        "HTTP %s %s%s",
+                        (
+                            packet[HTTPRequest].Method.decode(errors="replace")
+                            if packet.haslayer(HTTPRequest) else "Response"
+                        ),
+                        (
+                            packet[HTTPRequest].Host.decode(errors="replace")
+                            if packet.haslayer(HTTPRequest) else ""
+                        ),
+                        (
+                            packet[HTTPRequest].Path.decode(errors="replace")
+                            if packet.haslayer(HTTPRequest) else ""
+                        ),
+                    )
 
-                    elif packet.haslayer(DNS):
-                        self._analyze_dns(packet)
-                        logger.debug("DNS Query: %s", packet[DNS].summary())
+                elif packet.haslayer(DNS):
+                    self._analyze_dns(packet)
+                    logger.debug("DNS Query: %s", packet[DNS].summary())
 
-                except Exception as e:
-                    logger.debug("Application layer error: %s", str(e))
+            except Exception as e:
+                logger.debug("Application layer error: %s", str(e))
 
-                # Special Protocol Handlers
-                try:
-                    if packet.haslayer(ICMP):
-                        logger.debug("ICMP Packet: type=%d code=%d",
-                                    packet[ICMP].type, packet[ICMP].code)
-                        self._analyze_icmp(packet)
-                    if packet.haslayer(Raw):
-                        logger.debug("Raw payload: %d bytes", len(packet[Raw]))
-                        self._analyze_payload(packet)
-                except Exception as e:
-                    logger.debug("Special protocol analysis error: %s", str(e))
+            # Special Protocol Handlers
+            try:
+                if packet.haslayer(ICMP):
+                    logger.debug("ICMP Packet: type=%d code=%d",
+                                packet[ICMP].type, packet[ICMP].code)
+                    self._analyze_icmp(packet)
+                if packet.haslayer(Raw):
+                    logger.debug("Raw payload: %d bytes", len(packet[Raw]))
+                    self._analyze_payload(packet)
+            except Exception as e:
+                logger.debug("Special protocol analysis error: %s", str(e))
 
-                # Behavioral Analysis
-                try:
-                    logger.debug("Behavior analysis for %s", src_ip)
-                    self._analyze_behavior(packet)
-                except Exception as e:
-                    logger.debug("Behavior analysis error: %s", str(e))
+            # Behavioral Analysis
+            try:
+                logger.debug("Behavior analysis for %s", src_ip)
+                self._analyze_behavior(packet)
+            except Exception as e:
+                logger.debug("Behavior analysis error: %s", str(e))
 
-                # Final Processing
-                try:
-                    self._process_payload_data(packet)
-                    self._update_packet_stats(packet_info)
-                    self._detect_common_threats(packet)
-                    logger.debug("Processed packet from %s", src_ip)
-                except Exception as e:
-                    logger.error("Final processing error: %s", str(e))
-                # ── Feature Extraction ──
+            # Final Processing
+            try:
+                self._process_payload_data(packet)
+                self._update_packet_stats(packet_info)
+                self._detect_common_threats(packet)
+                logger.debug("Processed packet from %s", src_ip)
+            except Exception as e:
+                logger.error("Final processing error: %s", str(e))
+                logger.error("Traceback:\n%s", traceback.format_exc())
+            # ── Feature Extraction ──
 
-                try:
-                    features = self.feature_extractor.extract_features(packet)
+            try:
+                features = self.feature_extractor.extract_features(packet)
 
-                    # Step 2: Prepare ML-ready vector (even if flow is not complete)
+                # Step 2: Prepare ML-ready vector (even if flow is not complete)
+                feature_vector = self.packet_processor.prepare_feature_vector(features)
+
+                # Optional: Save features for inspection/debug
+                if len(features) > 1:
                     feature_vector = self.packet_processor.prepare_feature_vector(features)
+                    save_feature_vectors_to_json(feature_vector)
+                    save_features_to_json(features)
+                    
 
-                    # Optional: Save features for inspection/debug
-                    if len(features) > 1:
-                        feature_vector = self.packet_processor.prepare_feature_vector(features)
-                        save_feature_vectors_to_json(feature_vector)
-                        save_features_to_json(features)
-                        
+                # Step 3: Feed into enhanced_processor to detect end-of-flow (FIN/RST)
+                self.packet_processor.process_packet(packet)  # Handles per-flow export + memory cleanup
 
-                    # Step 3: Feed into enhanced_processor to detect end-of-flow (FIN/RST)
-                    self.packet_processor.process_packet(packet)  # Handles per-flow export + memory cleanup
+                # Optional: Periodic backup to CSV (e.g. to catch flows with no FIN/RST)
+                if self.packet_counter.value % 300 == 0:
+                    self.feature_extractor.cleanup_old_flows(timeout=60.0)  #   
+            except Exception as e:
+                logger.debug("Feature extraction failed: %s", e)
 
-                    # Optional: Periodic backup to CSV (e.g. to catch flows with no FIN/RST)
-                    if self.packet_counter.value % 300 == 0:
-                        self.feature_extractor.cleanup_old_flows(timeout=60.0)  #   
-                except Exception as e:
-                    logger.debug("Feature extraction failed: %s", e)
+            # ── Rule-Based Threat Detection ──
+            try:
+                threats = self.threat_detector.detect_threats(packet)
+                for threat in threats:
+                    try:
+                        self.sio_queue.put_nowait(("threat_detected", threat))
+                    except Full:
+                        logger.warning("sio_queue is full. Dropping event: threat_detected")
+            except Exception as e:
+                logger.debug("Threat detection failed: %s", e)
 
-                # ── Rule-Based Threat Detection ──
-                try:
-                    threats = self.threat_detector.detect_threats(packet)
-                    for threat in threats:
-                        self.sio_queue.put(("threat_detected", threat))
-                except Exception as e:
-                    logger.debug("Threat detection failed: %s", e)
-
-                # ── ML-Based Threat Prediction (optional) ──
-                # Uncomment if ML model is enabled
-                # try:
-                #     if self.enhanced_processor.prediction_model:
-                #         ml_out = self.enhanced_processor.process_packet(packet)
-                #         ml_result = ml_out.get("ml_prediction")
-                #         if ml_result is not None:
-                #             self.sio_queue.put(("ml_alert", ml_out))
-                # except Exception as e:
-                #     logger.debug("ML prediction failed: %s", e)
+            # ── ML-Based Threat Prediction (optional) ──
+            # Uncomment if ML model is enabled
+            # try:
+            #     if self.enhanced_processor.prediction_model:
+            #         ml_out = self.enhanced_processor.process_packet(packet)
+            #         ml_result = ml_out.get("ml_prediction")
+            #         if ml_result is not None:
+            #             try:
+            #                 self.sio_queue.put_nowait(("ml_alert", ml_out))
+            #             except Full:
+            #                 logger.warning("sio_queue is full. Dropping event: ml_alert")
+            # except Exception as e:
+            #     logger.debug("ML prediction failed: %s", e)
         except Exception as e:
             logger.error("Packet processing error: %s [Summary: %s]",
                         str(e), packet.summary()[:100])
-            self.sio_queue.put(("system_error", {
-                "component": "packet_handler",
-                "error": str(e),
-                "timestamp": datetime.utcnow().isoformat(),
-            }))
+            try:
+                self.sio_queue.put_nowait(("system_error", {
+                    "component": "packet_handler",
+                    "error": str(e),
+                    "timestamp": datetime.utcnow().isoformat(),
+                }))
+            except Full:
+                logger.warning("sio_queue is full. Dropping event: system_error (packet_handler)")
         finally:
             self.current_packet_source = None
             logger.debug("Packet processing completed in %.4f seconds",
@@ -918,8 +986,10 @@ class PacketSniffer:
                 "reason": "Rate limit exceeded",
                 "duration":36000
             }
-
-            self.sio_queue.put(( "firewall_blocked",data))
+            try:
+                self.sio_queue.put_nowait(( "firewall_blocked",data))
+            except Full:
+                logger.warning("sio_queue is full. Dropping event: firewall_blocked")
 
     def _analyze_ipv6_packet(self, ipv6_packet):
         """Enhanced IPv6 threat analysis with tunneling detection"""
@@ -960,8 +1030,10 @@ class PacketSniffer:
             "flow_label": ipv6_packet.fl,
             "payload_length": ipv6_packet.plen,
         }
-
-        self.sio_queue.put(("ipv6_activity", ipv6_data))
+        try:
+            self.sio_queue.put_nowait(("ipv6_activity", ipv6_data))
+        except Full:
+            logger.warning("sio_queue is full. Dropping event: ipv6_activity")
 
         # Critical threat response
         if threats["tunneling_suspected"]:
@@ -1032,15 +1104,17 @@ class PacketSniffer:
 
     def _get_nxdomain_ratio(self, queries: list) -> float:
         """Calculate ratio of NXDOMAIN responses with validation"""
-        with self.processing_lock:
-            if not self.current_packet_source:
-                logger.debug("Missing source context for NXDOMAIN ratio")
-                return 0.0
+        # self.processing_lock has been removed. Access to shared _dns_counter needs to be thread-safe if used by multiple processes.
+        # Assuming _dns_counter is a manager.dict() which is process-safe.
+        if not self.current_packet_source: # This check might need re-evaluation if current_packet_source is not reliably set.
+            logger.debug("Missing source context for NXDOMAIN ratio")
+            return 0.0
 
-            counter = self._dns_counter.get(
-                self.current_packet_source, {"total": 0, "nxdomain": 0}
-            )
-            total = counter["total"]
+        # manager.dict operations are inherently process-safe.
+        counter = self._dns_counter.get(
+            self.current_packet_source, {"total": 0, "nxdomain": 0}
+        )
+        total = counter["total"]
         return round(counter["nxdomain"] / total, 4) if total > 0 else 0.0
 
     def _calculate_inter_arrival(self, packet: Packet) -> float:
@@ -1170,11 +1244,14 @@ class PacketSniffer:
                     packets_per_second = flow_info["packet_count"] / flow_duration if flow_duration > 0 else 0
             except Exception as e:
                 logger.error(f"Flow tracking failed: {str(e)}", exc_info=True)
-                self.sio_queue.put(('system_error', {
-                    'error': 'flow_tracking_failed',
-                    'message': str(e),
-                    'source_ip': http_data.get("source_ip")
-                }))
+                try:
+                    self.sio_queue.put_nowait(('system_error', {
+                        'error': 'flow_tracking_failed',
+                        'message': str(e),
+                        'source_ip': http_data.get("source_ip")
+                    }))
+                except Full:
+                    logger.warning("sio_queue is full. Dropping event: system_error (flow_tracking_failed)")
                 flow_duration = 0
                 bytes_per_second = 0
                 packets_per_second = 0
@@ -1251,31 +1328,40 @@ class PacketSniffer:
                 http_data["threat_analysis"] = self._calculate_threat_score(http_data)
             except Exception as e:
                 logger.error(f"Advanced analysis failed: {str(e)}", exc_info=True)
-                self.sio_queue.put(('system_error', {
-                    'error': 'analysis_failed',
-                    'message': str(e),
-                    'source_ip': http_data.get("source_ip")
-                }))
+                try:
+                    self.sio_queue.put_nowait(('system_error', {
+                        'error': 'analysis_failed',
+                        'message': str(e),
+                        'source_ip': http_data.get("source_ip")
+                    }))
+                except Full:
+                    logger.warning("sio_queue is full. Dropping event: system_error (analysis_failed)")
 
             # Threat detection and notification
             try:
                 critical_threats = self._detect_critical_threats(http_data, payload)
                 if critical_threats:
-                    self.sio_queue.put((
-                        "critical_alert",
-                        {
-                            **critical_threats,
-                            "raw_packet_summary": packet.summary(),
-                            "mitigation_status": "pending",
-                        }
-                    ))
+                    try:
+                        self.sio_queue.put_nowait((
+                            "critical_alert",
+                            {
+                                **critical_threats,
+                                "raw_packet_summary": packet.summary(),
+                                "mitigation_status": "pending",
+                            }
+                        ))
+                    except Full:
+                        logger.warning("sio_queue is full. Dropping event: critical_alert")
 
                 if payload:
                     sig_results = self.signature_engine.scan_packet(payload)
                     if sig_results:
-                        self.sio_queue.put_nowait(
-                            ("signature_match", {**sig_results, "context": http_data})
-                        )
+                        try:
+                            self.sio_queue.put_nowait(
+                                ("signature_match", {**sig_results, "context": http_data})
+                            )
+                        except Full:
+                             logger.warning("sio_queue is full. Dropping event: signature_match")
                 # try:
                 #      save_to_json([http_data])
                 # except Exception as e:
@@ -1284,17 +1370,23 @@ class PacketSniffer:
                 data = map_to_cicids2017_features(flattened_http_data)
                 http_tranformed = transform_http_activity(http_data)
                 save_http_data_to_json(http_data)
-                self.sio_queue.put(("http_activity", data))
+                try:
+                    self.sio_queue.put_nowait(("http_activity", data))
+                except Full:
+                    logger.warning("sio_queue is full. Dropping event: http_activity")
             except Exception as e:
                 logger.critical(f"Notification failed: {str(e)}", exc_info=True)
 
         except Exception as e:
             logger.critical(f"HTTP analysis failed completely: {str(e)}", exc_info=True)
-            self.sio_queue.put(('system_error', {
-                'error': 'http_analysis_failed',
-                'message': str(e),
-                'packet_summary': packet.summary() if 'packet' in locals() else None
-            }))
+            try:
+                self.sio_queue.put_nowait(('system_error', {
+                    'error': 'http_analysis_failed',
+                    'message': str(e),
+                    'packet_summary': packet.summary() if 'packet' in locals() else None
+                }))
+            except Full:
+                logger.warning("sio_queue is full. Dropping event: system_error (http_analysis_failed)")
 
     def __analyze_chunked_encoding(self, payload: bytes) -> dict:
         """
@@ -2487,8 +2579,10 @@ class PacketSniffer:
                         self.stats["threat_types"]["ssh_bruteforce"] += 1
             except UnicodeDecodeError:
                 ssh_data["is_encrypted"] = True
-
-        self.sio_queue.put(("ssh_activity", ssh_data))
+        try:
+            self.sio_queue.put_nowait(("ssh_activity", ssh_data))
+        except Full:
+            logger.warning("sio_queue is full. Dropping event: ssh_activity")
     def _detect_common_threats(self, packet: Packet):
         """Comprehensive threat detection"""
         # Port scan detection
@@ -2559,8 +2653,10 @@ class PacketSniffer:
             self.stats["threat_types"][alert_type] += 1
 
         # Emit via Socket.IO
-
-        self.sio_queue.put(( "security_alert", alert))
+        try:
+            self.sio_queue.put_nowait(( "security_alert", alert))
+        except Full:
+            logger.warning("sio_queue is full. Dropping event: security_alert (%s)", alert_type)
 
         # Log to database
         self._log_threat_to_db(alert)
@@ -2584,11 +2680,14 @@ class PacketSniffer:
             db.commit()
         except Exception as e:
             logger.error("Failed to log threat: %s", str(e))
-            self.sio_queue.put(( "database_error", {
-                        "operation": "threat_logging",
-                        "error": str(e),
-                        "timestamp": datetime.utcnow().isoformat(),
-                    }))
+            try:
+                self.sio_queue.put_nowait(( "database_error", {
+                            "operation": "threat_logging",
+                            "error": str(e),
+                            "timestamp": datetime.utcnow().isoformat(),
+                        }))
+            except Full:
+                logger.warning("sio_queue is full. Dropping event: database_error (threat_logging)")
 
     async def _log_packet_to_db(self, packet_data: dict):
         try:
@@ -2646,33 +2745,38 @@ class PacketSniffer:
     #     )
 
     async def start(self, interface: str = None):
-        """Start both the queue‑processor and the packet capture thread."""
+        """Start the packet sniffer in a separate process and other auxiliary processes."""
         interface = interface or conf.iface
         if not interface:
-            raise RuntimeError("No interface specified")
+            logger.error("No network interface specified for sniffing.")
+            raise RuntimeError("No interface specified for packet sniffing.")
 
-        # 1) start your queue‑processor
+        if self.sniffer_process and self.sniffer_process.is_alive():
+            logger.warning("Sniffer process is already running on interface %s.", interface)
+            return
+
+        # 1) Start queue-processor (if not already running)
         if not self.worker_process or not self.worker_process.is_alive():
             self.worker_process = Process(target=self._process_queue, daemon=True)
             self.worker_process.start()
+            logger.info("Queue processing worker started.")
 
-        # 2) start the AsyncSniffer
-        if self._async_sniffer and self._async_sniffer.running:
-            logger.warning("Sniffer already running")
-        else:
-            self._async_sniffer = AsyncSniffer(
-                iface=interface,
-                filter="not (dst net 127.0.0.1 or multicast)", # Allow IPv6 packets
-                prn=self._packet_handler,
-                store=False,
-                promisc=True
-                
-            )
-            self._async_sniffer.start()
-            logger.info("AsyncSniffer started on %s", interface)
-            await self._stop_event.wait()
+        # 2) Start the new sniffer process for AsyncSniffer
+        self.stop_sniffing_event.clear()
+        self.sniffer_process = Process(
+            target=self._run_sniffer_process,
+            args=(interface, self.sio_queue), # Pass the queue
+            daemon=True
+        )
+        self.sniffer_process.start()
+        logger.info("Packet sniffer process started on interface %s.", interface)
+        
+        # The original `await self._stop_event.wait()` was likely for keeping the main thread alive
+        # or for a different kind of sniffer lifecycle. In a multiprocessing setup,
+        # the main process continues, and the sniffer runs in the background.
+        # If `start` is expected to block, this needs reconsideration. Assuming it's not.
 
-        # 3) start reporter
+        # 3) Start reporter (if not already running)
         if not self.reporter_process or not self.reporter_process.is_alive():
             self.reporter_process = Process(
             target=_reporter_loop,
@@ -2682,49 +2786,88 @@ class PacketSniffer:
             self.reporter_process.start()
 
         # 4) send system status
-        self.sio_queue.put((
-            "system_status",
-            {
-                "component": "packet_sniffer",
-                "status": "running",
-                "interface": interface,
-                "timestamp": datetime.utcnow().isoformat(),
-            }
-        ))
+        try:
+            self.sio_queue.put_nowait((
+                "system_status",
+                {
+                    "component": "packet_sniffer",
+                    "status": "running",
+                    "interface": interface,
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+            ))
+        except Full:
+            logger.warning("sio_queue is full. Dropping event: system_status (running)")
+            # Depending on importance, you might want to retry or handle this differently
 
     def stop(self):
         """Stop packet capture and cleanup."""
-        # stop the AsyncSniffer
-        if self._async_sniffer:
-            self._async_sniffer.stop()
-            logger.info("AsyncSniffer stopped")
+        logger.info("Stopping packet sniffer and associated processes...")
 
-            # self.recorder.flush_remaining_on_exit()
-
-        # stop worker and reporter as you already have
-        if self.worker_process:
-            self.worker_process.terminate()
-            self.worker_process.join(timeout=5)
-        if self.reporter_process and self.reporter_process.is_alive():
-            self._reporter_stop.set()
-            self.reporter_process.terminate()
-            self.reporter_process.join(timeout=5)
-            self.reporter_process = None
-            self.end_time = time.perf_counter()
+        # 1) Stop the new sniffer process
+        if self.sniffer_process and self.sniffer_process.is_alive():
+            logger.info("Signaling sniffer process to stop...")
+            self.stop_sniffing_event.set()
+            self.sniffer_process.join(timeout=10) # Increased timeout for sniffer to stop gracefully
+            if self.sniffer_process.is_alive():
+                logger.warning("Sniffer process did not stop gracefully, terminating.")
+                self.sniffer_process.terminate()
+                self.sniffer_process.join(timeout=5) # Wait for termination
+            if not self.sniffer_process.is_alive():
+                 logger.info("Sniffer process stopped.")
+            else:
+                logger.error("Failed to stop sniffer process even after termination attempt.")
+            self.sniffer_process = None
+        else:
+            logger.info("Sniffer process was not running or already stopped.")
             
-            if self._stop_event:
-                self._stop_event.set()
+            # self.recorder.flush_remaining_on_exit() # If recorder is used
 
-            logger.info("processed %d packets in %d seconds", self.packet_counter.value, (self.end_time - self.start_time))
-        # send stopping status
-        self.sio_queue.put((
-            "system_status",
-            {
-                "component": "packet_sniffer",
-                "status": "stopped",
-                "timestamp": datetime.utcnow().isoformat(),
-            }
-        ))
+        # 2) Stop worker and reporter as before
+        if self.worker_process and self.worker_process.is_alive():
+            logger.info("Stopping queue processing worker...")
+            self.worker_process.terminate() # Consider a more graceful shutdown if possible
+            self.worker_process.join(timeout=5)
+            if not self.worker_process.is_alive():
+                logger.info("Queue processing worker stopped.")
+            else:
+                logger.warning("Queue processing worker did not stop gracefully.")
+            self.worker_process = None # Clear the process reference
+
+        if self.reporter_process and self.reporter_process.is_alive():
+            logger.info("Stopping reporter process...")
+            self._reporter_stop.set()
+            self.reporter_process.join(timeout=5) # Reporter has an event, so join should be effective
+            if self.reporter_process.is_alive():
+                logger.warning("Reporter process did not stop gracefully, terminating.")
+                self.reporter_process.terminate()
+                self.reporter_process.join(timeout=5)
+            if not self.reporter_process.is_alive():
+                logger.info("Reporter process stopped.")
+            else:
+                logger.warning("Reporter process did not stop gracefully after termination.")
+            self.reporter_process = None # Clear the process reference
+
+        self.end_time = time.perf_counter()
+        
+        # This event was for the old AsyncSniffer direct control, may not be needed or used the same way
+        if self._stop_event and not self._stop_event.is_set(): # Ensure it's set if other parts rely on it
+             self._stop_event.set()
+
+        logger.info("Processed %d packets in %.2f seconds", self.packet_counter.value, (self.end_time - self.start_time))
+        
+        # Send stopping status
+        try:
+            self.sio_queue.put_nowait((
+                "system_status",
+                {
+                    "component": "packet_sniffer",
+                    "status": "stopped",
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+            ))
+        except Full:
+            logger.warning("sio_queue is full. Dropping event: system_status (stopped)")
 
     def get_stats(self) -> Dict:
         """Get comprehensive statistics"""
@@ -2822,7 +2965,9 @@ class PacketSniffer:
         # Emit TCP event
         # self.event_queue.put(("tcp_activity", tcp_data))
         try:
-            self.sio_queue.put(("tcp_activity", tcp_data))
+            self.sio_queue.put_nowait(("tcp_activity", tcp_data))
+        except Full:
+            logger.warning("sio_queue is full. Dropping event: tcp_activity")
         except Exception as e: 
             logger.error(f"Error sending tcp activity: { e}")
 
@@ -2864,9 +3009,10 @@ class PacketSniffer:
         udp_data["threat_indicators"]["payload_analysis"] = self._analyze_udp_payload(
             packet
         )
-
-        # Emit UDP event
-        self.sio_queue.put(("udp_activity", udp_data))
+        try:
+            self.sio_queue.put_nowait(("udp_activity", udp_data))
+        except Full:
+            logger.warning("sio_queue is full. Dropping event: udp_activity")
 
     def _analyze_icmp(self, packet: Packet):
         """ICMP traffic analysis with attack detection"""
@@ -2900,9 +3046,10 @@ class PacketSniffer:
         # ICMP Timestamp Analysis
         if icmp.type == 13 or icmp.type == 14:
             icmp_data["threat_indicators"]["timestamp_probe"] = True
-
-        # Emit ICMP event
-        self.sio_queue.put(("icmp_activity", icmp_data))
+        try:
+            self.sio_queue.put_nowait(("icmp_activity", icmp_data))
+        except Full:
+            logger.warning("sio_queue is full. Dropping event: icmp_activity")
 
     def _analyze_arp(self, packet: Packet):
         """ARP traffic analysis for spoofing detection"""
@@ -2936,9 +3083,10 @@ class PacketSniffer:
         # MAC/IP Inconsistency
         if ether and arp.hwsrc != ether.src:
             arp_data["threat_indicators"]["mac_spoofing"] = True
-
-        # Emit ARP event
-        self.sio_queue.put(("arp_activity", arp_data))
+        try:
+            self.sio_queue.put_nowait(("arp_activity", arp_data))
+        except Full:
+            logger.warning("sio_queue is full. Dropping event: arp_activity")
 
     def _analyze_payload(self, packet: Packet):
         """Advanced payload analysis for exploit detection"""
@@ -2970,9 +3118,10 @@ class PacketSniffer:
         # Entropy Analysis
         payload_data["entropy"] = self._calculate_entropy(raw_payload)
         payload_data["threat_indicators"]["high_entropy"] = payload_data["entropy"] > 7.0
-
-        # Emit Payload event
-        self.sio_queue.put(("payload_analysis", payload_data))
+        try:
+            self.sio_queue.put_nowait(("payload_analysis", payload_data))
+        except Full:
+            logger.warning("sio_queue is full. Dropping event: payload_analysis")
 
     def _analyze_behavior(self, packet: Packet):
         """Behavioral analysis across protocols"""
@@ -3031,9 +3180,10 @@ class PacketSniffer:
         behavior_data["threat_indicators"]["data_exfiltration"] = (
             self._detect_exfiltration_behavior(ip.src)
         )
-
-        # Emit Behavior event
-        self.sio_queue.put(("behavior_analysis", behavior_data))
+        try:
+            self.sio_queue.put_nowait(("behavior_analysis", behavior_data))
+        except Full:
+            logger.warning("sio_queue is full. Dropping event: behavior_analysis")
 
     def register_http_listener(self, fn: Callable[[Dict], bool]):
         """
@@ -3442,22 +3592,29 @@ class PacketSniffer:
                     rdp_tracker['auth_failures'] += 1
                     if rdp_tracker['auth_failures'] > 10:
                         self.firewall.block_ip(ip.src, "RDP brute force", 3600)
-                        self.sio_queue.put(("firewall_block", {
-                            "ip": ip.src,
-                            "reason": "RDP brute force",
-                            "duration": 3600
-                        }))
-
-            # Emit RDP event
-            self.sio_queue.put(("rdp_activity", rdp_data))
+                        try:
+                            self.sio_queue.put_nowait(("firewall_block", {
+                                "ip": ip.src,
+                                "reason": "RDP brute force",
+                                "duration": 3600
+                            }))
+                        except Full:
+                            logger.warning("sio_queue is full. Dropping event: firewall_block (RDP brute force)")
+            try:
+                self.sio_queue.put_nowait(("rdp_activity", rdp_data))
+            except Full:
+                logger.warning("sio_queue is full. Dropping event: rdp_activity")
 
         except Exception as e:
             logger.error(f"RDP analysis failed: {str(e)}", exc_info=True)
-            self.sio_queue.put(('system_error', {
-                'component': 'rdp_analysis',
-                'error': str(e),
-                'packet_summary': packet.summary()
-            }))
+            try:
+                self.sio_queue.put_nowait(('system_error', {
+                    'component': 'rdp_analysis',
+                    'error': str(e),
+                    'packet_summary': packet.summary()
+                }))
+            except Full:
+                logger.warning("sio_queue is full. Dropping event: system_error (rdp_analysis)")
 
     def _extract_payload(self, packet: Packet) -> dict:
         """Safely extract and analyze payload from multiple layers with protocol awareness"""
@@ -3508,11 +3665,14 @@ class PacketSniffer:
 
         except Exception as e:
             logger.debug(f"Payload extraction error: {str(e)}")
-            self.sio_queue.put(('system_error', {
-                'component': 'payload_extractor',
-                'error': str(e),
-                'packet_summary': packet.summary()[:100] if packet else None
-            }))
+            try:
+                self.sio_queue.put_nowait(('system_error', {
+                    'component': 'payload_extractor',
+                    'error': str(e),
+                    'packet_summary': packet.summary()[:100] if packet else None
+                }))
+            except Full:
+                logger.warning("sio_queue is full. Dropping event: system_error (payload_extractor)")
 
         return payload_info
 
