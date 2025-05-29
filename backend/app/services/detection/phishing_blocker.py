@@ -585,13 +585,29 @@ class PhishingBlocker:
             alert_data["severity"] = "MEDIUM" # Default for other confirmed phishing detections.
         else:
             # For non-phishing but potentially suspicious alerts (if this method is used for such cases).
-            alert_data["severity"] = "LOW" 
+            alert_data["severity"] = "LOW"
+        
+        # Refine payload for PhishingDetectionsTable.tsx (Task 6)
+        unique_id_ts = result.timestamp.replace(':', '-').replace('.', '-') # Ensure timestamp is filesystem-friendly if used in IDs
+        refined_alert_data = {
+            "id": f"phish_{unique_id_ts}_{result.url[:50]}", # Unique ID
+            "timestamp": result.timestamp, # Already ISO format from PhishingResult
+            "url": result.url,
+            "source_ip": source_ip, # Client IP that accessed/was served the URL
+            "confidence": result.risk_score, # Detection confidence (0-1 scale)
+            "status": "Blocked" if "blocked" in action_taken.lower() else "Detected",
+            "threat_type": "Phishing", # Fixed type for this event
+            "severity": alert_data["severity"], # Determined above
+            "reasons": result.reasons,
+            # "is_phishing": result.is_phishing, # This is implicit in the event name / severity
+            # "credential_theft_risk": alert_data.get("credential_theft_risk", False) # Optional, can be in metadata if needed
+        }
 
         try:
-            await self.sio.emit("phishing_alert", alert_data)
-            logger.info(f"Sent alert for URL '{result.url}', Risk: {result.risk_score}, Action: {action_taken}, Reasons: {'; '.join(result.reasons)}")
+            await self.sio.emit("phishing_link_detected", refined_alert_data) # Changed event name
+            logger.info(f"Sent phishing_link_detected event for URL '{result.url}', Risk: {result.risk_score}, Action: {action_taken}, Reasons: {'; '.join(result.reasons)}")
         except Exception as e:
-            logger.error(f"Error emitting phishing_alert via Socket.IO for URL '{result.url}': {e}", exc_info=True)
+            logger.error(f"Error emitting phishing_link_detected via Socket.IO for URL '{result.url}': {e}", exc_info=True)
 
 
     async def send_block_notification(self, domain: str, ip: Optional[str] = None, url: Optional[str] = None, reasons: Optional[List[str]] = None):

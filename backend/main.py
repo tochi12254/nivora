@@ -147,7 +147,7 @@ async def create_app() -> FastAPI:
 
         # phishing_blocker = PhishingBlocker(sio)
         # phishing_blocker = PhishingBlocker(sio)  # Initialize PhishingBlocker
-        logger.info("PhishingBlocker initialized.")
+        # logger.info("PhishingBlocker initialized.")
 
         # Initialize IPS Adapter
         # ips_adapter = IPSPacketAdapter(ips)

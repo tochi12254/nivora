@@ -271,11 +271,15 @@ class PacketSniffer:
         return state
     
     def __setstate__(self, state):
-        # 1) restore all the other attributes
+        # 1) Restore attributes
         self.__dict__.update(state)
-        # 2) re-create the missing recent_packets
+        
+        # 2) Reinitialize non-pickleable attributes
         from collections import defaultdict
         self.recent_packets = defaultdict(default_recent_packet)
+        self._endpoint_tracker = defaultdict(lambda: defaultdict(set))
+        self._dns_counter = {}
+        self._protocol_counter = {}
 
 
     def _init_ip_databases(self):
@@ -714,6 +718,14 @@ class PacketSniffer:
                     "flags": packet_info.get("flags", "N/A")
                 }
             )
+            
+            # --- Populate _endpoint_tracker (Task 4) ---
+            if src_ip and dst_ip and packet_info.get("protocol") and packet_info.get("dst_port") is not None:
+                protocol_name = packet_info["protocol"]
+                destination_port = packet_info["dst_port"]
+                with self.data_lock:
+                    self._endpoint_tracker[src_ip][protocol_name].add((dst_ip, destination_port))
+            # --- End Populate _endpoint_tracker ---
 
             # Layer 3+ Analysis
             try:
@@ -990,15 +1002,20 @@ class PacketSniffer:
                 self.firewall.block_ip(
                 src_ip, "Rate limit exceeded", duration=3600
             )
-            data = {
-                "source_ip": src_ip,
-                "reason": "Rate limit exceeded",
-                "duration":36000
-            }
+                self.firewall.block_ip(
+                src_ip, "Rate limit exceeded", duration=3600 # Standardized duration
+            )
+            # Create standardized firewall block event
+            firewall_event_data = self._create_firewall_block_event_data(
+                ip_address=src_ip,
+                reason="Rate limit exceeded",
+                duration=3600, # Standardized duration
+                packet_info={"dst_ip": dst_ip, "protocol": self._get_protocol_name(ip_packet)} # Provide some packet context
+            )
             try:
-                self.sio_queue.put_nowait(( "firewall_blocked",data))
+                self.sio_queue.put_nowait(("firewall_blocked", firewall_event_data)) # Emitting standardized event
             except Full:
-                logger.warning("sio_queue is full. Dropping event: firewall_blocked")
+                logger.warning("sio_queue is full. Dropping event: firewall_blocked (rate_limit)")
 
     def _analyze_ipv6_packet(self, ipv6_packet):
         """Enhanced IPv6 threat analysis with tunneling detection"""
@@ -1038,6 +1055,11 @@ class PacketSniffer:
             "threat_indicators": threats,
             "flow_label": ipv6_packet.fl,
             "payload_length": ipv6_packet.plen,
+            # --- Refine ipv6_activity payload (Task 5) ---
+            "id": f"ipv6_{datetime.utcnow().timestamp()}_{src_ip}_{dst_ip}",
+            "traffic_class": ipv6_packet.tc,
+            "hop_limit": ipv6_packet.hlim,
+            # --- End Refine ipv6_activity payload ---
         }
         try:
             self.sio_queue.put_nowait(("ipv6_activity", ipv6_data))
@@ -1350,17 +1372,28 @@ class PacketSniffer:
             try:
                 critical_threats = self._detect_critical_threats(http_data, payload)
                 if critical_threats:
-                    try:
-                        self.sio_queue.put_nowait((
-                            "critical_alert",
-                            {
-                                **critical_threats,
-                                "raw_packet_summary": packet.summary(),
-                                "mitigation_status": "pending",
-                            }
-                        ))
-                    except Full:
-                        logger.warning("sio_queue is full. Dropping event: critical_alert")
+                    # Standardize critical_alert by using _create_alert (Task 6)
+                    description = f"Critical HTTP Threat: {critical_threats.get('type', 'Unknown Type')} for host {http_data.get('host', '')}{http_data.get('path', '')}. Indicators: {critical_threats.get('indicators')}"
+                    
+                    # Prepare metadata for _create_alert, ensuring specific fields are passed if available
+                    alert_metadata = {
+                        "destination_ip": http_data.get("destination_ip"),
+                        "destination_port": http_data.get("network_metrics", {}).get("destination_port"),
+                        "protocol": "HTTP", # Protocol is known here
+                        "http_details": http_data, 
+                        "critical_indicators": critical_threats.get('indicators', {}),
+                        "raw_packet_summary": packet.summary(),
+                        "rule_id": f"http_critical_{critical_threats.get('type', 'generic').lower().replace(' ', '_')}"
+                    }
+                    
+                    self._create_alert(
+                        alert_type="Critical HTTP Threat", 
+                        severity="Critical", 
+                        source_ip=http_data.get("source_ip"),
+                        description=description,
+                        metadata=alert_metadata
+                    )
+                    # Removed direct emission of "critical_alert"
 
                 if payload:
                     sig_results = self.signature_engine.scan_packet(payload)
@@ -1372,17 +1405,38 @@ class PacketSniffer:
                         except Full:
                              logger.warning("sio_queue is full. Dropping event: signature_match")
                 # try:
-                #      save_to_json([http_data])
+                #      save_to_json([http_data]) # This saves the original extensive http_data
                 # except Exception as e:
                 #     logger.warning(f"Failed to process and save data: {e}")
-                flattened_http_data = analyze_and_flatten(http_data)
-                data = map_to_cicids2017_features(flattened_http_data)
-                http_tranformed = transform_http_activity(http_data)
-                save_http_data_to_json(http_data)
+                
+                # --- Refine http_activity payload (Task 5) ---
+                frontend_http_payload = {
+                    "id": f"http_{datetime.utcnow().timestamp()}_{http_data.get('source_ip', 'unknownip')}_{http_data.get('destination_ip', 'unknownip')}",
+                    "timestamp": http_data.get("timestamp", datetime.utcnow().isoformat()),
+                    "source_ip": http_data.get("source_ip"),
+                    "source_port": http_data.get("network_metrics", {}).get("source_port"),
+                    "destination_ip": http_data.get("destination_ip"),
+                    "destination_port": http_data.get("network_metrics", {}).get("destination_port"),
+                    "method": http_data.get("method"),
+                    "host": http_data.get("host"),
+                    "path": http_data.get("path"),
+                    "status_code": http_data.get("status_code"),
+                    "user_agent": http_data.get("user_agent"),
+                    "content_type": http_data.get("content_type"),
+                    "protocol": http_data.get("version"), # HTTP version (e.g., "HTTP/1.1")
+                    "payload_size": len(payload), # Size of the extracted payload from _extract_http_payload
+                    "threat_score": http_data.get("threat_analysis", {}).get("threat_score"),
+                    "risk_level": http_data.get("threat_analysis", {}).get("risk_level"),
+                    "contributing_indicators": http_data.get("threat_analysis", {}).get("contributing_indicators", [])
+                    # response_time_ms is complex to capture accurately at sniffer level and is omitted.
+                }
+                # save_http_data_to_json(frontend_http_payload) # Optionally save the emitted payload for debugging
+
                 try:
-                    self.sio_queue.put_nowait(("http_activity", data))
+                    self.sio_queue.put_nowait(("http_activity", frontend_http_payload))
                 except Full:
                     logger.warning("sio_queue is full. Dropping event: http_activity")
+                # --- End Refine http_activity payload ---
 
                 # <<< Integration with PhishingBlocker >>>
                 if self.phishing_blocker:
@@ -2432,33 +2486,33 @@ class PacketSniffer:
                         "data": str(answer.rdata) if hasattr(answer, "rdata") else None,
                     })
 
-            # Data collection with type safety
-            dns_data = {
+            # --- Refine dns_activity payload (Task 5) ---
+            dns_payload = {
+                "id": f"dns_{datetime.utcnow().timestamp()}_{ip.src}",
                 "timestamp": datetime.utcnow().isoformat(),
                 "source_ip": ip.src,
-                "queries": queries,
-                "responses": responses,
-                "is_suspicious": any(q.get("type", 0) in {12, 16} for q in queries),
-                "tunnel_analysis": {
-                    "likely_tunnel": bool(self._detect_dns_tunneling(queries, responses)),
-                    "dga_score": float(self._calculate_dga_score(queries)),
-                },
-                "correlation_features": {
-                    "query_chain_depth": len([rr for rr in responses if rr.get("type") == 5]),
-                    "nxdomain_ratio": float(self._get_nxdomain_ratio(queries)),
-                    "ttl_variation": float(np.std([r["ttl"] for r in responses])) if responses else 0.0,
-                    "subdomain_entropy": float(self._calculate_subdomain_entropy(queries)),
-                },
-                "nxdomain_ratio": float(self._get_nxdomain_ratio(queries)),
-                "unique_domains": int(len({q["name"] for q in queries if q.get("name")})),
+                "queries": [{"query_name": q.get("name"), "query_type": q.get("type")} for q in queries],
+                "responses": [{"name": r.get("name"), "type": r.get("type"), "ttl": r.get("ttl"), "response_data": r.get("data")} for r in responses],
+                "is_suspicious": any(q.get("type", 0) in {12, 16, 255} for q in queries), # Common suspicious query types (TXT, NULL, ANY)
+                "tunnel_detected": bool(self._detect_dns_tunneling(queries, responses)),
+                "dga_score": float(self._calculate_dga_score(queries)),
+                "nxdomain_ratio": float(self._get_nxdomain_ratio(queries)), 
+                "unique_domains_queried": int(len({q.get("name") for q in queries if q.get("name")})),
+                "query_chain_depth": len([rr for rr in responses if rr.get("type") == 5]), 
+                "ttl_variation": float(np.std([r["ttl"] for r in responses if r.get("ttl") is not None])) if responses and any(r.get("ttl") is not None for r in responses) else 0.0,
+                "subdomain_entropy": float(self._calculate_subdomain_entropy(queries)),
+                "ttl_anomaly": False # Default, updated below
             }
-
-            # Add TTL analysis safely
-            if responses:
-                avg_ttl = sum(r["ttl"] for r in responses) / len(responses)
-                dns_data["ttl_anomaly"] = bool(avg_ttl < 30)
-
-            self.sio_queue.put_nowait(("dns_activity", dns_data))
+            
+            # TTL Anomaly Check
+            if dns_payload["responses"] and any(r.get("ttl") is not None for r in dns_payload["responses"]):
+                valid_ttls = [r["ttl"] for r in dns_payload["responses"] if r.get("ttl") is not None]
+                if valid_ttls: # Ensure valid_ttls is not empty before division
+                    avg_ttl = sum(valid_ttls) / len(valid_ttls)
+                    dns_payload["ttl_anomaly"] = bool(avg_ttl < 30) 
+            
+            self.sio_queue.put_nowait(("dns_activity", dns_payload))
+            # --- End Refine dns_activity payload ---
 
         except Exception as e:
             logger.error(f"DNS analysis failed: {str(e)}", exc_info=True)
@@ -2957,36 +3011,47 @@ class PacketSniffer:
             "seq_num": tcp.seq,
             "ack_num": tcp.ack,
             "payload_size": len(tcp.payload) if tcp.payload else 0,
-            "threat_indicators": {},
+            # Threat indicators will be flattened below
         }
 
-        # TCP Flag Analysis
-        if tcp.flags.S and not tcp.flags.A:  # SYN without ACK
-            tcp_data["threat_indicators"]["syn_flood"] = self._detect_syn_flood(packet)
-        if tcp.flags.F and not tcp.flags.A:  # FIN without ACK
-            tcp_data["threat_indicators"]["fin_scan"] = self._detect_fin_scan(packet)
-        if tcp.flags.R:  # RST
-            tcp_data["threat_indicators"]["rst_attack"] = self._detect_rst_attack(packet)
-        if tcp.flags.S and tcp.flags.A:  # SYN-ACK
-            tcp_data["threat_indicators"]["syn_ack_anomaly"] = self._detect_syn_ack_anomaly(
-                packet
-            )
+        # TCP Flag Analysis and other indicators
+        threat_indicators = {
+            "syn_flood_detected": self._detect_syn_flood(packet) if tcp.flags.S and not tcp.flags.A else False,
+            "fin_scan_detected": self._detect_fin_scan(packet) if tcp.flags.F and not tcp.flags.A else False,
+            "rst_attack_detected": self._detect_rst_attack(packet) if tcp.flags.R else False,
+            "syn_ack_anomaly_detected": self._detect_syn_ack_anomaly(packet) if tcp.flags.S and tcp.flags.A else False,
+            "suspicious_port_detected": self._check_suspicious_port(tcp.dport),
+            # seq_anomaly and window_anomaly return dicts, so they are not simple booleans to flatten directly
+            # behavior_anomaly also returns a dict
+        }
+        
+        # Add more complex analysis results that are dictionaries
+        seq_analysis_result = self._analyze_sequence(packet)
+        window_analysis_result = self._analyze_window(packet)
+        behavior_analysis_result = self._analyze_tcp_behavior(packet)
 
-        # Port Analysis
-        tcp_data["threat_indicators"]["suspicious_port"] = self._check_suspicious_port(
-            tcp.dport
-        )
-
-        # Sequence Analysis
-        tcp_data["threat_indicators"]["seq_anomaly"] = self._analyze_sequence(packet)
-
-        # Window Analysis
-        tcp_data["threat_indicators"]["window_anomaly"] = self._analyze_window(packet)
-
-        # Behavioral Analysis
-        tcp_data["threat_indicators"]["behavior_anomaly"] = self._analyze_tcp_behavior(
-            packet
-        )
+        # Refined TCP data payload (Task 7)
+        refined_tcp_data = {
+            "id": f"tcp_{datetime.utcnow().timestamp()}_{ip.src if ip else 'unknown'}_{tcp.sport}_{ip.dst if ip else 'unknown'}_{tcp.dport}",
+            "timestamp": tcp_data["timestamp"],
+            "source_ip": tcp_data["source_ip"],
+            "destination_ip": tcp_data["destination_ip"],
+            "source_port": tcp_data["source_port"],
+            "destination_port": tcp_data["destination_port"],
+            "protocol": "TCP",
+            "length": len(packet), # Overall packet length
+            "flags": tcp_data["flags"], # Dictionary of flags
+            "window_size": tcp_data["window_size"],
+            "seq_num": tcp_data["seq_num"],
+            "ack_num": tcp_data["ack_num"],
+            "tcp_payload_size": tcp_data["payload_size"], # Renamed for clarity vs overall packet length
+            "payload_preview": (bytes(tcp.payload)[:16].hex() if tcp.payload else None),
+            "payload_entropy": self._calculate_entropy(bytes(tcp.payload) if tcp.payload else b""),
+            **threat_indicators, # Flatten simple boolean indicators
+            "sequence_analysis": seq_analysis_result, # Nested dict for complex analysis
+            "window_analysis": window_analysis_result,   # Nested dict
+            "behavioral_analysis_tcp": behavior_analysis_result # Nested dict
+        }
 
         # Protocol Specific Checks
         if tcp.dport == 22 or tcp.sport == 22:
@@ -2995,9 +3060,8 @@ class PacketSniffer:
             self._analyze_rdp(packet)
 
         # Emit TCP event
-        # self.event_queue.put(("tcp_activity", tcp_data))
         try:
-            self.sio_queue.put_nowait(("tcp_activity", tcp_data))
+            self.sio_queue.put_nowait(("tcp_activity", refined_tcp_data))
         except Full:
             logger.warning("sio_queue is full. Dropping event: tcp_activity")
         except Exception as e: 
@@ -3017,32 +3081,43 @@ class PacketSniffer:
             "destination_ip": ip.dst if ip else None,
             "source_port": udp.sport,
             "destination_port": udp.dport,
-            "length": udp.len,
-            "payload_size": len(udp.payload) if udp.payload else 0,
-            "threat_indicators": {},
+            "length": udp.len, # This is UDP header + payload length
+            "udp_payload_size": len(udp.payload) if udp.payload else 0, # Renamed for clarity
+            # threat_indicators will be flattened
         }
 
-        # DNS Analysis
+        # DNS Analysis is handled by _analyze_dns which is called if port is 53
         if udp.dport == 53 or udp.sport == 53:
-            self._analyze_dns(packet)
+            # _analyze_dns already sends its own specific "dns_activity" event
             return
 
-        # NTP Analysis
-        if udp.dport == 123:
-            udp_data["threat_indicators"]["ntp_amplification"] = (
-                self._detect_ntp_amplification(packet)
-            )
+        # Threat indicators for non-DNS UDP
+        threat_indicators = {
+            "ntp_amplification_detected": self._detect_ntp_amplification(packet) if udp.dport == 123 else False,
+            "udp_flood_detected": self._detect_udp_flood(packet),
+            "suspicious_port_detected": self._check_suspicious_port(udp.dport),
+        }
+        # _analyze_udp_payload returns a dict, keep it nested or flatten parts of it
+        payload_analysis_results = self._analyze_udp_payload(packet)
 
-        # General UDP Threat Detection
-        udp_data["threat_indicators"]["udp_flood"] = self._detect_udp_flood(packet)
-        udp_data["threat_indicators"]["suspicious_port"] = self._check_suspicious_port(
-            udp.dport
-        )
-        udp_data["threat_indicators"]["payload_analysis"] = self._analyze_udp_payload(
-            packet
-        )
+        refined_udp_data = {
+            "id": f"udp_{datetime.utcnow().timestamp()}_{ip.src if ip else 'unknown'}_{udp.sport}_{ip.dst if ip else 'unknown'}_{udp.dport}",
+            "timestamp": udp_data["timestamp"],
+            "source_ip": udp_data["source_ip"],
+            "destination_ip": udp_data["destination_ip"],
+            "source_port": udp_data["source_port"],
+            "destination_port": udp_data["destination_port"],
+            "protocol": "UDP",
+            "length": udp_data["length"], # UDP header + payload length
+            "udp_payload_size": udp_data["udp_payload_size"],
+            "payload_preview": (bytes(udp.payload)[:16].hex() if udp.payload else None),
+            "payload_entropy": self._calculate_entropy(bytes(udp.payload) if udp.payload else b""),
+            **threat_indicators, # Flatten simple boolean indicators
+            "udp_payload_analysis_details": payload_analysis_results # Nested dict for payload specifics
+        }
+
         try:
-            self.sio_queue.put_nowait(("udp_activity", udp_data))
+            self.sio_queue.put_nowait(("udp_activity", refined_udp_data))
         except Full:
             logger.warning("sio_queue is full. Dropping event: udp_activity")
 
@@ -3060,26 +3135,32 @@ class PacketSniffer:
             "destination_ip": ip.dst if ip else None,
             "type": icmp.type,
             "code": icmp.code,
-            "payload_size": len(icmp.payload) if icmp.payload else 0,
-            "threat_indicators": {},
+            "icmp_payload_size": len(icmp.payload) if icmp.payload else 0, # Renamed for clarity
+            # threat_indicators will be flattened
         }
 
-        # ICMP Echo (Ping) Analysis
-        if icmp.type == 8:  # Echo Request
-            icmp_data["threat_indicators"]["ping_flood"] = self._detect_ping_flood(packet)
-            icmp_data["threat_indicators"]["ping_of_death"] = self._detect_ping_of_death(
-                packet
-            )
-
-        # ICMP Redirect Analysis
-        if icmp.type == 5:
-            icmp_data["threat_indicators"]["icmp_redirect"] = True
-
-        # ICMP Timestamp Analysis
-        if icmp.type == 13 or icmp.type == 14:
-            icmp_data["threat_indicators"]["timestamp_probe"] = True
+        threat_indicators = {
+            "ping_flood_detected": self._detect_ping_flood(packet) if icmp.type == 8 else False,
+            "ping_of_death_detected": self._detect_ping_of_death(packet) if icmp.type == 8 else False,
+            "icmp_redirect_detected": True if icmp.type == 5 else False,
+            "timestamp_probe_detected": True if icmp.type == 13 or icmp.type == 14 else False,
+        }
+        
+        refined_icmp_data = {
+            "id": f"icmp_{datetime.utcnow().timestamp()}_{ip.src if ip else 'unknown'}_{ip.dst if ip else 'unknown'}_{icmp.type}_{icmp.code}",
+            "timestamp": icmp_data["timestamp"],
+            "source_ip": icmp_data["source_ip"],
+            "destination_ip": icmp_data["destination_ip"],
+            "protocol": "ICMP",
+            "icmp_type": icmp_data["type"],
+            "icmp_code": icmp_data["code"],
+            "icmp_payload_size": icmp_data["icmp_payload_size"],
+            "payload_preview": (bytes(icmp.payload)[:16].hex() if icmp.payload else None),
+            "payload_entropy": self._calculate_entropy(bytes(icmp.payload) if icmp.payload else b""),
+            **threat_indicators
+        }
         try:
-            self.sio_queue.put_nowait(("icmp_activity", icmp_data))
+            self.sio_queue.put_nowait(("icmp_activity", refined_icmp_data))
         except Full:
             logger.warning("sio_queue is full. Dropping event: icmp_activity")
 
@@ -3098,25 +3179,28 @@ class PacketSniffer:
             "sender_mac": arp.hwsrc,
             "target_ip": arp.pdst,
             "target_mac": arp.hwdst,
-            "threat_indicators": {},
+            # threat_indicators will be flattened
         }
 
-        # ARP Spoofing Detection
-        if arp.op == 2:  # ARP reply
-            arp_data["threat_indicators"]["arp_spoofing"] = self._detect_arp_spoofing(
-                packet
-            )
+        threat_indicators = {
+            "arp_spoofing_detected": self._detect_arp_spoofing(packet) if arp.op == 2 else False,
+            "gratuitous_arp_detected": (arp.psrc == arp.pdst and arp.op == 2),
+            "mac_spoofing_detected": (ether and arp.hwsrc != ether.src) if ether else False,
+        }
 
-        # Gratuitous ARP Detection
-        arp_data["threat_indicators"]["gratuitous_arp"] = (
-            arp.psrc == arp.pdst and arp.op == 2
-        )
-
-        # MAC/IP Inconsistency
-        if ether and arp.hwsrc != ether.src:
-            arp_data["threat_indicators"]["mac_spoofing"] = True
+        refined_arp_data = {
+            "id": f"arp_{datetime.utcnow().timestamp()}_{arp.psrc}_{arp.pdst}_{arp.op}",
+            "timestamp": arp_data["timestamp"],
+            "protocol": "ARP",
+            "operation": arp_data["operation"],
+            "sender_ip": arp_data["sender_ip"],
+            "sender_mac": arp_data["sender_mac"],
+            "target_ip": arp_data["target_ip"],
+            "target_mac": arp_data["target_mac"],
+            **threat_indicators
+        }
         try:
-            self.sio_queue.put_nowait(("arp_activity", arp_data))
+            self.sio_queue.put_nowait(("arp_activity", refined_arp_data))
         except Full:
             logger.warning("sio_queue is full. Dropping event: arp_activity")
 
@@ -3126,32 +3210,36 @@ class PacketSniffer:
             "timestamp": datetime.utcnow().isoformat(),
             "source_ip": packet[IP].src if packet.haslayer(IP) else None,
             "destination_ip": packet[IP].dst if packet.haslayer(IP) else None,
-            "protocol": self._get_protocol_name(packet),
-            "payload_size": len(packet.payload) if packet.payload else 0,
-            "threat_indicators": {},
+            "protocol": self._get_protocol_name(packet), # This helps identify context
+            "payload_size": len(packet.payload) if packet.payload else 0, # Size of the specific layer's payload being analyzed
+            # threat_indicators will be flattened
+        }
+        
+        raw_payload = bytes(packet[Raw].load) if packet.haslayer(Raw) else b"" # Prefer Raw layer for general payload
+
+        threat_indicators = {
+            "shellcode_detected": self._detect_shellcode(raw_payload),
+            "sql_injection_detected": self._detect_sql_injection(raw_payload),
+            "xss_detected": self._detect_xss(raw_payload),
+            "exploit_kit_pattern_detected": self._detect_exploit_kit_patterns(raw_payload),
+            "obfuscation_detected": self._detect_obfuscation(raw_payload),
+            "high_entropy_detected": (self._calculate_entropy(raw_payload) > 7.0) if raw_payload else False,
         }
 
-        # Get raw payload
-        raw_payload = bytes(packet[Raw].payload) if packet.haslayer(Raw) else b""
+        refined_payload_data = {
+            "id": f"payload_{datetime.utcnow().timestamp()}_{payload_data.get('source_ip', 'unknown')}_{payload_data.get('protocol', 'unknown')}",
+            "timestamp": payload_data["timestamp"],
+            "source_ip": payload_data["source_ip"],
+            "destination_ip": payload_data["destination_ip"],
+            "protocol": payload_data["protocol"],
+            "actual_payload_size": len(raw_payload), # More specific naming
+            "payload_preview": raw_payload[:16].hex() if raw_payload else None,
+            "entropy": self._calculate_entropy(raw_payload),
+            **threat_indicators
+        }
 
-        # Payload Analysis
-        payload_data["threat_indicators"]["shellcode"] = self._detect_shellcode(raw_payload)
-        payload_data["threat_indicators"]["sql_injection"] = self._detect_sql_injection(
-            raw_payload
-        )
-        payload_data["threat_indicators"]["xss"] = self._detect_xss(raw_payload)
-        payload_data["threat_indicators"]["exploit_kit"] = (
-            self._detect_exploit_kit_patterns(raw_payload)
-        )
-        payload_data["threat_indicators"]["obfuscation"] = self._detect_obfuscation(
-            raw_payload
-        )
-
-        # Entropy Analysis
-        payload_data["entropy"] = self._calculate_entropy(raw_payload)
-        payload_data["threat_indicators"]["high_entropy"] = payload_data["entropy"] > 7.0
         try:
-            self.sio_queue.put_nowait(("payload_analysis", payload_data))
+            self.sio_queue.put_nowait(("payload_analysis", refined_payload_data))
         except Full:
             logger.warning("sio_queue is full. Dropping event: payload_analysis")
 
@@ -3196,24 +3284,31 @@ class PacketSniffer:
             "duration": current_time - self.stats["flows"][flow_key]["first_seen"],
             "packet_count": self.stats["flows"][flow_key]["packet_count"],
             "byte_count": self.stats["flows"][flow_key]["byte_count"],
-            "threat_indicators": {},
+            # threat_indicators will be flattened
         }
 
-        # Behavioral Threat Detection
-        behavior_data["threat_indicators"]["port_scan"] = self._detect_port_scan_behavior(
-            ip.src
-        )
-        behavior_data["threat_indicators"]["dos_attempt"] = self._detect_dos_behavior(
-            ip.src
-        )
-        behavior_data["threat_indicators"]["beaconing"] = self._detect_beaconing(
-            ip.src
-        )
-        behavior_data["threat_indicators"]["data_exfiltration"] = (
-            self._detect_exfiltration_behavior(ip.src)
-        )
+        threat_indicators = {
+            "port_scan_detected": self._detect_port_scan_behavior(ip.src),
+            "dos_attempt_detected": self._detect_dos_behavior(ip.src),
+            # "beaconing_detected": self._detect_beaconing(ip.src), # Removed: _detect_beaconing expects http_data. Add if a generic IP-based version is created.
+            "data_exfiltration_detected": self._detect_exfiltration_behavior(ip.src),
+        }
+        # Beaconing detection is complex and usually context-specific (e.g., HTTP).
+        # If a generic IP-based beaconing is needed, a separate, simpler helper would be appropriate.
+
+        refined_behavior_data = {
+            "id": f"behavior_{datetime.utcnow().timestamp()}_{ip.src}_{ip.dst}_{behavior_data.get('flow_id', 'unknown_flow')}",
+            "timestamp": behavior_data["timestamp"],
+            "source_ip": behavior_data["source_ip"],
+            "destination_ip": behavior_data["destination_ip"],
+            "flow_id": behavior_data["flow_id"],
+            "duration_seconds": behavior_data["duration"],
+            "packet_count_in_flow": behavior_data["packet_count"],
+            "byte_count_in_flow": behavior_data["byte_count"],
+            **threat_indicators
+        }
         try:
-            self.sio_queue.put_nowait(("behavior_analysis", behavior_data))
+            self.sio_queue.put_nowait(("behavior_analysis", refined_behavior_data))
         except Full:
             logger.warning("sio_queue is full. Dropping event: behavior_analysis")
 

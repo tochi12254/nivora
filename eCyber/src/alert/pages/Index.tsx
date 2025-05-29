@@ -87,7 +87,7 @@ const Index = () => {
     };
   }, [allAlertsForLevel]);
   
-  // const currentThreatLevel = currentThreatLevelData.level; // Used by ThreatLevelIndicator component
+  const currentThreatLevel = currentThreatLevelData.level; // Used by ThreatLevelIndicator component
 
   // --- Task 3b: ThreatsCountCard ---
   // Using threatDetections from Redux state
@@ -244,22 +244,43 @@ const Index = () => {
   // Helper function to ensure timestamp is a string for components that expect it.
   // This remains useful for table components that might expect string timestamps.
   // This is a temporary fix. Ideally, all event types should have a consistent timestamp property.
-  const ensureStringTimestamp = (data: any[], timestampField: string = 'timestamp') => {
-    return data.map(item => ({ ...item, timestamp: String(item[timestampField] || new Date(0).toISOString()) }));
-  };
+  // const ensureStringTimestamp = (data: any[], timestampField: string = 'timestamp') => {
+  //   return data.map(item => ({ ...item, timestamp: String(item[timestampField] || new Date(0).toISOString()) }));
+  // };
   
-  // Ensuring data passed to tables has string timestamps where components might expect them
-  // This is based on the original structure of mock data.
-  // Actual components might need more specific data transformations.
-  const safeThreatDetections = ensureStringTimestamp(threatDetections);
-  const safePhishingDetections = phishingDetections.map(p => ({...p, timestamp: p.url, severity: 'medium'})); // PhishingDetectionsTable expects severity
-  const safeFirewallEvents = firewallEvents.map(f => ({...f, timestamp: String(new Date().getTime())})); // FirewallEventsTable expects timestamp
-  const safeDnsActivities = dnsActivities.map(d => ({...d, timestamp: String(new Date().getTime())})); // DnsActivityTable expects timestamp
-  const safePacketAnalyses = packetAnalyses.map(pA => ({...pA, timestamp: String(pA.timestamp)})); // PacketAnalysisTable expects timestamp
-  const safeIPv6Activities = ipv6Activities.map(iA => ({...iA, timestamp: String(new Date().getTime())})); // IPv6ActivityTable expects timestamp
-  const safeThreatResponses = threatResponses.map(tR => ({...tR, timestamp: String(new Date().getTime())})); // ThreatResponseTable expects timestamp
-  const safeQuarantinedFiles = quarantinedFiles.map(qF => ({...qF, timestamp: String(new Date().getTime())})); // QuarantinedFilesTable expects timestamp
-  const safeRecentCriticalAlerts = ensureStringTimestamp(recentCriticalAlerts);
+  // Review safe* transformations based on refined types (Task 7c)
+  // Most backend types now include `id` and `timestamp` as ISO strings.
+  // PhishingData now includes `severity`.
+
+  // Assuming ThreatDetectionsTable expects `Alert[]` which is now refined.
+  const safeThreatDetections = threatDetections; // Direct use if Alert has string timestamp
+
+  // PhishingData is refined with timestamp and severity
+  const safePhishingDetections = phishingDetections; 
+
+  // FirewallActivityData is refined with timestamp
+  const safeFirewallEvents = firewallEvents;
+
+  // DnsActivityData is refined with timestamp
+  const safeDnsActivities = dnsActivities; 
+
+  // PacketMetadata's timestamp is still number, so conversion might be needed if table expects string.
+  // Assuming PacketAnalysisTable can handle number timestamp or has internal formatting.
+  // Or, if it must be string:
+  const safePacketAnalyses = packetAnalyses.map(pA => ({...pA, timestamp: String(pA.timestamp)}));
+
+  // IPv6Activity is refined with timestamp
+  const safeIPv6Activities = ipv6Activities; 
+
+  // ThreatResponse is refined with timestamp
+  const safeThreatResponses = threatResponses; 
+
+  // FileQuarantined is refined with timestamp
+  const safeQuarantinedFiles = quarantinedFiles; 
+
+  // Alert type (for recentCriticalAlerts) is refined with string timestamp
+  const safeRecentCriticalAlerts = recentCriticalAlerts;
+
 
   const toggleSection = (section: keyof typeof sectionsExpanded) => {
     setSectionsExpanded(prev => ({
@@ -282,12 +303,7 @@ const Index = () => {
     });
   };
 
-  // Fix for the type error: Ensure the current threat level is a valid ThreatSeverity
-  const currentThreatLevel = currentThreatLevelData.level;
 
-  // if (httpActivities) {
-  //   console.log('Http Activity available: ', httpActivities);
-  // }
 
 
   return (

@@ -1,21 +1,23 @@
 // This file will contain Redux slices for real-time data.
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import {
-  DnsQuery,
-  FirewallEvent,
-  Alert,
-  IPv6Activity,
-  PacketMetadata,
-  SystemStats,
-  SystemStatus,
-  PhishingData,
-  ThreatResponse,
-  FileQuarantined,
-} from '../../hooks/usePacketSnifferSocket'; // Assuming types are exported from here
+  // DnsQuery, // Original, replaced by DnsActivityData
+  DnsActivityData, // Updated type
+  // FirewallEvent, // Original, replaced by FirewallActivityData
+  FirewallActivityData, // Updated type
+  Alert, // Refined in usePacketSnifferSocket.ts
+  IPv6Activity, // Refined
+  PacketMetadata, // Refined (e.g., added id, payload_preview)
+  SystemStats,    // Refined
+  SystemStatus,   // Refined
+  PhishingData,   // Refined
+  ThreatResponse, // Refined
+  FileQuarantined,// Refined
+} from '../../hooks/usePacketSnifferSocket'; 
 
 // --- DNS Activities Slice ---
 interface DnsActivityState {
-  dnsActivities: DnsQuery[];
+  dnsActivities: DnsActivityData[]; // Use updated DnsActivityData
 }
 
 const initialDnsActivityState: DnsActivityState = {
@@ -26,7 +28,7 @@ const dnsActivitySlice = createSlice({
   name: 'dnsActivity',
   initialState: initialDnsActivityState,
   reducers: {
-    addDnsActivity: (state, action: PayloadAction<DnsQuery>) => {
+    addDnsActivity: (state, action: PayloadAction<DnsActivityData>) => { // Use DnsActivityData
       state.dnsActivities = [action.payload, ...state.dnsActivities].slice(0, 100);
     },
   },
@@ -36,10 +38,8 @@ export const { addDnsActivity } = dnsActivitySlice.actions;
 export const dnsActivityReducer = dnsActivitySlice.reducer;
 
 // --- Firewall Events Slice ---
-// Assuming FirewallEvent is the correct type.
-// If FirewallData is more appropriate, it should be used instead.
 interface FirewallEventsState {
-  firewallEventsData: FirewallEvent[];
+  firewallEventsData: FirewallActivityData[]; // Use updated FirewallActivityData
 }
 
 const initialFirewallEventsState: FirewallEventsState = {
@@ -50,7 +50,7 @@ const firewallEventsSlice = createSlice({
   name: 'firewallEvents',
   initialState: initialFirewallEventsState,
   reducers: {
-    addFirewallEvent: (state, action: PayloadAction<FirewallEvent>) => {
+    addFirewallEvent: (state, action: PayloadAction<FirewallActivityData>) => { // Use FirewallActivityData
       state.firewallEventsData = [action.payload, ...state.firewallEventsData].slice(0, 100);
     },
   },
@@ -60,9 +60,9 @@ export const { addFirewallEvent } = firewallEventsSlice.actions;
 export const firewallEventsReducer = firewallEventsSlice.reducer;
 
 // --- Threat Detections Slice ---
-// Using Alert type as it has a timestamp.
+// Uses refined Alert type
 interface ThreatDetectionsState {
-  threatDetectionsData: Alert[];
+  threatDetectionsData: Alert[]; 
 }
 
 const initialThreatDetectionsState: ThreatDetectionsState = {

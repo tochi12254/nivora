@@ -28,103 +28,360 @@ import {
   addQuarantinedFile,
 } from '@/app/slices/realtimeDataSlice';
 // Make sure all types used in dispatch are imported if not already defined in this file
-// import {
-//   DnsQuery,
-//   FirewallEvent,
-//   Alert, // Already defined
-//   IPv6Activity, // Already defined
-//   PacketMetadata, // Already defined
-//   SystemStats, // Already defined
-//   SystemStatus, // Already defined
-//   HttpActivity, // Already defined
-//   // Import specific data types for new activities if not defined below
-//   // For example, if TcpActivityData is not defined in this file yet
-// } from './usePacketSnifferSocket'; // Assuming types are exported from here or defined below
+import {
+  DnsQuery,
+  FirewallEvent,
+  Alert, // Already defined
+  IPv6Activity, // Already defined
+  PacketMetadata, // Already defined
+  SystemStats, // Already defined
+  SystemStatus, // Already defined
+  HttpActivity, // Already defined
+  // Import specific data types for new activities if not defined below
+  // For example, if TcpActivityData is not defined in this file yet
+} from './usePacketSnifferSocket'; // Assuming types are exported from here or defined below
 
-// Placeholder types for new activities if not already in the file from previous step
-// These should match what's defined in socketSlice.ts
-interface TcpActivityData {
-  timestamp: string;
-  src_ip: string;
-  dst_ip: string;
-  src_port: number;
-  dst_port: number;
-  flags: string[];
-  length: number;
+// ==================== Refined Event Export Interfaces (Task 7) ====================
+
+// General Alert structure (used by security_alert, threat_detected, critical_alert)
+export interface Alert {
+  id: string;
+  timestamp: string; // ISO 8601
+  severity: "Critical" | "High" | "Medium" | "Low" | "Info";
+  source_ip?: string; // Optional as not all alerts might have it
+  destination_ip?: string;
+  destination_port?: number;
+  protocol?: string;
+  description: string;
+  threat_type: string; // Replaces 'type' for clarity
+  rule_id?: string;
+  metadata?: Record<string, any>; // For any other specific details
 }
 
-interface UdpActivityData {
-  timestamp: string;
-  src_ip: string;
-  dst_ip: string;
-  src_port: number;
-  dst_port: number;
-  length: number;
+// Specific for HTTP activities
+export interface HttpActivity {
+  id: string;
+  timestamp: string; // ISO 8601
+  source_ip?: string;
+  source_port?: number;
+  destination_ip?: string;
+  destination_port?: number;
+  method?: string;
+  host?: string;
+  path?: string;
+  status_code?: number;
+  user_agent?: string;
+  content_type?: string;
+  protocol?: string; // e.g., "HTTP/1.1", "HTTP/2" (derived from backend 'version')
+  payload_size?: number;
+  threat_score?: number;
+  risk_level?: "Critical" | "High" | "Medium" | "Low" | "Info";
+  contributing_indicators?: string[];
 }
 
-interface IcmpActivityData {
-  timestamp: string;
-  src_ip: string;
-  dst_ip: string;
-  icmp_type: number;
-  icmp_code: number;
+// Specific for DNS activities - Renaming DnsQuery to DnsActivityData for broader scope
+export interface DnsQueryInfo {
+  query_name: string;
+  query_type: string | number; // e.g., "A", "AAAA", or number
+}
+export interface DnsResponseInfo {
+  name: string;
+  type: string | number;
+  ttl?: number;
+  response_data?: string; // e.g., IP address, CNAME
+}
+export interface DnsActivityData {
+  id: string;
+  timestamp: string; // ISO 8601
+  source_ip?: string;
+  queries: DnsQueryInfo[];
+  responses: DnsResponseInfo[];
+  is_suspicious?: boolean;
+  tunnel_detected?: boolean;
+  dga_score?: number;
+  nxdomain_ratio?: number;
+  unique_domains_queried?: number;
+  query_chain_depth?: number;
+  ttl_variation?: number;
+  subdomain_entropy?: number;
+  ttl_anomaly?: boolean;
+}
+// Keep DnsQuery if it's used elsewhere for just the query part, or remove if DnsActivityData.queries suffices
+export interface DnsQuery { domain: string; recordType: string; } // Original, may be deprecated by DnsActivityData
+
+
+// Specific for IPv6 activities
+export interface IPv6Activity {
+  id: string;
+  timestamp: string; // ISO 8601
+  source_ip?: string; // Renamed from 'source'
+  destination_ip?: string; // Renamed from 'destination'
+  payload_size?: number; // Renamed from 'payloadSize'
+  next_header?: number | string; // Can be number or resolved name
+  traffic_class?: number;
+  flow_label?: number;
+  hop_limit?: number;
+  threat_indicators?: { // Keep as nested object as backend sends it this way
+    tunneling_suspected?: boolean;
+    unusual_extension_headers?: boolean;
+    flood_attempt?: boolean; // This was hypothetical, confirm if backend sends
+  };
 }
 
-interface ArpActivityData {
-  timestamp: string;
-  sender_mac: string;
-  sender_ip: string;
-  target_mac: string;
-  target_ip: string;
-  operation: 'request' | 'reply';
+// Specific for Firewall events (consolidating FirewallEvent and FirewallData)
+export interface FirewallActivityData {
+  id: string;
+  timestamp: string; // ISO 8601
+  source_ip?: string;
+  destination_ip?: string;
+  destination_port?: number;
+  protocol?: string;
+  action: "Blocked" | "Allowed" | "Unblocked"; // Standardized
+  reason?: string;
+  rule_id?: string;
+  direction?: "Inbound" | "Outbound" | "Unknown";
+  duration?: number; // For temporary blocks
+  // os_type?: string; // Retained if needed, but often less relevant for event table
+}
+// Original FirewallEvent and FirewallData might be deprecated
+export interface FirewallEvent { ip: string; type: 'block' | 'allow'; reason: string; } // Original
+export interface FirewallData { rule: string; action: 'block' | 'allow'; } // Original
+
+// Specific for Phishing detections
+export interface PhishingData {
+  id: string;
+  timestamp: string; // ISO 8601
+  url: string;
+  source_ip?: string; // Client IP
+  confidence?: number; // 0-1 or 0-100 scale
+  status: "Detected" | "Blocked";
+  threat_type: "Phishing"; // Fixed
+  severity?: "Critical" | "High" | "Medium" | "Low" | "Info";
+  reasons?: string[];
 }
 
-interface PayloadAnalysisData {
-  timestamp: string;
-  src_ip: string;
-  dst_ip: string;
-  protocol: string;
-  payload_snippet: string;
-  analysis_result: string;
-  signature_matched?: string;
+// Protocol-specific activity data
+export interface TcpFlags { // For clarity in TcpActivityData
+  syn?: boolean; ack?: boolean; fin?: boolean; rst?: boolean;
+  psh?: boolean; urg?: boolean; ece?: boolean; cwr?: boolean;
+}
+export interface TcpActivityData {
+  id: string;
+  timestamp: string; // ISO 8601
+  source_ip?: string;
+  destination_ip?: string;
+  source_port?: number;
+  destination_port?: number;
+  protocol: "TCP";
+  length?: number; // Overall packet length
+  flags?: TcpFlags; // Changed from string[] to object
+  window_size?: number;
+  seq_num?: number;
+  ack_num?: number;
+  tcp_payload_size?: number;
+  payload_preview?: string; // hex
+  payload_entropy?: number;
+  // Flattened boolean threat indicators
+  syn_flood_detected?: boolean;
+  fin_scan_detected?: boolean;
+  rst_attack_detected?: boolean;
+  syn_ack_anomaly_detected?: boolean;
+  suspicious_port_detected?: boolean;
+  // Nested objects for complex analysis results
+  sequence_analysis?: Record<string, any>; 
+  window_analysis?: Record<string, any>;
+  behavioral_analysis_tcp?: Record<string, any>;
 }
 
-interface BehaviorAnalysisData {
-  timestamp: string;
-  entity_id: string;
-  behavior_type: string;
-  score: number;
-  details: Record<string, any>;
+export interface UdpActivityData {
+  id: string;
+  timestamp: string; // ISO 8601
+  source_ip?: string;
+  destination_ip?: string;
+  source_port?: number;
+  destination_port?: number;
+  protocol: "UDP";
+  length?: number; // UDP datagram length (header + payload)
+  udp_payload_size?: number;
+  payload_preview?: string; // hex
+  payload_entropy?: number;
+  // Flattened boolean threat indicators
+  ntp_amplification_detected?: boolean;
+  udp_flood_detected?: boolean;
+  suspicious_port_detected?: boolean;
+  // Nested object for detailed payload analysis
+  udp_payload_analysis_details?: Record<string, any>; 
 }
-// ==================== Event export interfaces ====================
-export interface ThreatData { id: string; message: string; severity: 'low' | 'medium' | 'high'; }
-export interface PhishingData { url: string; confidence: number; }
+
+export interface IcmpActivityData {
+  id: string;
+  timestamp: string; // ISO 8601
+  source_ip?: string;
+  destination_ip?: string;
+  protocol: "ICMP";
+  icmp_type?: number;
+  icmp_code?: number;
+  icmp_payload_size?: number;
+  payload_preview?: string; // hex
+  payload_entropy?: number;
+  // Flattened boolean threat indicators
+  ping_flood_detected?: boolean;
+  ping_of_death_detected?: boolean;
+  icmp_redirect_detected?: boolean;
+  timestamp_probe_detected?: boolean;
+}
+
+export interface ArpActivityData {
+  id: string;
+  timestamp: string; // ISO 8601
+  protocol: "ARP";
+  operation?: 'request' | 'reply';
+  sender_mac?: string;
+  sender_ip?: string;
+  target_mac?: string;
+  target_ip?: string;
+  // Flattened boolean threat indicators
+  arp_spoofing_detected?: boolean;
+  gratuitous_arp_detected?: boolean;
+  mac_spoofing_detected?: boolean;
+}
+
+// General Payload Analysis (can be for non-HTTP/DNS payloads or deeper inspection)
+export interface PayloadAnalysisData {
+  id: string;
+  timestamp: string; // ISO 8601
+  source_ip?: string;
+  destination_ip?: string;
+  protocol?: string; // Contextual protocol of the packet carrying this payload
+  actual_payload_size?: number;
+  payload_preview?: string; // hex
+  entropy?: number;
+  // Flattened boolean threat indicators
+  shellcode_detected?: boolean;
+  sql_injection_detected?: boolean;
+  xss_detected?: boolean;
+  exploit_kit_pattern_detected?: boolean;
+  obfuscation_detected?: boolean;
+  high_entropy_detected?: boolean;
+}
+
+// Behavioral Analysis (flow-based or more general)
+export interface BehaviorAnalysisData {
+  id: string;
+  timestamp: string; // ISO 8601
+  source_ip?: string;
+  destination_ip?: string;
+  flow_id?: number | string; // Hash or other flow identifier
+  duration_seconds?: number;
+  packet_count_in_flow?: number;
+  byte_count_in_flow?: number;
+  // Flattened boolean threat indicators
+  port_scan_detected?: boolean;
+  dos_attempt_detected?: boolean;
+  // beaconing_detected?: boolean; // Removed as it was context-specific in sniffer
+  data_exfiltration_detected?: boolean;
+  // entity_id, behavior_type, score, details - kept if backend sends them for general cases
+  entity_id?: string; 
+  behavior_type?: string; 
+  score?: number; 
+  details?: Record<string, any>;
+}
+
+// System Statistics
+export interface SystemStats {
+  id?: string; // Optional, as it's a snapshot
+  timestamp: string; // ISO 8601
+  cpu_usage_percent?: number;
+  memory_usage_percent?: number;
+  network_packets_per_minute?: number; // Or another throughput metric
+  // Direct fields for SystemHealthCard
+  cpu?: number; 
+  memory?: number;
+  network?: number; // General network load indicator
+  top_talkers?: Array<{ ip: string; packets: number; }>;
+  threat_distribution?: Array<{ threat_type: string; count: number; }>;
+  queue_stats?: Record<string, any>; // e.g., { processed: number, dropped: number }
+}
+
+// Other existing interfaces (review if they need similar ID/timestamp or refinement)
+export interface ThreatData { id: string; message: string; severity: 'low' | 'medium' | 'high'; timestamp: string; threat_type: string; } // Added timestamp, threat_type
 export interface TrainingProgress { epoch: number; accuracy: number; loss: number; }
-export interface NetworkAnomaly { type: string; packetCount: number; }
-export interface AccessData { user: string; sourceIp: string; }
-export interface FirewallData { rule: string; action: 'block' | 'allow'; }
-export interface UrlClassification { url: string; category: string; confidence: number; }
-export interface ServiceStatus { name: string; status: 'running' | 'stopped'; uptime?: number; }
-export interface Alert { message: string; timestamp: string; }
-export interface HttpActivity { endpoint: string; method: string; statusCode: number; }
-export interface DnsQuery { domain: string; recordType: string; }
-export interface ErrorData { error: string; code?: number; }
-export interface SshConnection { ip: string; user?: string; }
-export interface FirewallEvent { ip: string; type: 'block' | 'allow'; reason: string; }
-export interface Rule { id: string; name: string; description: string; }
-export interface SystemStats { cpu: number; memory: number; network: number; }
-export interface SystemStatus { online: boolean; services: string[]; }
-export interface IPv6Activity { source: string; destination: string; payloadSize: number; }
-export interface CriticalAlert { type: string; source: string; mitigation: string; }
-export interface SystemTelemetry { cpu: number; memory: number; processes: ProcessInfo[]; }
-export interface ThreatResponse { action: string; target: string; success: boolean; }
-export interface ProcessInspection { pid: number; name: string; suspicious: boolean; }
-export interface ConnectionAnalysis { protocol: string; count: number; riskScore: number; }
-export interface FileQuarantined { path: string; hash: string; reason: string; }
-export interface SystemSnapshot { timestamp: string; metrics: SystemStats; }
+export interface NetworkAnomaly { type: string; packetCount: number; timestamp: string; id: string;} // Added id, timestamp
+export interface AccessData { user: string; sourceIp: string; timestamp: string; id: string;} // Added id, timestamp
+export interface UrlClassification { url: string; category: string; confidence: number; timestamp: string; id: string;} // Added id, timestamp
+export interface ServiceStatus { name: string; status: 'running' | 'stopped'; uptime?: number; timestamp: string; id: string;} // Added id, timestamp
+export interface ErrorData { error: string; code?: number; timestamp: string; id: string;} // Added id, timestamp
+export interface SshConnection { ip: string; user?: string; timestamp: string; id: string; banner?: string; is_bruteforce?: boolean; is_encrypted?: boolean; } // Added id, timestamp and details
+export interface Rule { id: string; name: string; description: string; } // Seems fine
+export interface SystemStatus { online: boolean; services: string[]; timestamp: string; id: string;} // Added id, timestamp
+export interface CriticalAlert extends Alert {} // Inherits from Alert, which is now refined
+export interface SystemTelemetry { id: string; timestamp: string; cpu: number; memory: number; processes: ProcessInfo[]; } // Added id, timestamp
+export interface ThreatResponse { id: string; timestamp: string; action: string; target: string; success: boolean; } // Added id, timestamp
+export interface ProcessInspection {id: string; timestamp: string; pid: number; name: string; suspicious: boolean; } // Added id, timestamp
+export interface ConnectionAnalysis {id: string; timestamp: string; protocol: string; count: number; riskScore: number; } // Added id, timestamp
+export interface FileQuarantined {id: string; timestamp: string; path: string; hash: string; reason: string; } // Added id, timestamp
+export interface SystemSnapshot {id: string; timestamp: string; metrics: SystemStats; } // metrics type changed to refined SystemStats
+
 export interface ProcessInfo { pid: number; name: string; cpu: number; memory: number; }
-export interface AnalysisError { data: any}
-export interface PacketMetadata {
+export interface AnalysisError { data: any; timestamp: string; id: string;} // Added id, timestamp
+export interface PacketMetadata { // This is for the PacketData slice, used by PacketAnalysisTable
+  id: string; // Added
+  timestamp: number; // Keep as number if backend sends it this way, or convert to string
+  src_ip: string | null;
+  dst_ip: string | null;
+  protocol: number | null; // Or string if resolved
+  length: number;
+  src_port: number | null;
+  dst_port: number | null;
+  payload_preview?: string | null; // Added
+  // payload: string | null; // Original full payload, consider if needed or if preview is enough
+}
+
+// ==================== Event Type Definitions ====================
+export type SocketEvent =
+  | { type: 'threat_detected'; data: Alert } // Uses refined Alert
+  | { type: 'analysis_error'; data: AnalysisError}
+  | { type: 'network_metrics'; data: any } // Keep as any if structure is unknown or varies
+  | { type: 'phishing_link_detected'; data: PhishingData } // Uses refined PhishingData
+  | { type: 'training_progress'; data: TrainingProgress }
+  | { type: 'training_completed'; data: null }
+  | { type: 'network_anomaly'; data: NetworkAnomaly }
+  | { type: 'unauthorized_access'; data: AccessData }
+  | { type: 'firewall_blocked'; data: FirewallActivityData } // Uses refined FirewallActivityData
+  | { type: 'firewall_unblocked'; data: FirewallActivityData } // For unblock events
+  | { type: 'url_classification_result'; data: UrlClassification }
+  | { type: 'service_status'; data: ServiceStatus }
+  | { type: 'user_alert'; data: Alert } // Uses refined Alert
+  | { type: 'security_alert'; data: Alert } // Uses refined Alert
+  | { type: 'http_activity'; data: HttpActivity[] } 
+  | { type: 'behavior_analysis'; data: BehaviorAnalysisData[] } // Uses refined BehaviorAnalysisData
+  | { type: 'payload_analysis'; data: PayloadAnalysisData[] } // Uses refined PayloadAnalysisData
+  | { type: 'tcp_activity'; data: TcpActivityData[] } // Uses refined TcpActivityData
+  | { type: 'udp_activity'; data: UdpActivityData[] } // Uses refined UdpActivityData
+  | { type: 'arp_activity'; data: ArpActivityData[] } // Uses refined ArpActivityData
+  | { type: 'icmp_activity'; data: IcmpActivityData[] } // Uses refined IcmpActivityData
+  | { type: 'dns_activity'; data: DnsActivityData } // Uses new DnsActivityData
+  | { type: 'database_error'; data: ErrorData }
+  | { type: 'ssh_connection'; data: SshConnection }
+  | { type: 'firewall_event'; data: FirewallActivityData } // Standardize to FirewallActivityData
+  | { type: 'detection_error'; data: ErrorData }
+  | { type: 'rules_updated'; data: { count: number } }
+  | { type: 'get_rules'; data: Rule[] }
+  | { type: 'system_stats'; data: SystemStats } // Uses refined SystemStats
+  | { type: 'system_error'; data: ErrorData }
+  | { type: 'system_status'; data: SystemStatus } 
+  | { type: 'ipv6_activity'; data: IPv6Activity } // Uses refined IPv6Activity
+  | { type: 'critical_alert'; data: Alert } // Uses refined Alert
+  | { type: 'system_telemetry'; data: SystemTelemetry } 
+  | { type: 'threat_response'; data: ThreatResponse } 
+  | { type: 'process_inspection'; data: ProcessInspection } 
+  | { type: 'connection_analysis'; data: ConnectionAnalysis } 
+  | { type: 'file_quarantined'; data: FileQuarantined } 
+  | { type: 'system_snapshot'; data: SystemSnapshot } 
+  | { type: 'packet_data'; data: PacketMetadata }; // For PacketAnalysisTable, uses refined PacketMetadata
+
+// ==================== Hook Return Type ====================
+export interface UseSocketReturn {
   timestamp: number;
   src_ip: string | null;
   dst_ip: string | null;
@@ -150,7 +407,7 @@ export type SocketEvent =
   | { type: 'service_status'; data: ServiceStatus }
   | { type: 'user_alert'; data: Alert }
   | { type: 'security_alert'; data: Alert }
-  | { type: 'http_activity'; data: HttpActivity } // Assuming array based on existing handler
+  | { type: 'http_activity'; data: HttpActivity[] } // Assuming array based on existing handler
   | { type: 'behavior_analysis'; data: BehaviorAnalysisData[] }
   | { type: 'payload_analysis'; data: PayloadAnalysisData[] }
   | { type: 'tcp_activity'; data: TcpActivityData[] }

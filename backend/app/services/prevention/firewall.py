@@ -51,16 +51,27 @@ class FirewallManager:
             )
             db.commit()
 
-            # Real-time alert
+            # Real-time alert (Task 6 refinement)
+            event_timestamp = datetime.utcnow().isoformat()
+            event_id = f"fw_{event_timestamp}_{ip}_{reason[:20].replace(' ', '_')}"
+
+            firewall_event_payload = {
+                "id": event_id,
+                "timestamp": event_timestamp,
+                "source_ip": ip,
+                "destination_ip": None,  # Not available in this context
+                "destination_port": None, # Not available in this context
+                "protocol": None,         # Not available in this context
+                "action": "Blocked",      # Standardized action
+                "reason": reason,
+                "rule_id": f"fm_{reason[:20].lower().replace(' ', '_')}", # FirewallManager rule
+                "direction": "Inbound", # Assumption for external blocks
+                "duration": duration,
+                # "os_type": self.os_type, # Optional, can be added if needed by frontend
+            }
             await self.sio.emit(
-                "firewall_event",
-                {
-                    "type": "BLOCK",
-                    "ip": ip,
-                    "reason": reason,
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "os": self.os_type,
-                },
+                "firewall_blocked", # Changed event name
+                firewall_event_payload,
             )
 
             # Schedule unblock
@@ -91,12 +102,16 @@ class FirewallManager:
             subprocess.run(cmd, check=True)
             self.blocked_ips.discard(ip)
 
+            # For unblock events, we can keep it simpler or also standardize if needed
+            # For now, focusing on the "firewall_blocked" event consistency
             await self.sio.emit(
-                "firewall_event",
+                "firewall_unblocked", # Changed event name for clarity, or could be part of firewall_event with action: "Unblocked"
                 {
-                    "type": "UNBLOCK",
-                    "ip": ip,
+                    "id": f"fw_unblock_{datetime.utcnow().timestamp()}_{ip}",
                     "timestamp": datetime.utcnow().isoformat(),
+                    "source_ip": ip,
+                    "action": "Unblocked",
+                    "reason": "Scheduled unblock"
                 },
             )
         except Exception as e:

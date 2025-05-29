@@ -1,7 +1,9 @@
 import { configureStore } from '@reduxjs/toolkit'
 
 import socketSlice  from './slices/socketSlice'
-import { dnsActivityReducer,firewallEventsReducer,
+import {
+  dnsActivityReducer,
+  firewallEventsReducer,
   threatDetectionsReducer,
   ipv6ActivityReducer,
   packetDataReducer,
@@ -9,7 +11,8 @@ import { dnsActivityReducer,firewallEventsReducer,
   securityAlertsReducer,
   phishingDetectionsReducer,
   threatResponsesReducer,
-  quarantinedFilesReducer } from './slices/realtimeDataSlice'
+  quarantinedFilesReducer,
+} from './slices/realtimeDataSlice';
 
 export const store = configureStore({
   reducer: {
@@ -29,4 +32,3 @@ export const store = configureStore({
 
 export type RootState = ReturnType<typeof store.getState>
 export type AppDispatch = typeof store.dispatch
-// This file sets up the Redux store for the application, integrating various slices for real-time data management. 

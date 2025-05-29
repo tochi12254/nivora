@@ -1,132 +1,76 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { SocketEvent } from '@/hooks/useSocket';
-import { HttpActivity } from '@/alert/types';
+// Import refined types from the single source of truth
+import { 
+    SocketEvent, // This type itself should be imported if it's canonical in useSocket.ts
+    HttpActivity,
+    Alert, // General refined Alert
+    ThreatData, // If this is distinct from Alert and still used
+    PhishingData,
+    TrainingProgress,
+    NetworkAnomaly,
+    AccessData,
+    FirewallActivityData, // Using the new consolidated type
+    UrlClassification,
+    ServiceStatus,
+    DnsActivityData, // Using the new consolidated type
+    ErrorData,
+    SshConnection,
+    Rule,
+    SystemStats,
+    SystemStatus,
+    IPv6Activity,
+    // CriticalAlert, // This is now just 'Alert' with high severity
+    SystemTelemetry,
+    ThreatResponse,
+    ProcessInspection,
+    ConnectionAnalysis,
+    FileQuarantined,
+    SystemSnapshot,
+    PacketMetadata, // Assuming this is the refined PacketMetadata for packet_data events
+    TcpActivityData, // Refined type
+    UdpActivityData, // Refined type
+    IcmpActivityData, // Refined type
+    ArpActivityData, // Refined type
+    PayloadAnalysisData, // Refined type
+    BehaviorAnalysisData // Refined type
+} from '@/hooks/usePacketSnifferSocket'; // Adjusted path assuming usePacketSnifferSocket is in hooks dir
 
-// Define all the interfaces (they're already in your useSocket.ts, but we'll include relevant ones here)
-interface ThreatData { id: string; message: string; severity: 'low' | 'medium' | 'high'; }
-interface PhishingData { url: string; confidence: number; }
-interface TrainingProgress { epoch: number; accuracy: number; loss: number; }
-interface NetworkAnomaly { type: string; packetCount: number; }
-interface AccessData { user: string; sourceIp: string; }
-interface FirewallData { rule: string; action: 'block' | 'allow'; }
-interface UrlClassification { url: string; category: string; confidence: number; }
-interface ServiceStatus { name: string; status: 'running' | 'stopped'; uptime?: number; }
-interface Alert { message: string; timestamp: string; }
-
-interface DnsQuery { domain: string; recordType: string; }
-interface ErrorData { error: string; code?: number; }
-interface SshConnection { ip: string; user?: string; }
-interface FirewallEvent { ip: string; type: 'block' | 'allow'; reason: string; }
-interface Rule { id: string; name: string; description: string; }
-interface SystemStats { cpu: number; memory: number; network: number; }
-interface SystemStatus { online: boolean; services: string[]; }
-interface IPv6Activity { source: string; destination: string; payloadSize: number; }
-interface CriticalAlert { type: string; source: string; mitigation: string; }
-interface SystemTelemetry { cpu: number; memory: number; processes: ProcessInfo[]; }
-interface ThreatResponse { action: string; target: string; success: boolean; }
-interface ProcessInspection { pid: number; name: string; suspicious: boolean; }
-interface ConnectionAnalysis { protocol: string; count: number; riskScore: number; }
-interface FileQuarantined { path: string; hash: string; reason: string; }
-interface SystemSnapshot { timestamp: string; metrics: SystemStats; }
-interface ProcessInfo { pid: number; name: string; cpu: number; memory: number; }
-interface PacketMetadata {
-  timestamp: number;
-  src_ip: string | null;
-  dst_ip: string | null;
-  protocol: number | null;
-  length: number;
-  src_port: number | null;
-  dst_port: number | null;
-  payload: string | null;
-}
-
-// Placeholder interfaces for new activity types
-interface TcpActivityData {
-  timestamp: string;
-  src_ip: string;
-  dst_ip: string;
-  src_port: number;
-  dst_port: number;
-  flags: string[]; // e.g., SYN, ACK, FIN
-  length: number;
-}
-
-interface UdpActivityData {
-  timestamp: string;
-  src_ip: string;
-  dst_ip: string;
-  src_port: number;
-  dst_port: number;
-  length: number;
-}
-
-interface IcmpActivityData {
-  timestamp: string;
-  src_ip: string;
-  dst_ip: string;
-  icmp_type: number;
-  icmp_code: number;
-}
-
-interface ArpActivityData {
-  timestamp: string;
-  sender_mac: string;
-  sender_ip: string;
-  target_mac: string;
-  target_ip: string;
-  operation: 'request' | 'reply';
-}
-
-interface PayloadAnalysisData {
-  timestamp: string;
-  src_ip: string;
-  dst_ip: string;
-  protocol: string;
-  payload_snippet: string;
-  analysis_result: string; // e.g., 'benign', 'suspicious', 'malicious'
-  signature_matched?: string;
-}
-
-interface BehaviorAnalysisData {
-  timestamp: string;
-  entity_id: string; // e.g., user_id, device_ip
-  behavior_type: string; // e.g., 'unusual_login_time', 'large_data_exfiltration'
-  score: number; // 0-100
-  details: Record<string, any>;
-}
-
+// Note: Original local definitions for FirewallData, DnsQuery, etc., are removed in favor of imported ones.
+// If some of these types in socketSlice.ts had fields not present in usePacketSnifferSocket.ts versions,
+// those fields might be lost unless the usePacketSnifferSocket.ts versions were made comprehensive.
 
 interface SocketState {
   isConnected: boolean;
   connectionError: string | null;
   // Security events
-  threats: ThreatData[];
-  firewallEvents: FirewallEvent[];
-  phishingLinks: PhishingData[];
+  threats: ThreatData[]; // Keep if ThreatData is a distinct, richer type than general Alert for 'threat_detected'
+  firewallEvents: FirewallActivityData[]; // Use consolidated type
+  phishingLinks: PhishingData[]; // Use refined PhishingData
   unauthorizedAccess: AccessData[];
-  criticalAlerts: CriticalAlert[];
-  securityAlerts: Alert[];
+  criticalAlerts: Alert[]; // Use refined Alert (critical_alert events now send refined Alert)
+  securityAlerts: Alert[]; // Use refined Alert
   fileQuarantines: FileQuarantined[];
   threatResponses: ThreatResponse[];
   
   // Network events
   networkAnomalies: NetworkAnomaly[];
-  httpActivities: HttpActivity[];
-  dnsQueries: DnsQuery[];
-  ipv6Activities: IPv6Activity[];
-  packetData: PacketMetadata[];
+  httpActivities: HttpActivity[]; // Use refined HttpActivity
+  dnsQueries: DnsActivityData[]; // Use refined DnsActivityData (holds more than just queries)
+  ipv6Activities: IPv6Activity[]; // Use refined IPv6Activity
+  packetData: PacketMetadata[]; // Use refined PacketMetadata
   connectionAnalyses: ConnectionAnalysis[];
-  tcpActivities: TcpActivityData[];
-  udpActivities: UdpActivityData[];
-  icmpActivities: IcmpActivityData[];
-  arpActivities: ArpActivityData[];
-  payloadAnalysisEvents: PayloadAnalysisData[];
-  behaviorAnalysisEvents: BehaviorAnalysisData[];
+  tcpActivities: TcpActivityData[]; // Use refined TcpActivityData
+  udpActivities: UdpActivityData[]; // Use refined UdpActivityData
+  icmpActivities: IcmpActivityData[]; // Use refined IcmpActivityData
+  arpActivities: ArpActivityData[]; // Use refined ArpActivityData
+  payloadAnalysisEvents: PayloadAnalysisData[]; // Use refined PayloadAnalysisData
+  behaviorAnalysisEvents: BehaviorAnalysisData[]; // Use refined BehaviorAnalysisData
   
   // System events
-  systemStats: SystemStats[];
+  systemStatsOld: SystemStats[]; // Keeping old one if structure was different, mark for review/removal
+  systemStats: SystemStats | null; // For the new single object SystemStats
   systemStatus: SystemStatus | null;
-  systemTelemetry: SystemTelemetry[];
+  systemTelemetry: SystemTelemetry[]; // This is an array from backend.
   systemErrors: ErrorData[];
   serviceStatuses: ServiceStatus[];
   processInspections: ProcessInspection[];
@@ -137,7 +81,7 @@ interface SocketState {
   
   // Other events
   urlClassifications: UrlClassification[];
-  firewallBlocks: FirewallData[];
+  firewallBlocks: FirewallActivityData[]; // Use consolidated type
   sshConnections: SshConnection[];
   rules: Rule[];
   systemSnapshots: SystemSnapshot[];
@@ -152,18 +96,18 @@ const initialState: SocketState = {
   isConnected: false,
   connectionError: null,
   threats: [],
-  firewallEvents: [],
+  firewallEvents: [], // Should be FirewallActivityData[]
   phishingLinks: [],
   unauthorizedAccess: [],
-  criticalAlerts: [],
-  securityAlerts: [],
+  criticalAlerts: [], // Should be Alert[]
+  securityAlerts: [], // Should be Alert[]
   fileQuarantines: [],
   threatResponses: [],
   networkAnomalies: [],
-  httpActivities: JSON.parse(localStorage.getItem('httpActivity')) ||[],
-  dnsQueries: [],
-  ipv6Activities: [],
-  packetData: [],
+  httpActivities: JSON.parse(localStorage.getItem('httpActivity')) || [], // Should be HttpActivity[]
+  dnsQueries: [], // Should be DnsActivityData[]
+  ipv6Activities: [], // Should be IPv6Activity[]
+  packetData: [], // Should be PacketMetadata[]
   connectionAnalyses: [],
   tcpActivities: [],
   udpActivities: [],
@@ -171,7 +115,8 @@ const initialState: SocketState = {
   arpActivities: [],
   payloadAnalysisEvents: [],
   behaviorAnalysisEvents: [],
-  systemStats: [],
+  systemStatsOld: [], // Initialize if keeping
+  systemStats: null, // Initialize new single object SystemStats
   systemStatus: null,
   systemTelemetry: [],
   systemErrors: [],
@@ -204,11 +149,11 @@ const socketSlice = createSlice({
       state.threats.push(action.payload);
       state.lastUpdated['threat_detected'] = new Date().toISOString();
     },
-    addFirewallEvent(state, action: PayloadAction<FirewallEvent>) {
-      state.firewallEvents.push(action.payload);
+    addFirewallEvent(state, action: PayloadAction<FirewallActivityData>) { // Use FirewallActivityData
+      state.firewallEvents.push(action.payload); // This is now FirewallActivityData[]
       state.lastUpdated['firewall_event'] = new Date().toISOString();
     },
-    addPhishingLink(state, action: PayloadAction<PhishingData>) {
+    addPhishingLink(state, action: PayloadAction<PhishingData>) { // Use refined PhishingData
       state.phishingLinks.push(action.payload);
       state.lastUpdated['phishing_link_detected'] = new Date().toISOString();
     },
@@ -216,11 +161,11 @@ const socketSlice = createSlice({
       state.unauthorizedAccess.push(action.payload);
       state.lastUpdated['unauthorized_access'] = new Date().toISOString();
     },
-    addCriticalAlert(state, action: PayloadAction<CriticalAlert>) {
+    addCriticalAlert(state, action: PayloadAction<Alert>) { // Use refined Alert
       state.criticalAlerts.push(action.payload);
       state.lastUpdated['critical_alert'] = new Date().toISOString();
     },
-    addSecurityAlert(state, action: PayloadAction<Alert>) {
+    addSecurityAlert(state, action: PayloadAction<Alert>) { // Use refined Alert
       state.securityAlerts.push(action.payload);
       state.lastUpdated['security_alert'] = new Date().toISOString();
     },
@@ -238,32 +183,33 @@ const socketSlice = createSlice({
       state.networkAnomalies.push(action.payload);
       state.lastUpdated['network_anomaly'] = new Date().toISOString();
     },
-    addHttpActivity(state, action: PayloadAction<HttpActivity>) {
-      // Only add if the payload has a 'path' attribute
-      if (!action.payload.path) return;
+    addHttpActivity(state, action: PayloadAction<HttpActivity>) { // Use refined HttpActivity
+      // Assuming HttpActivity always has an id now, and path might be optional if not applicable
+      // The old check for action.payload.path might need re-evaluation based on refined HttpActivity type
+      if (!action.payload.id) return; // Example: ensure an ID is present
     
       state.httpActivities.push(action.payload);
     
-      // Keep only the last 20 records
-      if (state.httpActivities.length > 15) {
-        state.httpActivities = state.httpActivities.slice(-15);
+      // Keep only the last X records
+      if (state.httpActivities.length > 20) { // Increased slightly
+        state.httpActivities = state.httpActivities.slice(-20);
       }
     
       state.lastUpdated['http_activity'] = new Date().toISOString();
     
-      // Store only items that have the 'path' attribute (redundant check, but safe)
-      const activitiesWithPath = state.httpActivities.filter(item => item.path);
-      localStorage.setItem('httpActivity', JSON.stringify(activitiesWithPath));
+      // Storing to localStorage might need to be reviewed based on data sensitivity/size
+      // const activitiesWithPath = state.httpActivities.filter(item => item.path); // if path is still a primary filter
+      localStorage.setItem('httpActivity', JSON.stringify(state.httpActivities));
     },       
-    addDnsQuery(state, action: PayloadAction<DnsQuery>) {
-      state.dnsQueries.push(action.payload);
+    addDnsQuery(state, action: PayloadAction<DnsActivityData>) { // Use DnsActivityData
+      state.dnsQueries.push(action.payload); // This is now DnsActivityData[]
       state.lastUpdated['dns_activity'] = new Date().toISOString();
     },
-    addIpv6Activity(state, action: PayloadAction<IPv6Activity>) {
+    addIpv6Activity(state, action: PayloadAction<IPv6Activity>) { // Use refined IPv6Activity
       state.ipv6Activities.push(action.payload);
       state.lastUpdated['ipv6_activity'] = new Date().toISOString();
     },
-    addPacketData(state, action: PayloadAction<PacketMetadata>) {
+    addPacketData(state, action: PayloadAction<PacketMetadata>) { // Use refined PacketMetadata
       state.packetData.push(action.payload);
       state.lastUpdated['packet_data'] = new Date().toISOString();
     },
@@ -297,18 +243,29 @@ const socketSlice = createSlice({
     },
     
     // System event reducers
-    addSystemStat(state, action: PayloadAction<SystemStats>) {
-      state.systemStats.push(action.payload);
-      if (state.systemStats.length > 100) state.systemStats.shift(); // Keep last 100 entries
+    // Note: systemStats was an array, but the refined SystemStats is likely a single object.
+    // The realtimeDataSlice handles systemStats and systemStatus now.
+    // These reducers in socketSlice might be deprecated or need to align with realtimeDataSlice's handling.
+    // For now, I'll update the type for addSystemStat assuming it's for the new single object type.
+    // If systemStats here is meant to be an array of historical stats, its type and name should differ from realtimeDataSlice.systemMetrics.systemStats
+    
+    // Assuming systemStatsOld is for the array of historical stats
+    addSystemStatOld(state, action: PayloadAction<SystemStats>) { // This SystemStats should be the one for array items
+      state.systemStatsOld.push(action.payload);
+      if (state.systemStatsOld.length > 100) state.systemStatsOld.shift(); 
+      // state.lastUpdated['system_stats'] = new Date().toISOString(); // This key might conflict
+    },
+    // This reducer updates the single SystemStats object, similar to realtimeDataSlice.
+    updateSystemStats(state, action: PayloadAction<SystemStats>) { // Use refined SystemStats
+      state.systemStats = action.payload;
       state.lastUpdated['system_stats'] = new Date().toISOString();
     },
-    setSystemStatus(state, action: PayloadAction<SystemStatus>) {
+    setSystemStatus(state, action: PayloadAction<SystemStatus>) { // Use refined SystemStatus
       state.systemStatus = action.payload;
       state.lastUpdated['system_status'] = new Date().toISOString();
     },
-    addSystemTelemetry(state, action: PayloadAction<SystemTelemetry[]>) {
-      state.systemTelemetry = action.payload
-      
+    addSystemTelemetry(state, action: PayloadAction<SystemTelemetry[]>) { // Assuming SystemTelemetry itself was refined with id/timestamp
+      state.systemTelemetry = action.payload; // This replaces the whole array
       state.lastUpdated['system_telemetry'] = new Date().toISOString();
     },
     addSystemError(state, action: PayloadAction<ErrorData>) {
