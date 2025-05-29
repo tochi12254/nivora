@@ -21,7 +21,7 @@ import psutil
 
 
 import hashlib
-from datetime import datetime, timedelta,timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple, Set
 from collections import defaultdict, deque
 from pathlib import Path
@@ -101,10 +101,10 @@ class ThreatIntel:
             await self.fetch_and_cache_feeds()
 
     def _is_cache_valid(self) -> bool:
-        if not os.path.exists('threat_feeds_cache.json'):
+        if not os.path.exists("threat_feeds_cache.json"):
             return False
         try:
-            with open('threat_feeds_cache.json', "r") as f:
+            with open("threat_feeds_cache.json", "r") as f:
                 cache = json.load(f)
                 timestamp = datetime.fromisoformat(cache.get("timestamp"))
                 return datetime.utcnow() - timestamp < timedelta(
@@ -118,8 +118,8 @@ class ThreatIntel:
         try:
             with open("threat_feeds_cache.json", "r") as f:
                 cache = json.load(f)
-                self.malicious_ips   = set(cache.get("malicious_ips", []))
-                self.tor_exit_nodes  = set(cache.get("tor_exit_nodes", []))
+                self.malicious_ips = set(cache.get("malicious_ips", []))
+                self.tor_exit_nodes = set(cache.get("tor_exit_nodes", []))
         except FileNotFoundError:
             # no cache yet: that's OK, we'll fill it later
             logger.info("No cache file found, will fetch feeds on background startup")
@@ -145,10 +145,10 @@ class ThreatIntel:
                 except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                     if attempt == 2:
                         logger.error(f"FireHOL fetch failed after 3 attempts: {str(e)}")
-                    await asyncio.sleep(2 ** attempt)
+                    await asyncio.sleep(2**attempt)
                 except Exception as e:
                     logger.error(f"Unexpected error fetching FireHOL: {str(e)}")
-                    await asyncio.sleep(2 ** attempt)
+                    await asyncio.sleep(2**attempt)
 
             self.malicious_ips = set(
                 ip.strip() for ip in firehol_ips if ip and not ip.startswith("#")
@@ -163,18 +163,20 @@ class ThreatIntel:
                             resp.raise_for_status()
                             text = await resp.text()
                             tor_exit_ips = [
-                                line.split()[1] 
-                                for line in text.splitlines() 
+                                line.split()[1]
+                                for line in text.splitlines()
                                 if line.startswith("ExitAddress")
                             ]
                             break
                 except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                     if attempt == 2:
-                        logger.error(f"TOR exit nodes fetch failed after 3 attempts: {str(e)}")
-                    await asyncio.sleep(2 ** attempt)
+                        logger.error(
+                            f"TOR exit nodes fetch failed after 3 attempts: {str(e)}"
+                        )
+                    await asyncio.sleep(2**attempt)
                 except Exception as e:
                     logger.error(f"Unexpected error fetching TOR exits: {str(e)}")
-                    await asyncio.sleep(2 ** attempt)
+                    await asyncio.sleep(2**attempt)
 
             self.tor_exit_nodes = set(tor_exit_ips)
 
@@ -203,7 +205,9 @@ class ThreatIntel:
                 )
 
                 if cache_time:
-                    cache_age = (datetime.now(timezone.utc) - cache_time).total_seconds()
+                    cache_age = (
+                        datetime.now(timezone.utc) - cache_time
+                    ).total_seconds()
                     logger.warning("Cache is %.2f hours old", cache_age / 3600)
                     if cache_age > 86400:  # 24 hours
                         logger.error(
@@ -229,9 +233,9 @@ class ThreatIntel:
         """Save current threat data to disk cache"""
         try:
             cache_data = {
-                'malicious_ips': list(self.malicious_ips),
-                'tor_exit_nodes': list(self.tor_exit_nodes),
-                'timestamp': datetime.now().isoformat()
+                "malicious_ips": list(self.malicious_ips),
+                "tor_exit_nodes": list(self.tor_exit_nodes),
+                "timestamp": datetime.now().isoformat(),
             }
 
             with open("threat_feeds_cache.json", "w") as f:
@@ -249,9 +253,9 @@ class ThreatIntel:
             with open("threat_feeds_cache.json", "r") as f:
                 cache_data = json.load(f)
 
-            self.malicious_ips = set(cache_data.get('malicious_ips', []))
-            self.tor_exit_nodes = set(cache_data.get('tor_exit_nodes', []))
-            self.last_cache_update = datetime.fromisoformat(cache_data['timestamp'])
+            self.malicious_ips = set(cache_data.get("malicious_ips", []))
+            self.tor_exit_nodes = set(cache_data.get("tor_exit_nodes", []))
+            self.last_cache_update = datetime.fromisoformat(cache_data["timestamp"])
             logger.info("Loaded cached threat data from %s", self.last_cache_update)
 
         except FileNotFoundError:
@@ -261,9 +265,9 @@ class ThreatIntel:
         except Exception as e:
             logger.error(f"Failed to load cache: {e}")
             # Maintain existing data if available
-            if not hasattr(self, 'malicious_ips'):
+            if not hasattr(self, "malicious_ips"):
                 self.malicious_ips = set()
-            if not hasattr(self, 'tor_exit_nodes'):
+            if not hasattr(self, "tor_exit_nodes"):
                 self.tor_exit_nodes = set()
 
     def check_ip(self, ip: str) -> Dict:
@@ -527,7 +531,8 @@ class PacketProcessor:
                 else:  # Regex pattern
                     payload_str = payload.decode("utf-8", errors="ignore")
                     match_results.append(
-                        re.search(rule["pattern"], payload_str, re.IGNORECASE) is not None
+                        re.search(rule["pattern"], payload_str, re.IGNORECASE)
+                        is not None
                     )
             except (re.error, ValueError) as e:
                 logger.error(f"Content match error: {e}")
@@ -634,7 +639,7 @@ class PacketProcessor:
                 continue
             if not self._ip_match(rule.get("source_ip"), context.src_ip, context):
                 continue
-            if not self._ip_match(rule.get("destination_ip"), context.dst_ip,context):
+            if not self._ip_match(rule.get("destination_ip"), context.dst_ip, context):
                 continue
             if not self._port_match(rule.get("source_port"), context.src_port):
                 continue
@@ -824,19 +829,38 @@ class PacketCache:
 
 class MitigationEngine:
     def __init__(
-        self, sio: socketio.AsyncServer, config: Optional[Dict[str, Any]] = None
+        self,
+        sio: socketio.AsyncServer,
+        threat_intel: ThreatIntel,
+        config: Optional[Dict[str, Any]] = None,
     ):
         self.sio = sio
+        self.threat_intel = threat_intel  # Store ThreatIntel instance
         self.config = config or {}
         self.blocked_ips = set()
         self.throttled_ips = set()
         self.quarantined_ips = set()
         self.lock = asyncio.Lock()
         self.firewall_backend = self._detect_firewall_backend()
-        self.session = aiohttp.ClientSession()
+        # Initialize aiohttp.ClientSession with a default timeout
+        default_timeout = self.config.get(
+            "default_api_timeout", 10
+        )  # Default to 10 seconds
+        self.session = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=default_timeout)
+        )
         self._init_platform_specifics()
-        
-        
+        # Ensure dashboard_config is initialized, e.g., from self.config or defaults
+        self.dashboard_config = self.config.get(
+            "dashboard_config",
+            {
+                "base_url": "http://localhost:5000",  # Example default
+                "api_key": "secret-key",  # Example default
+                "max_retries": 3,
+                "retry_delay": 2,
+            },
+        )
+
     async def mitigate(self, match: RuleMatchResult, context: PacketContext):
         """Route mitigation action to the appropriate method"""
         action = match.action.lower()
@@ -849,10 +873,13 @@ class MitigationEngine:
         elif action == "quarantine":
             await self._quarantine_ip(ip, match)
         elif action == "alert":
-            logger.info(f"ALERT only: {match.description}")
+            logger.info(f"ALERT only: {match.description} for IP {ip}")
+            # For 'alert' actions, we still want to notify the frontend and potentially SIEM
+            await self._send_mitigation_event(
+                "alert", ip, match, success=True
+            )  # success is true as it's an alert
         else:
             logger.warning(f"Unknown mitigation action: {action}")
-
 
     def _init_platform_specifics(self):
         """Initialize platform-specific configurations"""
@@ -866,28 +893,28 @@ class MitigationEngine:
         # Platform-specific command templates
         self.command_templates = {
             "linux": {
-                "block": "iptables -A INPUT -s {ip} -j DROP",
+                # block: Inserts rule at the beginning of INPUT chain for precedence.
+                "block": "iptables -I INPUT 1 -s {ip} -j DROP",
                 "unblock": "iptables -D INPUT -s {ip} -j DROP",
-                "throttle": "iptables -A INPUT -s {ip} -m limit --limit {limit}/minute -j ACCEPT",
-                "quarantine": "iptables -A INPUT -s {ip} -j DROP && "
-                "iptables -A OUTPUT -d {ip} -j DROP",
+                # throttle: Accepts packets if within limit. Depends on a subsequent general DROP rule for the IP to be effective for rate limiting.
+                # For more robust throttling, consider custom chains with hashlimit module.
+                "throttle": "iptables -I INPUT -s {ip} -m limit --limit {limit}/minute --limit-burst 10 -j ACCEPT",
+                "quarantine": "iptables -I INPUT 1 -s {ip} -j DROP && "  # Host block
+                "iptables -I OUTPUT 1 -d {ip} -j DROP",  # Host block for outbound
             },
             "windows": {
-                "block": "netsh advfirewall firewall add rule name='IPS Block {ip}' "
-                "dir=in action=block remoteip={ip}",
-                "throttle": "netsh advfirewall firewall add rule name='IPS Throttle {ip}' "
-                "dir=in action=allow remoteip={ip} "
-                "enable=yes interfacetype=any security=notrequired "
-                "rate=30/m",  # 30 packets per minute
-                "quarantine": "netsh advfirewall firewall add rule name='IPS Quarantine {ip}' "
-                "dir=in action=block remoteip={ip} && "
-                "netsh advfirewall firewall add rule name='IPS Quarantine Out {ip}' "
-                "dir=out action=block remoteip={ip}",
+                "block": "netsh advfirewall firewall add rule name='IPS Block {ip}' dir=in action=block remoteip={ip} profile=any enable=yes",
+                # throttle: Windows Firewall 'rate' parameter behavior is not a direct packet-dropping throttle.
+                # This rule allows if rate is below specified value; actual excess packet dropping is not guaranteed.
+                "throttle": "netsh advfirewall firewall add rule name='IPS Throttle {ip}' dir=in action=allow remoteip={ip} profile=any enable=yes security=notrequired remoteport=any localport=any protocol=any interfacetype=any",  # Rate parameter removed as it's unclear/unreliable.
+                "quarantine": "netsh advfirewall firewall add rule name='IPS Quarantine In {ip}' dir=in action=block remoteip={ip} profile=any enable=yes && "
+                "netsh advfirewall firewall add rule name='IPS Quarantine Out {ip}' dir=out action=block remoteip={ip} profile=any enable=yes",
             },
             "darwin": {
-                "block": "pfctl -t blocked_ips -T add {ip}",
+                "block": "pfctl -t blocked_ips -T add {ip}",  # Assumes 'blocked_ips' table is defined and used in pf.conf
+                # throttle: Limits new connection creation rate from the source IP. Does not throttle bandwidth/packet rate of existing connections.
                 "throttle": "echo 'block in quick from {ip} max-src-conn-rate {limit}/60' | pfctl -f -",
-                "quarantine": "pfctl -t quarantined_ips -T add {ip} && "
+                "quarantine": "pfctl -t quarantined_ips -T add {ip} && "  # Assumes 'quarantined_ips' tables are defined
                 "pfctl -t quarantined_ips_out -T add {ip}",
             },
         }
@@ -1158,8 +1185,8 @@ class MitigationEngine:
             if self.config.get("threat_intel_api"):
                 await self._update_threat_intel(ip, "blocked")
 
-            # 2. Notify SIEM/SOC systems
-            await self._send_to_siem(ip, match, action="block")
+            # 2. Notify SIEM/SOC systems - This is now handled by _send_mitigation_event calling _notify_frontend_and_siem
+            # await self._notify_frontend_and_siem(ip, match, action="block") # Old direct call
 
             # 3. Log to external logging system
             await self._log_to_external_systems(ip, match, "block")
@@ -1187,27 +1214,32 @@ class MitigationEngine:
         self, action: str, ip: str, match: RuleMatchResult, success: bool
     ):
         """Send mitigation event notification with rich details"""
-        event_data = {
-            "timestamp": datetime.now().isoformat(),
-            "action": action,
-            "ip": ip,
-            "rule": asdict(match),
-            "success": success,
-            "platform": self.os_type,
-            "firewall_backend": self.firewall_backend,
-            "mitigation_chain": [
-                {
-                    "method": self.firewall_backend,
-                    "success": success,
-                    "timestamp": datetime.now().isoformat(),
-                }
-            ],
-        }
+        # This method will now call the new _notify_frontend_and_siem
+        # The specific 'ips_mitigation' event might become redundant or be a summary event
+        # For now, let's call the new comprehensive notification method
+        await self._notify_frontend_and_siem(ip, match, action, success)
 
-        try:
-            await self.sio.emit("ips_mitigation", event_data)
-        except Exception as e:
-            logger.error(f"Failed to send mitigation event: {e}")
+        # Original simpler event emission (can be removed or kept for specific high-level overview)
+        # event_data = {
+        #     "timestamp": datetime.now().isoformat(),
+        #     "action": action,
+        #     "ip": ip,
+        #     "rule": asdict(match),
+        #     "success": success,
+        #     "platform": self.os_type,
+        #     "firewall_backend": self.firewall_backend,
+        #     "mitigation_chain": [
+        #         {
+        #             "method": self.firewall_backend,
+        #             "success": success,
+        #             "timestamp": datetime.now().isoformat(),
+        #         }
+        #     ],
+        # }
+        # try:
+        #     await self.sio.emit("ips_mitigation_summary", event_data) # Renamed to avoid conflict
+        # except Exception as e:
+        #     logger.error(f"Failed to send summary mitigation event: {e}")
 
     async def cleanup(self):
         """Clean up resources"""
@@ -1285,110 +1317,204 @@ class MitigationEngine:
 
     async def _update_threat_intel(self, ip: str, action: str) -> bool:
         """Update threat intelligence feeds"""
-        if not self.config.get("threat_intel_api"):
+        threat_intel_api_url = self.config.get("threat_intel_api")
+        if not threat_intel_api_url:
+            logger.debug(
+                "Threat intelligence API URL not configured. Skipping update for IP %s.",
+                ip,
+            )
             return False
+
+        api_key = self.config.get("threat_intel_api_key", "")
+        payload = {"ip": ip, "action": action, "source": "EnterpriseIPS"}
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        # Timeout for this specific call, otherwise session default is used.
+        # Explicit timeout example: timeout=aiohttp.ClientTimeout(total=self.config.get("threat_intel_api_timeout", 15)))
 
         try:
+            logger.debug(
+                f"Attempting to update threat intel for IP {ip} (action: {action}) via {threat_intel_api_url}"
+            )
             async with self.session.post(
-                self.config["threat_intel_api"],
-                json={"ip": ip, "action": action},
-                headers={
-                    "Authorization": f"Bearer {self.config.get('threat_intel_api_key', '')}"
-                },
+                threat_intel_api_url, json=payload, headers=headers
             ) as resp:
-                return resp.status == 200
+                response_text = await resp.text()
+                if resp.status == 200:
+                    logger.info(
+                        f"Successfully updated threat intelligence for IP {ip} (action: {action}). Response: {response_text}"
+                    )
+                    return True
+                else:
+                    logger.warning(
+                        f"Failed to update threat intelligence for IP {ip}. Status: {resp.status}. Response: {response_text}"
+                    )
+                    return False
+        except (
+            asyncio.TimeoutError
+        ):  # This will be caught if the session's default timeout is exceeded
+            logger.error(
+                f"Timeout updating threat intelligence for IP {ip} at {threat_intel_api_url}."
+            )
+            return False
+        except aiohttp.ClientError as e:
+            logger.error(f"Client error updating threat intelligence for IP {ip}: {e}")
+            return False
         except Exception as e:
-            logger.error(f"Threat intel update failed: {e}")
+            logger.error(
+                f"Unexpected error updating threat intelligence for IP {ip}: {e}",
+                exc_info=True,
+            )
             return False
 
-    async def _send_to_siem(self, ip: str, match: RuleMatchResult, action: str) -> bool:
-        """Send event to custom dashboard/SIEM system with retry logic"""
-        if not hasattr(self, "dashboard_config"):
-            logger.warning("Dashboard configuration not initialized")
-            return False
+    async def _notify_frontend_and_siem(
+        self, ip: str, match: RuleMatchResult, action: str, success: bool = True
+    ) -> None:
+        """
+        Notify frontend via Socket.IO and optionally send to SIEM.
+        Primary purpose is real-time frontend updates.
+        """
+        # Determine Socket.IO event name
+        event_name_map = {
+            "block": "ips_ip_blocked",
+            "throttle": "ips_ip_throttled",
+            "quarantine": "ips_ip_quarantined",
+            "alert": "ips_threat_detected",
+        }
+        event_name = event_name_map.get(action.lower(), "ips_security_event")
 
-        dashboard_url = f"{self.dashboard_config['base_url']}/api/events"
+        # Construct event payload
+        event_payload = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "action_taken": action,
+            "ip_address": ip,
+            "rule_details": {
+                "id": match.rule_id,
+                "description": match.description,
+                "severity": match.severity,
+                "category": match.category,
+                "confidence": getattr(match, "confidence", 1.0),
+                "metadata": getattr(match, "metadata", {}),
+            },
+            "geo_data": await self._get_geo_data(ip),
+            "threat_intel": self.threat_intel.check_ip(
+                ip
+            ),  # Accessing via self.threat_intel
+            "success": success,  # Include success status of the action
+            # "raw_packet_sample": "TODO: Add sanitized sample if needed", # Optional
+        }
+
+        # Emit to frontend via Socket.IO
+        try:
+            await self.sio.emit(event_name, event_payload)
+            logger.info(f"Emitted frontend event '{event_name}' for IP {ip}")
+        except Exception as e:
+            logger.error(f"Failed to emit frontend event '{event_name}': {e}")
+
+        # Retain SIEM functionality (attempt to send to dashboard)
+        # This part is largely from the original _send_to_siem method
+        if not hasattr(self, "dashboard_config") or not self.dashboard_config.get(
+            "base_url"
+        ):
+            logger.debug(
+                "Dashboard configuration not available or base_url not set, skipping SIEM submission."
+            )
+            return
+
+        dashboard_url = f"{self.dashboard_config.get('base_url', '')}/api/events"
         headers = {
-            "Authorization": f"Bearer {self.dashboard_config['api_key']}",
+            "Authorization": f"Bearer {self.dashboard_config.get('api_key', '')}",
             "Content-Type": "application/json",
             "User-Agent": "EnterpriseIPS/1.0",
         }
 
-        event_data = {
-            "timestamp": datetime.utcnow().isoformat(),
-            "event_type": "ips_mitigation",
-            "action": action,
+        # Reconstruct event_data for SIEM, can be same as frontend or different
+        siem_event_data = {
+            "timestamp": event_payload["timestamp"],
+            "event_type": "ips_security_event",  # Generic type for SIEM
+            "action": event_payload["action_taken"],
             "source": "ips_engine",
-            "ip_address": ip,
-            "rule": {
-                "id": match.rule_id,
-                "action": match.action,
-                "severity": match.severity,
-                "category": match.category,
-                "description": match.description,
-                "confidence": getattr(match, "confidence", 1.0),
-                "metadata": getattr(match, "metadata", {}),
-            },
+            "ip_address": event_payload["ip_address"],
+            "rule": event_payload["rule_details"],  # Nested rule details
             "mitigation_details": {
                 "platform": self.os_type,
                 "firewall_backend": self.firewall_backend,
-                "success": True,  # Will be updated if retries fail
-                "attempts": 0,
+                "success": success,
+                "attempts": 0,  # Initial attempt
             },
-            "geo_data": await self._get_geo_data(ip),
-            "threat_intel": self.threat_intel.check_ip(ip),
-            "related_events": [],  # Can be populated with related event IDs
+            "geo_data": event_payload["geo_data"],
+            "threat_intel": event_payload["threat_intel"],
+            "related_events": [],
         }
 
         max_retries = self.dashboard_config.get("max_retries", 3)
-        retry_delay = self.dashboard_config.get("retry_delay", 2)
-        timeout = aiohttp.ClientTimeout(total=10)
+        retry_delay = self.dashboard_config.get("retry_delay", 2)  # seconds
+        timeout = aiohttp.ClientTimeout(total=self.dashboard_config.get("timeout", 10))
 
         for attempt in range(1, max_retries + 1):
-            event_data["mitigation_details"]["attempts"] = attempt
+            siem_event_data["mitigation_details"]["attempts"] = attempt
             try:
                 async with self.session.post(
-                    dashboard_url, json=event_data, headers=headers, timeout=timeout
+                    dashboard_url,
+                    json=siem_event_data,
+                    headers=headers,
+                    timeout=timeout,
                 ) as response:
                     if response.status == 200:
                         logger.info(
-                            f"Successfully sent {action} event for {ip} to dashboard"
+                            f"Successfully sent SIEM event for {ip} (action: {action}) to dashboard"
                         )
-                        return True
+                        return  # Successfully sent to SIEM
 
-                    # Handle specific HTTP errors
                     if response.status == 401:
-                        logger.error("Dashboard API authentication failed")
-                        return False
+                        logger.error(
+                            "SIEM Dashboard API authentication failed. Check API key."
+                        )
+                        return  # Auth error, don't retry
                     elif response.status == 429:
-                        retry_after = int(
-                            response.headers.get("Retry-After", retry_delay)
+                        custom_retry_after = response.headers.get("Retry-After")
+                        wait_time = (
+                            int(custom_retry_after)
+                            if custom_retry_after
+                            else (retry_delay * attempt)
                         )
                         logger.warning(
-                            f"Rate limited, retrying after {retry_after} seconds"
+                            f"SIEM rate limited (HTTP 429). Retrying after {wait_time}s. Attempt {attempt}/{max_retries}."
                         )
-                        await asyncio.sleep(retry_after)
+                        await asyncio.sleep(wait_time)
                         continue
-
-                    logger.warning(
-                        f"Dashboard API returned {response.status}, attempt {attempt}/{max_retries}"
-                    )
-                    await asyncio.sleep(retry_delay * attempt)
+                    else:
+                        logger.warning(
+                            f"SIEM dashboard API returned {response.status} for {ip}. Attempt {attempt}/{max_retries}. Error: {await response.text()}"
+                        )
+                        await asyncio.sleep(retry_delay * attempt)
 
             except asyncio.TimeoutError:
-                logger.warning(f"Dashboard timeout, attempt {attempt}/{max_retries}")
+                logger.warning(
+                    f"SIEM dashboard timeout for {ip}. Attempt {attempt}/{max_retries}"
+                )
                 await asyncio.sleep(retry_delay * attempt)
-            except aiohttp.ClientError as e:
-                logger.error(f"Dashboard connection error: {str(e)}")
+            except aiohttp.ClientConnectionError as e:  # More specific network errors
+                logger.warning(
+                    f"SIEM dashboard connection error for {ip}: {e}. Attempt {attempt}/{max_retries}"
+                )
                 await asyncio.sleep(retry_delay * attempt)
-            except Exception as e:
-                logger.error(f"Unexpected error sending to dashboard: {str(e)}")
+            except Exception as e:  # Catch other unexpected errors
+                logger.error(
+                    f"Unexpected error sending to SIEM dashboard for {ip}: {e}. Attempt {attempt}/{max_retries}"
+                )
                 await asyncio.sleep(retry_delay * attempt)
 
-        # If we get here, all retries failed
-        event_data["mitigation_details"]["success"] = False
-        await self._store_failed_event(event_data)
-        return False
+        # If all retries fail
+        logger.error(
+            f"Failed to send SIEM event for {ip} (action: {action}) to dashboard after {max_retries} attempts."
+        )
+        siem_event_data["mitigation_details"][
+            "success"
+        ] = False  # Mark as failed for SIEM
+        await self._store_failed_event(siem_event_data)  # Store for later retry
 
     async def _get_geo_data(self, ip: str) -> dict:
         """Get geolocation data for IP (with local cache)"""
@@ -1403,23 +1529,57 @@ class MitigationEngine:
 
         try:
             # Use your preferred GeoIP service (MaxMind, IPAPI, etc.)
-            geo_url = f"{self.geoip_config['service_url']}/{ip}"
-            params = {
-                "api_key": self.geoip_config.get("api_key", ""),
-                "fields": "country,region,city,latitude,longitude,asn",
-            }
+            # Example: geo_url = f"https://ipapi.co/{ip}/json/" or from config
+            geo_url_template = self.config.get("geoip_service_url_template")
+            if not geo_url_template:
+                logger.debug("GeoIP service URL template not configured.")
+                return {}
+
+            geo_url = geo_url_template.format(ip=ip)
+            params = self.config.get("geoip_service_params", {})
+            # Example params: {"key": "YOUR_API_KEY"} if needed by the service
+
+        except KeyError as e:  # If service_url_template is missing in geoip_config
+            logger.error(f"GeoIP configuration missing key: {e}")
+            return {}
+        except Exception as e:  # Catch other unexpected errors during config access
+            logger.error(f"Error accessing GeoIP configuration: {e}", exc_info=True)
+            return {}
+
+        try:
+            # Using session's default timeout unless overridden here
+            async with self.session.get(geo_url, params=params) as response:
+                if response.status == 200:
+                    try:
+                        data = await response.json()
+                        self._geo_cache[ip] = data
+                        return data
+                    except aiohttp.ContentTypeError:  # Non-JSON response
+                        logger.error(
+                            f"GeoIP service returned non-JSON response for {ip}. Status: {response.status}. Response: {await response.text()[:200]}"
+                        )
+                        return {}
+                    except Exception as e:  # Includes json.JSONDecodeError
+                        logger.error(
+                            f"GeoIP JSON parsing failed for {ip}: {e}. Response: {await response.text()[:200]}",
+                            exc_info=True,
+                        )
+                        return {}
+                else:
+                    logger.warning(
+                        f"GeoIP lookup for {ip} failed with status {response.status}. Response: {await response.text()[:200]}"
+                    )
+                    return {}
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout during GeoIP lookup for {ip} at {geo_url}.")
+            return {}
+        except aiohttp.ClientError as e:
+            logger.error(f"Client error during GeoIP lookup for {ip}: {e}")
+            return {}
         except Exception as e:
-            logger.error("Error querying geo URL")
-
-        async with self.session.get(geo_url, params=params) as response:
-            if response.status == 200:
-                try:
-                    data = await response.json()
-                    self._geo_cache[ip] = data
-                    return data
-                except Exception as e:
-                    logger.error(f"GeoIP lookup failed: {str(e)}")
-
+            logger.error(
+                f"Unexpected error during GeoIP lookup for {ip}: {e}", exc_info=True
+            )
             return {}
 
     async def _store_failed_event(self, event_data: dict):
@@ -1491,166 +1651,281 @@ class MitigationEngine:
 
         Returns True if any isolation method succeeds.
         """
-        isolation_methods = [
-            self._isolate_via_network_controller,
-            self._isolate_via_nac,
-            self._isolate_via_local_firewall,
-            self._isolate_via_dns,
-        ]
+        logger.info(f"Attempting to isolate internal IP: {ip}")
+        isolation_methods = {
+            "Network Controller": self._isolate_via_network_controller,
+            "NAC": self._isolate_via_nac,
+            "Local Firewall": self._isolate_via_local_firewall,
+            "DNS Sinkhole": self._isolate_via_dns,
+        }
 
-        # Try each method until one succeeds
-        for method in isolation_methods:
+        for method_name, method_func in isolation_methods.items():
             try:
-                if await method(ip):
-                    logger.info(f"Successfully isolated {ip} using {method.__name__}")
+                if await method_func(ip):
+                    logger.info(f"Successfully isolated IP {ip} using {method_name}.")
                     return True
+                # Failure of a single method is logged within the method itself
             except Exception as e:
-                logger.warning(f"Isolation method {method.__name__} failed: {str(e)}")
-                continue
+                logger.error(
+                    f"Exception during isolation method {method_name} for IP {ip}: {e}",
+                    exc_info=True,
+                )
 
-        logger.error(f"Failed to isolate {ip} using all available methods")
+        logger.warning(f"Failed to isolate IP {ip} using all available methods.")
         return False
 
     async def _isolate_via_network_controller(self, ip: str) -> bool:
         """Isolate by moving device to quarantine VLAN using network controller API"""
-        if not self.config.get("network_controller_api"):
+        network_controller_api = self.config.get("network_controller_api")
+        if not network_controller_api:
+            logger.debug(
+                "Network controller API not configured. Skipping isolation via network controller."
+            )
             return False
 
-        endpoints = {
-            "cisco_ise": "/api/v1/network-device/isolation",
-            "aruba_clearpass": "/api/quarantine",
-            "fortinet_fortigate": "/api/v2/monitor/user/quarantine/",
+        endpoints = {  # These are examples, actual endpoints will vary
+            "cisco_ise": "/api/v1/network-device/isolation",  # Fictional
+            "aruba_clearpass": "/api/quarantine",  # Fictional
+            "fortinet_fortigate": "/api/v2/monitor/user/quarantine/",  # Fictional
         }
+        controller_type = self.config.get(
+            "network_controller_type", "cisco_ise"
+        )  # Example default
+        endpoint = endpoints.get(controller_type)
+
+        if not endpoint:
+            logger.warning(
+                f"Unsupported network controller type for isolation: {controller_type}"
+            )
+            return False
 
         payload = {
             "ip_address": ip,
             "duration": "86400",  # 24 hours
             "reason": "IPS Automated Quarantine",
-            "quarantine_profile": "strict",
+            "quarantine_profile": "strict_isolation",  # Example profile
         }
-
         headers = {
             "Authorization": f"Bearer {self.config.get('network_controller_key')}",
             "Content-Type": "application/json",
         }
+        url = f"{network_controller_api}{endpoint}"
 
-        # Try all supported controller types
-        for vendor, endpoint in endpoints.items():
-            try:
-                url = f"{self.config['network_controller_api']}{endpoint}"
-                async with self.session.post(
-                    url, json=payload, headers=headers
-                ) as resp:
-                    if resp.status in (200, 201):
-                        logger.info(f"Isolated {ip} via {vendor} controller")
-                        return True
-            except Exception as e:
-                logger.debug(f"{vendor} controller isolation failed: {str(e)}")
-                continue
-
-        return False
+        try:
+            # Using session's default timeout unless overridden here explicitly
+            async with self.session.post(url, json=payload, headers=headers) as resp:
+                response_text = await resp.text()
+                if resp.status in (200, 201, 202):  # Accepted or OK
+                    logger.info(
+                        f"Successfully isolated IP {ip} via network controller {controller_type} (URL: {url}). Status: {resp.status}"
+                    )
+                    return True
+                else:
+                    logger.warning(
+                        f"Failed to isolate IP {ip} via network controller {controller_type} (URL: {url}). Status: {resp.status}. Response: {response_text}"
+                    )
+                    return False
+        except asyncio.TimeoutError:
+            logger.error(
+                f"Timeout isolating IP {ip} via network controller {controller_type} at {url}."
+            )
+            return False
+        except aiohttp.ClientError as e:
+            logger.error(
+                f"Client error isolating IP {ip} via network controller {controller_type}: {e}"
+            )
+            return False
+        except Exception as e:
+            logger.error(
+                f"Unexpected error isolating IP {ip} via network controller: {e}",
+                exc_info=True,
+            )
+            return False
 
     async def _isolate_via_nac(self, ip: str) -> bool:
         """Isolate using Network Access Control system"""
-        if not self.config.get("nac_api"):
+        nac_api_url = self.config.get("nac_api")
+        if not nac_api_url:
+            logger.debug("NAC API URL not configured. Skipping isolation via NAC.")
             return False
 
-        # Standard API formats for common NAC systems
-        nac_payloads = {
-            "default": {
-                "ip_address": ip,
-                "action": "quarantine",
-                "duration": "24h",
-                "comment": "IPS Automated Isolation",
-            },
-            "cisco_ise": {
-                "Operation": "QUARANTINE",
-                "MACAddress": await self._get_mac_from_ip(ip),
-                "PolicyName": "IPS-Quarantine",
-            },
+        nac_type = self.config.get(
+            "nac_type", "default"
+        )  # e.g. 'cisco_ise', 'aruba_clearpass'
+        mac_address = await self._get_mac_from_ip(ip)
+        if (
+            not mac_address and nac_type != "default_ip_based"
+        ):  # Some NACs might need MAC
+            logger.warning(
+                f"MAC address for IP {ip} not found, which might be required for NAC type {nac_type}."
+            )
+
+        payload = {
+            "ip_address": ip,
+            "mac_address": mac_address,
+            "action": "quarantine",
+            "duration": "24h",  # Standard duration
+            "reason": "IPS Automated Isolation",
+            "policy_name": self.config.get(
+                "nac_quarantine_policy", "IPS_Default_Quarantine"
+            ),
+        }
+        headers = {
+            "Authorization": f"Bearer {self.config.get('nac_api_key')}",
+            "Content-Type": "application/json",
         }
 
         try:
+            # Using session's default timeout
             async with self.session.post(
-                self.config["nac_api"],
-                json=nac_payloads.get(self.config.get("nac_type", "default")),
-                headers={"Authorization": f"Bearer {self.config.get('nac_api_key')}"},
+                nac_api_url, json=payload, headers=headers
             ) as resp:
-                return resp.status in (200, 201, 204)
+                response_text = await resp.text()
+                if resp.status in (
+                    200,
+                    201,
+                    202,
+                    204,
+                ):  # OK, Created, Accepted, No Content
+                    logger.info(
+                        f"Successfully isolated/quarantined IP {ip} via NAC ({nac_api_url}). Status: {resp.status}"
+                    )
+                    return True
+                else:
+                    logger.warning(
+                        f"Failed to isolate IP {ip} via NAC ({nac_api_url}). Status: {resp.status}. Response: {response_text}"
+                    )
+                    return False
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout isolating IP {ip} via NAC at {nac_api_url}.")
+            return False
+        except aiohttp.ClientError as e:
+            logger.error(f"Client error isolating IP {ip} via NAC: {e}")
+            return False
         except Exception as e:
-            logger.warning(f"NAC isolation failed: {str(e)}")
+            logger.error(
+                f"Unexpected error isolating IP {ip} via NAC: {e}", exc_info=True
+            )
             return False
 
     async def _isolate_via_local_firewall(self, ip: str) -> bool:
-        """Create local firewall rules to block internal communication"""
-        commands = {
-            "linux": [
-                f"iptables -A FORWARD -s {ip} -d 10.0.0.0/8 -j DROP",
-                f"iptables -A FORWARD -d {ip} -s 10.0.0.0/8 -j DROP",
-                f"iptables -A FORWARD -s {ip} -d 172.16.0.0/12 -j DROP",
-                f"iptables -A FORWARD -d {ip} -s 172.16.0.0/12 -j DROP",
-                f"iptables -A FORWARD -s {ip} -d 192.168.0.0/16 -j DROP",
-                f"iptables -A FORWARD -d {ip} -s 192.168.0.0/16 -j DROP",
-            ],
-            "windows": [
-                f"netsh advfirewall firewall add rule name='IPS Internal Block {ip} In' "
-                f"dir=in action=block remoteip={ip} localip=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16",
-                f"netsh advfirewall firewall add rule name='IPS Internal Block {ip} Out' "
-                f"dir=out action=block remoteip=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16 localip={ip}",
-            ],
-        }
+        """Create local firewall rules to block internal communication for a given IP."""
+        current_os = platform.system().lower()
+        logger.info(f"Attempting local firewall isolation for IP {ip} on {current_os}.")
 
-        success = False
-        for cmd in commands.get(platform.system().lower(), []):
-            if await self._execute_command(cmd):
-                success = True
-
-        return success
-
-    async def _isolate_via_dns(self, ip: str) -> bool:
-        """Isolate by redirecting internal DNS queries to sinkhole"""
-        if not self.config.get("dns_controller_api"):
+        commands = []
+        if current_os == "linux":
+            # For machine acting as gateway/firewall (FORWARD chain)
+            commands.extend(
+                [
+                    f"iptables -I FORWARD 1 -s {ip} -d 10.0.0.0/8 -j DROP",
+                    f"iptables -I FORWARD 1 -d {ip} -s 10.0.0.0/8 -j DROP",
+                    f"iptables -I FORWARD 1 -s {ip} -d 172.16.0.0/12 -j DROP",
+                    f"iptables -I FORWARD 1 -d {ip} -s 172.16.0.0/12 -j DROP",
+                    f"iptables -I FORWARD 1 -s {ip} -d 192.168.0.0/16 -j DROP",
+                    f"iptables -I FORWARD 1 -d {ip} -s 192.168.0.0/16 -j DROP",
+                ]
+            )
+            # For protecting the machine itself (INPUT/OUTPUT chains)
+            commands.extend(
+                [
+                    f"iptables -I INPUT 1 -s {ip} -j DROP",
+                    f"iptables -I OUTPUT 1 -d {ip} -j DROP",
+                ]
+            )
+        elif current_os == "windows":
+            # Rules for traffic passing through (less common for typical host IPS)
+            commands.extend(
+                [
+                    f"netsh advfirewall firewall add rule name='IPS Internal Isolate In {ip}' dir=in action=block remoteip={ip} localip=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16 profile=any enable=yes",
+                    f"netsh advfirewall firewall add rule name='IPS Internal Isolate Out {ip}' dir=out action=block localip={ip} remoteip=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16 profile=any enable=yes",
+                ]
+            )
+            # Rules for protecting the machine itself
+            commands.extend(
+                [
+                    f"netsh advfirewall firewall add rule name='IPS Host Isolate In {ip}' dir=in action=block remoteip={ip} profile=any enable=yes",
+                    f"netsh advfirewall firewall add rule name='IPS Host Isolate Out {ip}' dir=out action=block remoteip={ip} profile=any enable=yes",  # Corrected: remoteip={ip} for outgoing to the quarantined IP
+                ]
+            )
+        else:
+            logger.warning(
+                f"Local firewall isolation not supported on OS: {current_os} for IP {ip}."
+            )
             return False
 
-        # Common DNS sinkhole techniques
-        methods = [
-            {
-                "method": "override",
-                "domain": "*",
-                "record": "A",
-                "value": self.config.get("sinkhole_ip", "127.0.0.1"),
-            },
-            {"method": "nxdomain", "domain": "*", "record": "A"},
-            {"method": "block", "client_ip": ip},
-        ]
+        all_succeeded = True
+        for cmd in commands:
+            logger.debug(f"Executing firewall command for IP {ip}: {cmd}")
+            if not await self._execute_command(cmd):
+                all_succeeded = False
+                logger.warning(f"Firewall command failed for IP {ip}: {cmd}")
+                # Depending on policy, might stop or continue; current logic: try all, succeed if all pass
 
+        if all_succeeded:
+            logger.info(
+                f"Successfully applied all local firewall isolation rules for IP {ip}."
+            )
+        else:
+            logger.warning(
+                f"One or more local firewall isolation rules failed for IP {ip}."
+            )
+        return all_succeeded
+
+    async def _isolate_via_dns(self, ip: str) -> bool:
+        """Isolate by redirecting internal DNS queries from this IP to a sinkhole, or blocking its DNS."""
+        dns_controller_api = self.config.get("dns_controller_api")
+        if not dns_controller_api:
+            logger.debug("DNS Controller API not configured. Skipping DNS isolation.")
+            return False
+
+        dns_policy_name = f"IPS_Isolation_{ip.replace('.', '_')}"
+        sinkhole_ip = self.config.get("dns_sinkhole_ip", "0.0.0.0")
+
+        payload = {
+            "policy_name": dns_policy_name,
+            "client_ip_address": ip,
+            "action": "redirect",
+            "redirect_to_ip": sinkhole_ip,
+            "domains": ["*"],
+            "enabled": True,
+            "reason": f"IPS Automated DNS Isolation for IP {ip}",
+        }
         headers = {
             "Authorization": f"Bearer {self.config.get('dns_controller_key')}",
             "Content-Type": "application/json",
         }
+        url = f"{dns_controller_api}/api/v1/client_policies"
 
-        for method in methods:
-            try:
-                async with self.session.post(
-                    f"{self.config['dns_controller_api']}/api/v1/policies",
-                    json={
-                        "name": f"IPS Isolation {ip}",
-                        "client_ip": ip,
-                        "action": method,
-                        "ttl": 300,
-                        "enabled": True,
-                    },
-                    headers=headers,
-                ) as resp:
-                    if resp.status == 201:
-                        return True
-            except Exception:
-                continue
-
-        return False
+        try:
+            # Using session's default timeout
+            async with self.session.post(url, json=payload, headers=headers) as resp:
+                response_text = await resp.text()
+                if resp.status in (200, 201, 202):
+                    logger.info(
+                        f"Successfully applied DNS isolation for IP {ip} via {url}. Policy: {dns_policy_name}. Status: {resp.status}"
+                    )
+                    return True
+                else:
+                    logger.warning(
+                        f"Failed to apply DNS isolation for IP {ip} via {url}. Status: {resp.status}. Response: {response_text}"
+                    )
+                    return False
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout applying DNS isolation for IP {ip} at {url}.")
+            return False
+        except aiohttp.ClientError as e:
+            logger.error(f"Client error applying DNS isolation for IP {ip}: {e}")
+            return False
+        except Exception as e:
+            logger.error(
+                f"Unexpected error applying DNS isolation for IP {ip}: {e}",
+                exc_info=True,
+            )
+            return False
 
     async def _get_mac_from_ip(self, ip: str) -> Optional[str]:
-        """Attempt to resolve MAC address from IP (works on local network)"""
+        """Attempt to resolve MAC address from IP (works on local network)."""
         try:
             if platform.system().lower() == "linux":
                 proc = await asyncio.create_subprocess_exec(
@@ -1660,9 +1935,26 @@ class MitigationEngine:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                stdout, _ = await proc.communicate()
+                stdout, stderr = await proc.communicate()
                 if proc.returncode == 0:
-                    return stdout.decode().split()[2]  # MAC is typically 3rd field
+                    output = stdout.decode().strip()
+                    # Example output: "ip_address (ip_address) at mac_address [ether] on eth0"
+                    # Or: "? (ip_address) at <incomplete> on eth0"
+                    match_result = re.search(
+                        r"([0-9a-fA-F]{2}[:-]){5}([0-9a-fA-F]{2})", output
+                    )
+                    if match_result:
+                        mac = match_result.group(0).lower()
+                        logger.debug(f"Resolved MAC for {ip} (Linux): {mac}")
+                        return mac
+                    else:
+                        logger.debug(
+                            f"Could not parse MAC from 'arp -n {ip}' output: {output}"
+                        )
+                else:
+                    logger.debug(
+                        f"'arp -n {ip}' failed with code {proc.returncode}. Error: {stderr.decode().strip()}"
+                    )
 
             elif platform.system().lower() == "windows":
                 proc = await asyncio.create_subprocess_exec(
@@ -1672,16 +1964,120 @@ class MitigationEngine:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                stdout, _ = await proc.communicate()
+                stdout, stderr = await proc.communicate()
                 if proc.returncode == 0:
-                    # Windows ARP output format is different
-                    for line in stdout.decode().splitlines():
-                        if ip in line:
-                            return line.split()[1].replace("-", ":")
+                    output = stdout.decode()
+                    # Example output for Windows:
+                    # Interface: 192.168.1.100 --- 0xb
+                    #   Internet Address      Physical Address      Type
+                    #   192.168.1.1           00-11-22-33-44-55     dynamic
+                    #   192.168.1.2           aa-bb-cc-dd-ee-ff     static
+                    for line in output.splitlines():
+                        # Use regex to find IP and MAC in a line
+                        match_result = re.search(
+                            r"^\s*("
+                            + re.escape(ip)
+                            + r")\s+(([0-9a-fA-F]{2}-){5}[0-9a-fA-F]{2})\s+",
+                            line,
+                            re.IGNORECASE,
+                        )
+                        if match_result:
+                            mac = match_result.group(2).replace("-", ":").lower()
+                            logger.debug(f"Resolved MAC for {ip} (Windows): {mac}")
+                            return mac
+                    logger.debug(f"MAC for {ip} not found in 'arp -a {ip}' output.")
+                else:
+                    logger.debug(
+                        f"'arp -a {ip}' failed with code {proc.returncode}. Error: {stderr.decode().strip()}"
+                    )
+
+            # TODO: Add macOS support: `arp -n {ip}` and parse output similar to Linux
+            # Example: "? (ip_address) at mac_address on en0 ifscope [ethernet]"
+
+        except FileNotFoundError:
+            logger.warning("'arp' command not found. Cannot resolve MAC address.")
         except Exception as e:
-            logger.debug(f"MAC resolution failed: {str(e)}")
+            logger.error(f"MAC resolution for {ip} failed: {e}", exc_info=True)
 
         return None
+
+    # Methods from the previous diff that need to be implemented/kept:
+    # _collect_forensic_data, _notify_incident_response
+    # These are not present in the current file from read_files, so they need to be added.
+    # I will add them as they were in my previous (failed) diff, as their logic is independent of these other changes.
+
+    async def _collect_forensic_data(self, ip: str) -> bool:
+        """
+        Triggers forensic data collection for a given IP.
+        Initial implementation logs and emits a socket.io event.
+        """
+        timestamp_iso = datetime.utcnow().isoformat()
+        log_message = (
+            f"Forensic data collection triggered for IP: {ip} at {timestamp_iso}."
+        )
+        logger.info(log_message)
+
+        event_payload = {
+            "ip_address": ip,
+            "timestamp": timestamp_iso,
+            "message": "Forensic data collection initiated for this IP.",
+        }
+
+        try:
+            await self.sio.emit("ips_forensic_trigger", event_payload)
+            logger.debug(f"Socket.IO event 'ips_forensic_trigger' emitted for IP: {ip}")
+            return True
+        except Exception as e:
+            logger.error(
+                f"Error emitting 'ips_forensic_trigger' for IP {ip}: {e}", exc_info=True
+            )
+            return False
+
+    async def _notify_incident_response(self, ip: str, match: RuleMatchResult) -> bool:
+        """
+        Notifies the incident response team about an event.
+        Initial implementation logs and emits a socket.io event.
+        """
+        timestamp_iso = datetime.utcnow().isoformat()
+        log_message = (
+            f"Incident response notification for IP: {ip} at {timestamp_iso} "
+            f"due to Rule ID: {match.rule_id} ({match.description}). Severity: {match.severity}."
+        )
+        logger.info(log_message)
+
+        event_payload = {
+            "ip_address": ip,
+            "timestamp": timestamp_iso,
+            "rule_id": match.rule_id,
+            "description": match.description,
+            "severity": match.severity,
+            "category": match.category,
+            "metadata": match.metadata,
+            "message": "Incident response team potentially notified of this event.",  # Message adjusted
+        }
+
+        try:
+            await self.sio.emit("ips_incident_notification", event_payload)
+            logger.debug(
+                f"Socket.IO event 'ips_incident_notification' emitted for IP: {ip}, Rule: {match.rule_id}"
+            )
+            return True
+        except Exception as e:
+            logger.error(
+                f"Error emitting 'ips_incident_notification' for IP {ip}: {e}",
+                exc_info=True,
+            )
+            return False
+
+    async def _log_to_external_systems(
+        self, ip: str, match: RuleMatchResult, action: str
+    ) -> None:
+        """Placeholder for logging to external systems like ELK, Splunk."""
+        logger.info(
+            f"Placeholder: Logging event to external system for IP {ip}, action {action}, rule {match.rule_id}"
+        )
+        # Example: self.external_logger.log({...details...})
+        pass
 
 
 class IPSWorker(multiprocessing.Process):
@@ -1691,7 +2087,7 @@ class IPSWorker(multiprocessing.Process):
         output_queue: multiprocessing.Queue,
         rule_file: str,
         worker_id: int,
-        threat_intel: ThreatIntel
+        threat_intel: ThreatIntel,
     ):
         super().__init__()
         self.input_queue = input_queue
@@ -1725,10 +2121,18 @@ class IPSWorker(multiprocessing.Process):
 
                 # Send results to output queue
                 if matches:
-                    self.output_queue.put((packet, matches))
-                    logger.info(
-                        f"[Worker-{self.worker_id}] ➤ Sending {len(matches)} matches to output_queue"
-                    )
+                    try:
+                        self.output_queue.put(
+                            (packet, matches), timeout=1.0
+                        )  # Added timeout
+                        logger.debug(  # Changed to debug to reduce noise for successful puts
+                            f"[Worker-{self.worker_id}] Sent {len(matches)} matches to output_queue for packet from {packet[IP].src}"
+                        )
+                    except Full:
+                        logger.warning(
+                            f"[Worker-{self.worker_id}] Output queue full. Dropping {len(matches)} matches for packet from {packet[IP].src}."
+                        )
+                        # Potentially increment a counter for dropped output items
 
                 # Periodically reload rules
                 if self.processed_count % 1000 == 0:
@@ -1740,6 +2144,7 @@ class IPSWorker(multiprocessing.Process):
                 continue  # Silently skip — normal behavior
             except Exception as e:
                 import traceback
+
                 logger.error(f"Worker {self.worker_id} error: {e}")
                 logger.error(traceback.format_exc())
 
@@ -1867,14 +2272,25 @@ class EnterpriseIPS:
         self.workers = []
         self.stats_collector = StatsCollector()
         self.memory_monitor = MemoryMonitor()
-        self.mitigation_engine = MitigationEngine(sio, config={
+        self.mitigation_engine = MitigationEngine(
+            sio=sio,
+            threat_intel=self.threat_intel,  # Pass ThreatIntel instance
+            config={
                 "firewall_api": "http://127.0.0.1:8000/firewall",
                 "firewall_api_key": "any-key",
                 "threat_intel_api": "http://127.0.0.1:8000/intel/update",
                 "nac_api": "http://local127.0.0.1/nac/quarantine",
                 "dns_controller_api": "http://127.0.0.1:8000/dns",
-                "dns_controller_key": "test-key"
-            })
+                "dns_controller_key": "test-key",
+                "dashboard_config": {  # Pass dashboard config to MitigationEngine
+                    "base_url": "http://localhost:8081",  # Example: Your SIEM/Dashboard URL
+                    "api_key": "your_dashboard_api_key",
+                    "max_retries": 3,
+                    "retry_delay": 5,  # seconds
+                    "timeout": 10,  # seconds for request timeout
+                },
+            },
+        )
         self.shutdown_flag = asyncio.Event()
         self.background_tasks = set()
 

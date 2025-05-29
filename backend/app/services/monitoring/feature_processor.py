@@ -403,7 +403,7 @@ class AdvancedFeatureExtractor:
         f["PSH Flag Count"] = total_psh_flags
         f["ACK Flag Count"] = st.tcp_flags_counts.get("ACK", 0)
         f["URG Flag Count"] = total_urg_flags
-        f["CWR Flag Count"] = st.cwe_flag_count
+        f["CWE Flag Count"] = st.cwe_flag_count
         f["ECE Flag Count"] = st.ece_flag_count
 
         # --- Ratios and Segment Sizes ---
@@ -669,7 +669,7 @@ class AdvancedFeatureExtractor:
                 "ACK": 0x10,
                 "URG": 0x20,
                 "ECE": 0x40,
-                "CWR": 0x80,
+                "CWE": 0x80,
             }
             for name, bit in flags.items():
                 if tcp.flags & bit:
@@ -837,7 +837,7 @@ class AdvancedFeatureExtractor:
                         "ACK": 0x10,
                         "URG": 0x20,
                         "ECE": 0x40,
-                        "CWR": 0x80,
+                        "CWE": 0x80,
                     }
                     for name, bit in flags.items():
                         if tcp.flags & bit:
@@ -1379,7 +1379,7 @@ class AdvancedFeatureExtractor:
                 flow_stats.cwe_flag_count += 1
 
             # Count individual flags
-            flag_names = ["FIN", "SYN", "RST", "PSH", "ACK", "URG", "ECE", "CWR"]
+            flag_names = ["FIN", "SYN", "RST", "PSH", "ACK", "URG", "ECE", "CWE"]
             for i, flag_name in enumerate(flag_names):
                 if flags & (1 << i):
                     flow_stats.tcp_flags_counts[flag_name] += 1
@@ -1682,7 +1682,7 @@ class AdvancedFeatureExtractor:
                 "PSH_Flag_Count": flow_stats.tcp_flags_counts.get("PSH", 0),
                 "ACK_Flag_Count": flow_stats.tcp_flags_counts.get("ACK", 0),
                 "URG_Flag_Count": flow_stats.tcp_flags_counts.get("URG", 0),
-                "CWR_Flag_Count": flow_stats.cwe_flag_count,
+                "CWE_Flag_Count": flow_stats.cwe_flag_count,
                 "ECE_Flag_Count": flow_stats.tcp_flags_counts.get("ECE", 0),
             }
         )
@@ -2054,7 +2054,7 @@ class AdvancedFeatureExtractor:
             "PSH_Flag_Count",
             "ACK_Flag_Count",
             "URG_Flag_Count",
-            "CWR_Flag_Count",
+            "CWE_Flag_Count",
             "Fwd_Packet_Length_25th",
             "Fwd_Packet_Length_50th",
             "Fwd_Packet_Length_75th",
@@ -2486,7 +2486,7 @@ class EnhancedPacketProcessor:
             "PSH Flag Count",
             "ACK Flag Count",
             "URG Flag Count",
-            "CWR Flag Count",
+            "CWE Flag Count",
             "ECE Flag Count",
             "Down/Up Ratio",
             "Average Packet Size",
@@ -2687,7 +2687,7 @@ class EnhancedPacketProcessor:
             "PSH_Flag_Count",
             "ACK_Flag_Count",
             "URG_Flag_Count",
-            "CWR_Flag_Count",
+            "CWE_Flag_Count",
             "ECE_Flag_Count",
             "Fwd_Header_Length",
             "Bwd_Header_Length",
