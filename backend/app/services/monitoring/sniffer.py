@@ -2662,7 +2662,7 @@ class PacketSniffer:
         else:
             self._async_sniffer = AsyncSniffer(
                 iface=interface,
-                filter="not (dst net 127.0.0.1 or multicast or ip6)",
+                filter="not (dst net 127.0.0.1 or multicast)", # Allow IPv6 packets
                 prn=self._packet_handler,
                 store=False,
                 promisc=True
