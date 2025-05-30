@@ -12,7 +12,7 @@ import socketio
 from ..database import get_db
 from ..schemas.network import NetworkEvent, NetworkStats
 from ..models.network import NetworkEvent as DBEvent
-from ..services.monitoring.packet import PacketSniffer
+from ..services.monitoring.sniffer import PacketSniffer
 from ..core.security import get_current_active_user
 import logging
 

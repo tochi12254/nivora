@@ -34,6 +34,7 @@ const MessageList: React.FC<MessageListProps> = ({
       <ScrollArea 
         className="flex-1 p-4 space-y-4 h-full" 
         onScroll={onScroll}
+    aria-live="polite" // Added for screen readers
       >
         <div 
           ref={scrollAreaRef} 
@@ -58,6 +59,7 @@ const MessageList: React.FC<MessageListProps> = ({
         <Button
           className="absolute bottom-4 right-6 rounded-full h-8 w-8 p-0 bg-isimbi-purple hover:bg-isimbi-purple/90 shadow-lg"
           onClick={scrollToBottom}
+      aria-label="Scroll to bottom"
         >
           <ArrowDown size={16} />
         </Button>

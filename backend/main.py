@@ -16,6 +16,7 @@ import psutil
 # Configuration
 from app.core.config import settings
 from app.middleware.blocker_middleware import BlocklistMiddleware
+from app.api.v1.api import api_v1_router
 from app.services.prevention.app_blocker import ApplicationBlocker
 from app.core.logger import setup_logger
 from socket_events import get_socket_app
@@ -68,6 +69,7 @@ from app.services.prevention.firewall import FirewallManager
 from sio_instance import sio
 from packet_sniffer_service import PacketSnifferService
 from packet_sniffer_events import PacketSnifferNamespace
+from malware_events_namespace import MalwareEventsNamespace # Add this
 
 # from socket_events import start_event_emitter
 
@@ -124,6 +126,10 @@ async def create_app() -> FastAPI:
         # ips_queue = manager.Queue(maxsize=10000)
         sniffer_namespace = PacketSnifferNamespace("/packet_sniffer", sio_queue)
         sio.register_namespace(sniffer_namespace)
+
+        malware_events_ns = MalwareEventsNamespace("/malware_events")
+        sio.register_namespace(malware_events_ns)
+        logger.info("Registered /malware_events namespace for EMPDRS communication.")
 
         intel = ThreatIntel()
         await intel.load_from_cache()
@@ -281,6 +287,7 @@ async def create_app() -> FastAPI:
     app.include_router(intel_router, prefix="/intel")
     app.include_router(nac_router, prefix="/nac")
     app.include_router(dns_router, prefix="/dns")
+    app.include_router(api_v1_router, prefix="/api/v1", tags=["APIv1"])
 
     # Health check endpoint
     @app.get("/api/health", include_in_schema=False)

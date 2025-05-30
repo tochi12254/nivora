@@ -9,7 +9,7 @@ export interface Message {
   timestamp: Date;
   isLoading?: boolean;
   isTyping?: boolean;
-  category?: 'general' | 'threat' | 'network' | 'model' | 'user' | 'system';
+  category?: string; // Updated to allow any string, including knowledge base IDs
   tags?: string[];
   liked?: boolean;
 }

@@ -1,259 +1,157 @@
-
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Shield, Activity, AlertCircle } from 'lucide-react';
+import { Shield, Activity, AlertCircle } from 'lucide-react'; // AlertCircle might be unused
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
+import { ScrollArea } from "@/components/ui/scroll-area"; // Added ScrollArea
 import { useToast } from "@/hooks/use-toast";
+
+// Assuming a socket context or global instance like:
+// import { socket } from '@/lib/socket'; // Fictional socket instance
+// For this subtask, actual socket connection is commented out in useEffect.
+
+interface PortScanAlert {
+  id: string;
+  timestamp: string;
+  source_ip: string;
+  description: string;
+  target_port?: number;
+  target_ip?: string;
+  severity: string;
+}
 
 const PortScanningSimulation = () => {
   const { toast } = useToast();
-  const [targetIP, setTargetIP] = useState('192.168.1.1');
-  const [scanning, setScanning] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [scanComplete, setScanComplete] = useState(false);
-  
-  // Type for port status
-  type PortStatus = "open" | "closed" | "filtered";
-  
-  // Define port scan results with proper typing
-  const [scanResults, setScanResults] = useState<Array<{
-    port: number;
-    service: string;
-    status: PortStatus;
-    heat: number;
-  }>>([]);
+  const [portScanAlerts, setPortScanAlerts] = useState<PortScanAlert[]>([]);
 
-  // Common ports and services for the simulation
-  const commonPorts = [
-    { port: 21, service: "FTP" },
-    { port: 22, service: "SSH" },
-    { port: 23, service: "Telnet" },
-    { port: 25, service: "SMTP" },
-    { port: 80, service: "HTTP" },
-    { port: 443, service: "HTTPS" },
-    { port: 445, service: "SMB" },
-    { port: 3306, service: "MySQL" },
-    { port: 3389, service: "RDP" },
-    { port: 8080, service: "HTTP-ALT" }
-  ];
-
-  // Start port scanning simulation
-  const startScan = () => {
-    // Validate IP address (simple validation)
-    if (!targetIP.match(/^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/)) {
-      toast({
-        title: "Invalid IP Address",
-        description: "Please enter a valid IPv4 address",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    setScanResults([]);
-    setScanning(true);
-    setProgress(0);
-    setScanComplete(false);
-    
-    // Show starting toast
-    toast({
-      title: "Port Scan Initiated",
-      description: `Scanning ${targetIP} for open ports...`,
-      variant: "default"
-    });
-  };
-
-  // Simulate scan progress
   useEffect(() => {
-    if (!scanning) return;
-
-    let currentPort = 0;
-    const totalPorts = commonPorts.length;
-    const scanInterval = setInterval(() => {
-      if (currentPort >= totalPorts) {
-        clearInterval(scanInterval);
-        setScanning(false);
-        setScanComplete(true);
-        
-        // Show completion toast - use default variant instead of success
-        toast({
-          title: "Port Scan Complete",
-          description: `Scanned ${totalPorts} ports on ${targetIP}`,
-          variant: "default"
-        });
-        return;
+    const handleSecurityAlert = (alertData: any) => {
+      if (alertData && alertData.type && alertData.type.toLowerCase().includes('port scan')) {
+        const newAlert: PortScanAlert = {
+          id: alertData.id || `alert-${Date.now()}-${Math.random()}`, // Ensure unique ID
+          timestamp: alertData.timestamp,
+          source_ip: alertData.source_ip,
+          description: alertData.description,
+          target_port: alertData.metadata?.destination_port,
+          target_ip: alertData.metadata?.destination_ip,
+          severity: alertData.severity,
+        };
+        setPortScanAlerts(prevAlerts => [newAlert, ...prevAlerts.slice(0, 49)]); // Keep last 50
       }
+    };
 
-      const port = commonPorts[currentPort];
-      const portStatus = Math.random() > 0.7 
-        ? "open" 
-        : Math.random() > 0.5 ? "filtered" : "closed";
-        
-      // Heat value between 0-1, with open ports having higher values
-      const heatValue = portStatus === "open" 
-        ? 0.7 + (Math.random() * 0.3) 
-        : portStatus === "filtered" 
-          ? 0.3 + (Math.random() * 0.4) 
-          : Math.random() * 0.3;
+    // This is where you would integrate with your actual Socket.IO client
+    // Example:
+    // if (socket) {
+    //   socket.on('security_alert', handleSecurityAlert);
+    // }
+    // console.log("PortScanningSimulation: Would listen for 'security_alert' socket events here.");
 
-      setScanResults(prev => [
-        ...prev,
-        { 
-          port: port.port, 
-          service: port.service, 
-          status: portStatus as PortStatus,
-          heat: heatValue 
-        }
-      ]);
-
-      currentPort++;
-      setProgress((currentPort / totalPorts) * 100);
-      
-      // If we find an open high-risk port, show an alert
-      if (portStatus === "open" && (port.port === 23 || port.port === 445)) {
-        toast({
-          title: `Critical: Port ${port.port} (${port.service}) Open`,
-          description: "This port should be secured immediately",
-          variant: "destructive"
-        });
+    // For testing the UI structure, let's add some mock data
+    if (process.env.NODE_ENV === 'development' && portScanAlerts.length === 0) {
+      // Set a flag to prevent repeated mock data addition in strict mode
+      if (!(window as any).__mockPortScanAlertsAdded) {
+        (window as any).__mockPortScanAlertsAdded = true;
+        setTimeout(() => {
+          handleSecurityAlert({
+            id: 'dev-alert-1', timestamp: new Date().toISOString(), source_ip: '192.168.1.101',
+            description: 'SYN Scan on multiple ports', type: 'Port Scan', severity: 'High',
+            metadata: { destination_port: 'Various', destination_ip: '192.168.1.10' }
+          });
+          setTimeout(() => {
+            handleSecurityAlert({
+              id: 'dev-alert-2', timestamp: new Date().toISOString(), source_ip: '10.0.0.52',
+              description: 'TCP Connect Scan on port 22', type: 'Port Scan', severity: 'Medium',
+              metadata: { destination_port: 22, destination_ip: '192.168.1.10' }
+            });
+            setTimeout(() => {
+              handleSecurityAlert({
+                id: 'dev-alert-3', timestamp: new Date().toISOString(), source_ip: '172.16.30.10',
+                description: 'UDP Scan on port 53', type: 'Port Scan', severity: 'Low',
+                metadata: { destination_port: 53, destination_ip: '192.168.1.10' }
+              });
+            }, 1500);
+          }, 1000);
+        }, 500);
       }
-    }, 600);
-
-    return () => clearInterval(scanInterval);
-  }, [scanning, targetIP, toast]);
-
-  // Get status badge based on port status
-  const getStatusBadge = (status: PortStatus) => {
-    switch (status) {
-      case "open":
-        return <Badge variant="outline" className="bg-red-500/10 text-red-500 border-red-500">Open</Badge>;
-      case "filtered":
-        return <Badge variant="outline" className="bg-amber-500/10 text-amber-500 border-amber-500">Filtered</Badge>;
-      case "closed":
-        return <Badge variant="outline" className="bg-green-500/10 text-green-500 border-green-500">Closed</Badge>;
-      default:
-        return <Badge variant="outline">Unknown</Badge>;
     }
-  };
+
+    return () => {
+      // if (socket) {
+      //   socket.off('security_alert', handleSecurityAlert);
+      // }
+      // Reset mock data flag on unmount if needed for hot reloading dev environment
+      // delete (window as any).__mockPortScanAlertsAdded; 
+    };
+  }, []); // portScanAlerts removed from dependency array to avoid re-triggering mock data load
 
   return (
     <Card className="overflow-hidden shadow-lg border-orange-500/20">
       <CardHeader className="bg-gradient-to-r from-orange-500/10 to-transparent">
         <CardTitle className="flex items-center gap-2">
           <Activity className="h-5 w-5 text-orange-500" />
-          Port Scanning Simulation
+          Detected Port Scan Activity
         </CardTitle>
         <CardDescription>
-          Simulate port scanning detection and response capabilities
+          Real-time list of detected port scanning events against the network.
         </CardDescription>
       </CardHeader>
-      
+
       <CardContent className="p-6">
-        <div className="space-y-6">
-          {/* IP Input and Scan Button */}
-          <div className="flex space-x-2">
-            <div className="flex-1">
-              <Input
-                value={targetIP}
-                onChange={(e) => setTargetIP(e.target.value)}
-                placeholder="Target IP Address"
-                disabled={scanning}
-              />
-            </div>
-            <Button
-              onClick={startScan}
-              disabled={scanning}
-              className="bg-orange-500 hover:bg-orange-600"
-            >
-              {scanning ? "Scanning..." : "Start Port Scan"}
-            </Button>
+        {portScanAlerts.length === 0 ? (
+          <div className="text-center text-muted-foreground py-8">
+            <Shield size={48} className="mx-auto mb-2 opacity-50" />
+            No port scan activity detected recently.
           </div>
-          
-          {/* Scanning Progress */}
-          {scanning && (
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>Scanning {targetIP}...</span>
-                <span>{Math.round(progress)}%</span>
-              </div>
-              <Progress value={progress} className="w-full h-2" />
+        ) : (
+          <div className="border rounded-lg overflow-hidden">
+            <div className="grid grid-cols-6 bg-muted p-2 text-xs font-medium">
+              <div>Timestamp</div>
+              <div>Source IP</div>
+              <div>Target IP</div>
+              <div>Target Port</div>
+              <div>Description</div>
+              {/* <div>Severity</div> */}
+              <div>Actions</div>
             </div>
-          )}
-          
-          {/* Results Table */}
-          {scanResults.length > 0 && (
-            <div className="border rounded-lg overflow-hidden">
-              <div className="grid grid-cols-5 bg-muted p-2 text-xs font-medium">
-                <div>Port</div>
-                <div>Service</div>
-                <div>Status</div>
-                <div>Risk Level</div>
-                <div>Actions</div>
-              </div>
-              
+            <ScrollArea className="h-[400px]">
               <div className="divide-y">
-                {scanResults.map((result, index) => (
-                  <div key={index} className="grid grid-cols-5 p-2 text-sm items-center hover:bg-muted/50">
-                    <div className="font-mono">{result.port}</div>
-                    <div>{result.service}</div>
-                    <div>{getStatusBadge(result.status)}</div>
+                {portScanAlerts.map((alert) => (
+                  <div key={alert.id} className="grid grid-cols-6 p-2 text-sm items-center hover:bg-muted/50">
+                    <div>{new Date(alert.timestamp).toLocaleString()}</div>
+                    <div className="font-mono">{alert.source_ip}</div>
+                    <div className="font-mono">{alert.target_ip || 'N/A'}</div>
+                    <div className="font-mono break-all">{alert.target_port?.toString() || 'N/A'}</div>
+                    <div className="break-words">{alert.description}</div>
+                    {/* 
+                    // Severity display can be added back if desired
                     <div>
-                      <div className="w-full bg-muted rounded-full h-1.5">
-                        <div 
-                          className={`h-full rounded-full ${
-                            result.heat > 0.7 ? 'bg-red-500' : 
-                            result.heat > 0.3 ? 'bg-amber-500' : 
-                            'bg-green-500'
-                          }`} 
-                          style={{ width: `${result.heat * 100}%` }}
-                        ></div>
-                      </div>
-                    </div>
+                      <Badge variant={
+                        alert.severity.toLowerCase() === 'high' ? 'destructive' :
+                        alert.severity.toLowerCase() === 'medium' ? 'warning' : 
+                        'info'
+                      }>
+                        {alert.severity}
+                      </Badge>
+                    </div> 
+                    */}
                     <div>
-                      <Button variant="outline" size="sm" className="h-7 text-xs">
-                        Block
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="h-7 text-xs"
+                        onClick={() => toast({ title: 'Block Action', description: `Request to block ${alert.source_ip}`})}
+                      >
+                        Block IP
                       </Button>
                     </div>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-          
-          {/* Vulnerability Assessment */}
-          {scanComplete && (
-            <div className="bg-orange-500/5 border border-orange-500/20 rounded-lg p-4">
-              <div className="flex items-center gap-2 text-orange-500 font-medium mb-2">
-                <AlertCircle size={16} />
-                <span>Vulnerability Assessment</span>
-              </div>
-              <p className="text-sm mb-2">
-                {scanResults.filter(r => r.status === "open").length} open ports detected on {targetIP}
-              </p>
-              <div className="text-sm">
-                {scanResults.filter(r => r.status === "open").length > 0 ? (
-                  <span className="text-red-500">
-                    Open ports may indicate potential security vulnerabilities.
-                  </span>
-                ) : (
-                  <span className="text-green-500">
-                    No open ports detected. Good security posture.
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
+            </ScrollArea>
+          </div>
+        )}
       </CardContent>
-      
-      <CardFooter className="bg-muted/30 px-6 py-4">
-        <div className="flex items-center text-xs text-muted-foreground">
-          <Shield className="h-3 w-3 mr-1" />
-          Port scanning detection helps identify reconnaissance activity
-        </div>
-      </CardFooter>
     </Card>
   );
 };

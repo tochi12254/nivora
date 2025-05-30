@@ -8,7 +8,8 @@ import { useTheme } from '@/components/theme/ThemeProvider';
 import { useToast } from "@/hooks/use-toast";
 import { Message } from './ai-assistant/types';
 import { initialMessages } from './ai-assistant/constants';
-import { generateAIResponse } from './ai-assistant/utils';
+// import { generateAIResponse } from './ai-assistant/utils'; // Will be replaced
+import knowledgeBase from './ai-assistant/knowledgeBase.json';
 import MessageList from './ai-assistant/MessageList';
 import ChatInput from './ai-assistant/ChatInput';
 import SuggestedQuestions from './ai-assistant/SuggestedQuestions';
@@ -29,8 +30,88 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ className }) => {
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null); // Ref for the chat input
   const { theme } = useTheme();
   const { toast } = useToast();
+
+  // Define a type for the knowledge base items (optional, but good practice)
+  interface KnowledgeBaseItem {
+    id: string;
+    name: string;
+    keywords: string[];
+    description: string;
+    components: Array<{ name: string; type: string; description: string }>;
+    dataFlow?: string;
+    configuration?: string;
+    troubleshooting?: string;
+    relatedTopics?: string[];
+  }
+
+  const generateAIResponse = (userInput: string): { responseText: string; category?: string; tags?: string[] } => {
+    const inputKeywords = userInput.toLowerCase().split(/\s+/);
+    let bestMatch: KnowledgeBaseItem | null = null;
+    let maxMatchCount = 0;
+
+    knowledgeBase.forEach((item: KnowledgeBaseItem) => {
+      const currentMatchCount = item.keywords.filter(kw => inputKeywords.includes(kw.toLowerCase())).length;
+      if (currentMatchCount > maxMatchCount) {
+        maxMatchCount = currentMatchCount;
+        bestMatch = item;
+      }
+    });
+
+    if (bestMatch) {
+      let response = `**${bestMatch.name}**
+
+${bestMatch.description}
+
+`;
+      
+      if (bestMatch.components && bestMatch.components.length > 0) {
+        response += "**Related Components:**\n";
+        bestMatch.components.forEach(comp => {
+          response += `- **${comp.name} (${comp.type}):** ${comp.description}\n`;
+        });
+        response += "\n";
+      }
+
+      if (bestMatch.dataFlow) {
+        response += `**Data Flow:**
+${bestMatch.dataFlow}
+
+`;
+      }
+
+      if (bestMatch.configuration) {
+        response += `**Configuration:**
+${bestMatch.configuration}
+
+`;
+      }
+
+      if (bestMatch.troubleshooting) {
+        response += `**Troubleshooting:**
+${bestMatch.troubleshooting}
+
+`;
+      }
+      
+      // Remove trailing newlines
+      response = response.trim();
+
+      return {
+        responseText: response,
+        category: bestMatch.id, // Use the id as category
+        tags: bestMatch.keywords,
+      };
+    }
+
+    return {
+      responseText: "I'm sorry, I couldn't find specific information related to your query. Could you try rephrasing or asking about a different topic?",
+      category: 'unknown',
+      tags: [],
+    };
+  };
 
   // Function to scroll to the bottom of the messages
   const scrollToBottom = () => {
@@ -51,9 +132,20 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ className }) => {
   // Auto-scroll on new messages
   useEffect(() => {
     if (isOpen && !showScrollButton) {
+    // Focus input when panel opens or becomes active, and not showing suggestions
+    if (activeTab === 'chat' && !showSuggestions && inputRef.current) {
+      inputRef.current.focus();
+    }
       scrollToBottom();
     }
-  }, [messages, isOpen, showScrollButton]);
+  }, [messages, isOpen, showScrollButton, activeTab, showSuggestions]);
+
+  // Effect to focus input when panel is opened and tab is chat
+  useEffect(() => {
+    if (isOpen && activeTab === 'chat' && inputRef.current) {
+      setTimeout(() => inputRef.current?.focus(), 100); // Timeout to ensure element is visible
+    }
+  }, [isOpen, activeTab]);
 
   // Function to handle sending a new message
   const handleSendMessage = () => {
@@ -198,6 +290,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ className }) => {
         <Button 
           onClick={() => setIsOpen(true)}
           className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg bg-isimbi-purple hover:bg-isimbi-purple/90 flex items-center justify-center"
+          aria-label="Open AI Assistant"
         >
           <Bot size={24} />
         </Button>
@@ -233,6 +326,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ className }) => {
                     size="sm" 
                     className="h-8 w-8 p-0" 
                     onClick={() => setActiveTab(activeTab === 'chat' ? 'info' : 'chat')}
+                    aria-label={activeTab === 'chat' ? "Show info tab" : "Show chat tab"}
                   >
                     <Info size={16} />
                   </Button>
@@ -247,6 +341,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ className }) => {
                 size="sm" 
                 className="h-8 w-8 p-0" 
                 onClick={() => setIsExpanded(!isExpanded)}
+                aria-label={isExpanded ? "Collapse assistant" : "Expand assistant"}
               >
                 {isExpanded ? <Maximize2 size={16} /> : <Maximize2 size={16} />}
               </Button>
@@ -256,6 +351,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ className }) => {
                 size="sm" 
                 className="h-8 w-8 p-0" 
                 onClick={() => setIsOpen(false)}
+                aria-label="Close assistant"
               >
                 <X size={16} />
               </Button>
@@ -285,7 +381,9 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ className }) => {
                 input={input}
                 isTyping={isTyping}
                 onInputChange={(e) => setInput(e.target.value)}
+                // Pass the ref to ChatInput, ChatInput needs to accept and forward this ref to its Input component
                 onSend={handleSendMessage}
+                ref={inputRef}
               />
             </TabsContent>
             

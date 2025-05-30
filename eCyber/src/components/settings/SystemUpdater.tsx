@@ -86,7 +86,7 @@ const SystemUpdater = () => {
             <div>
               <div className="text-sm text-muted-foreground">Version</div>
               <div className="flex items-center">
-                {updateAvailable ? "ISIMBI v1.4.2" : "ISIMBI v1.5.0"} 
+                {updateAvailable ? "eCyber v1.0.0" : "eCyber v1.0.1"} 
                 {updateAvailable ? (
                   <Badge className="ml-2 bg-amber-500/10 text-amber-500">Update Available</Badge>
                 ) : (
@@ -130,7 +130,7 @@ const SystemUpdater = () => {
             <div className="pt-4 border-t border-border space-y-3">
               <div className="flex items-center text-sm">
                 <AlertCircle className="mr-2 h-4 w-4 text-amber-500" />
-                <span>Update available: ISIMBI v1.5.0</span>
+                <span>Update available: eCyber v1.1.0</span>
               </div>
               <div className="flex space-x-2">
                 <Button variant="outline" onClick={checkForUpdates} disabled={isChecking}>

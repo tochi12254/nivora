@@ -24,72 +24,31 @@ import ThreatMap from '../components/dashboard/ThreatMap';
 import ActivityStream from '../components/dashboard/ActivityStream';
 import AIAssistant from '../components/common/AIAssistant';
 import { useTelemetrySocket } from '@/components/live-system/lib/socket';
+import { useSelector } from 'react-redux';
+import { RootState } from '@/store/store'; // Assuming your store is configured and RootState is exported
+import { Alert as StoreAlert } from '@/hooks/usePacketSnifferSocket'; // Renaming to avoid conflict with local types if any
+import { HttpActivity as StoreHttpActivity } from '@/hooks/usePacketSnifferSocket';
+import { DnsActivityData as StoreDnsActivityData } from '@/hooks/usePacketSnifferSocket';
+import  ActivityItemProps  from '../components/dashboard/ActivityStream'; // Import the prop type
 
-// Mock data for activity stream
-const mockActivities = [
-  {
-    id: "1",
-    type: "threat" as const,
-    severity: "critical" as const,
-    message: "Unusual authentication pattern detected",
-    details: "Multiple failed login attempts followed by successful access",
-    source: "185.93.2.41",
-    timestamp: new Date(Date.now() - 3 * 60 * 1000),
-  },
-  {
-    id: "2",
-    type: "network" as const,
-    severity: "warning" as const,
-    message: "Suspicious outbound connection",
-    details: "Connection to known malicious IP address",
-    source: "10.0.1.4",
-    destination: "103.56.112.8",
-    timestamp: new Date(Date.now() - 15 * 60 * 1000),
-  },
-  {
-    id: "3",
-    type: "system" as const,
-    severity: "info" as const,
-    message: "System update completed",
-    details: "All system components updated to latest version",
-    timestamp: new Date(Date.now() - 35 * 60 * 1000),
-  },
-  {
-    id: "4",
-    type: "threat" as const,
-    severity: "blocked" as const,
-    message: "Malware connection blocked",
-    details: "Attempted connection to command & control server prevented",
-    source: "10.0.3.56",
-    destination: "91.243.85.12",
-    timestamp: new Date(Date.now() - 47 * 60 * 1000),
-  },
-  {
-    id: "5",
-    type: "auth" as const,
-    severity: "warning" as const,
-    message: "User password expired",
-    details: "Admin user 'jsmith' needs to update credentials",
-    timestamp: new Date(Date.now() - 120 * 60 * 1000),
-  },
-];
+// Mock data for activity stream - REMOVED
 
-// Simulated emerging threat data
-const emergingThreats = [
+// Simulated emerging threat data - To be replaced
+const emergingThreatsMock = [ // Renamed to avoid conflict later
   {
-    id: 1,
+    id: "threat1", // Changed to string for consistency if used as key
     name: "DragonFly APT",
-    severity: "critical",
+    severity: "critical" as const,
     type: "Advanced Persistent Threat",
     details: "Targeting energy sector with spear-phishing campaign",
     affectedSystems: ["Windows Server 2019", "VMWare ESXi"],
-    timestamp: new Date(Date.now() - 75 * 60 * 1000),
+    timestamp: new Date(Date.now() - 75 * 60 * 1000), // Will be string from store
     detectionCount: 3
   },
   {
-    id: 2,
+    id: "threat2",
     name: "CosmicRaven Ransomware",
-    severity: "critical",
+    severity: "critical" as const,
     type: "Ransomware",
     details: "New variant with enhanced encryption and data exfiltration",
     affectedSystems: ["Linux", "Windows"],
@@ -97,9 +56,9 @@ const emergingThreats = [
     detectionCount: 1
   },
   {
-    id: 3,
+    id: "threat3",
     name: "ShadowScript Injection",
-    severity: "warning",
+    severity: "warning" as const,
     type: "Web Vulnerability",
     details: "Targeting Node.js applications with prototype pollution",
     affectedSystems: ["Web Services", "Node.js"],
@@ -127,14 +86,20 @@ const Dashboard = () => {
   
   // State for last updated time and dynamic data
   const [offline, setOffline] = useState(isOfflineMode());
-  const [lastUpdated, setLastUpdated] = useState(new Date());
-  const [threatMetrics, setThreatMetrics] = useState({
-    critical: 8,
-    warning: 14,
-    info: 15,
-    blocked: 23
-  });
+  const [lastUpdated, setLastUpdated] = useState(new Date()); // Will be updated by real-time data presence
+  
+  // Redux state selectors
+  const securityAlerts = useSelector((state: RootState) => state.realtimeData?.recentAlerts);
+  const threatDetections = useSelector((state: RootState) => state.realtimeData?.threatDetectionsData);
+  const httpActivities = useSelector((state: RootState) => state.socket?.httpActivities);
+  const dnsActivities = useSelector((state: RootState) => state.realtimeData?.dnsActivities);
+  const firewallEvents = useSelector((state: RootState) => state.realtimeData?.firewallEventsData);
+  // const systemStats = useSelector((state: RootState) => state.realtimeData.systemStats); // For later use if needed
+
+  // Local state derived from Redux or for UI
+  const [currentThreatMetrics, setCurrentThreatMetrics] = useState({ critical: 0, warning: 0, info: 0, blocked: 0 });
   const [isAnomalyDetected, setIsAnomalyDetected] = useState(false);
+  const [lastAnomalyToastTime, setLastAnomalyToastTime] = useState(0); // To prevent toast spam
   
   // Determine active tab based on current route
   const activeTab = routeToTabMap[location.pathname] || 'overview';
@@ -183,36 +148,130 @@ const Dashboard = () => {
     }
   };
   
-  // Simulate real-time updates
+  // Calculate Threat Metrics from Redux state
   useEffect(() => {
-    const interval = setInterval(() => {
+    const safeSecurityAlerts = Array.isArray(securityAlerts) ? securityAlerts : [];
+    const safeThreatDetections = Array.isArray(threatDetections) ? threatDetections : [];
+    const safeFirewallEvents = Array.isArray(firewallEvents) ? firewallEvents : [];
+  
+    const critical = safeSecurityAlerts.filter(a => a.severity === "Critical").length +
+                     safeThreatDetections.filter(td => td.severity === "Critical").length;
+  
+    const warning = safeSecurityAlerts.filter(a => a.severity === "High" || a.severity === "Medium").length +
+                    safeThreatDetections.filter(td => td.severity === "High" || td.severity === "Medium").length;
+  
+    const info = safeSecurityAlerts.filter(a => a.severity === "Low" || a.severity === "Info").length +
+                 safeThreatDetections.filter(td => td.severity === "Low" || td.severity === "Info").length;
+  
+    const blocked = safeFirewallEvents.filter(fe => fe.action === "Blocked").length;
+  
+    setCurrentThreatMetrics({ critical, warning, info, blocked });
+  
+    if (safeSecurityAlerts.length > 0 || safeThreatDetections.length > 0 || safeFirewallEvents.length > 0) {
       setLastUpdated(new Date());
-      
-      // Simulate fluctuating threat metrics
-      setThreatMetrics(prev => ({
-        critical: prev.critical + Math.floor(Math.random() * 3) - 1,
-        warning: prev.warning + Math.floor(Math.random() * 5) - 2,
-        info: prev.info + Math.floor(Math.random() * 7) - 3,
-        blocked: prev.blocked + Math.floor(Math.random() * 4) - 1
-      }));
-      
-      // Simulate random anomaly detection (10% chance)
-      if (Math.random() < 0.1 && !isAnomalyDetected) {
-        setIsAnomalyDetected(true);
+    }
+  }, [securityAlerts, threatDetections, firewallEvents]);
+  
+
+  useEffect(() => {
+    const safeSecurityAlerts = Array.isArray(securityAlerts) ? securityAlerts : [];
+  
+    const hasAnomaly = safeSecurityAlerts.some(
+      alert =>
+        (alert.severity === "Critical" && alert.threat_type?.toLowerCase().includes("anomaly")) ||
+        alert.description?.toLowerCase().includes("unusual pattern")
+    );
+  
+    setIsAnomalyDetected(hasAnomaly);
+  
+    if (hasAnomaly) {
+      const now = Date.now();
+      // Throttle toast notifications for anomalies
+      if (now - lastAnomalyToastTime > 60000) {
+        const anomalyAlert = safeSecurityAlerts.find(
+          a => a.severity === "Critical" && a.threat_type?.toLowerCase().includes("anomaly")
+        );
+  
         toast({
           title: "Network Anomaly Detected",
-          description: "Unusual traffic pattern from 192.168.1.45",
+          description: anomalyAlert?.description || "Unusual activity detected.",
           variant: "destructive"
         });
-        
-        // Auto-reset after 10 seconds
-        setTimeout(() => setIsAnomalyDetected(false), 10000);
+  
+        setLastAnomalyToastTime(now);
       }
+    }
+  }, [securityAlerts, toast, lastAnomalyToastTime]);
+  
+  
+  // Activity Stream Data Mapping
+  const mappedActivities = React.useMemo(() => {
+    const combinedActivities: ActivityItemProps[] = [];
+
+    securityAlerts && securityAlerts.forEach(alert => {
+      let type: ActivityItemProps['type'] = 'system';
+      if (alert.threat_type?.toLowerCase().includes('auth') || alert.description?.toLowerCase().includes('login')) type = 'auth';
+      else if (alert.protocol || alert.source_ip || alert.destination_ip) type = 'network';
+      if (alert.severity === 'Critical' || alert.severity === 'High') type = 'threat';
+
+
+      let streamSeverity: ActivityItemProps['severity'] = 'info';
+      if (alert.severity === 'Critical') streamSeverity = 'critical';
+      else if (alert.severity === 'High' || alert.severity === 'Medium') streamSeverity = 'warning';
+      // TODO: Add mapping for 'blocked' if applicable from alert data
+
+      combinedActivities.push({
+        id: alert.id,
+        type: type,
+        severity: streamSeverity,
+        message: alert.description,
+        details: `Threat Type: ${alert.threat_type || 'N/A'}${alert.rule_id ? `, Rule: ${alert.rule_id}` : ''}`,
+        source: alert.source_ip,
+        destination: alert.destination_ip,
+        timestamp: new Date(alert.timestamp),
+      });
+    });
+
+    httpActivities.forEach(http => {
+      let severity: ActivityItemProps['severity'] = 'info';
+      if (http.risk_level === 'Critical' || http.risk_level === 'High') severity = 'critical';
+      else if (http.risk_level === 'Medium') severity = 'warning';
       
-    }, 30000); // Update every 30 seconds
+      combinedActivities.push({
+        id: http.id,
+        type: 'network',
+        severity: severity,
+        message: `${http.method} ${http.host}${http.path}`,
+        details: `Status: ${http.status_code}, User-Agent: ${http.user_agent?.substring(0,50)}...`,
+        source: http.source_ip,
+        destination: http.destination_ip,
+        timestamp: new Date(http.timestamp),
+      });
+    });
     
-    return () => clearInterval(interval);
-  }, [isAnomalyDetected]);
+    // Add more mappers for dnsActivities, etc. if needed for the stream
+
+    return combinedActivities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()).slice(0, 50);
+  }, [securityAlerts, httpActivities]);
+
+  // Emerging Threats from Redux
+  const emergingThreats = React.useMemo(() => {
+    return [
+      ...(Array.isArray(threatDetections) ? threatDetections : []),
+      ...(Array.isArray(securityAlerts) ? securityAlerts : [])
+    ].filter(alert => alert.severity === 'Critical' || alert.severity === 'High')    
+      .slice(0, 3) // Take top 3 critical/high
+      .map(alert => ({
+        id: alert.id,
+        name: alert.threat_type || 'High Severity Alert',
+        severity: alert.severity.toLowerCase() as 'critical' | 'warning', // Map to allowed values
+        type: alert.threat_type || 'Unknown Threat Type',
+        details: alert.description,
+        affectedSystems: alert.metadata?.affectedSystems as string[] || ['Various'], // Example if metadata exists
+        timestamp: new Date(alert.timestamp),
+        detectionCount: alert.metadata?.detectionCount as number || 1, // Example if metadata exists
+      }));
+  }, [threatDetections, securityAlerts]);
 
 
   if (dailySummary) {
@@ -268,24 +327,26 @@ const Dashboard = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                 <MetricsCard 
                   title="Traffic Volume" 
-                  value="1.8 TB"
+                  value={dailySummary ? `${(dailySummary.network24h.sent_mb + dailySummary.network24h.recv_mb).toFixed(1)} MB` : "Loading..."}
                   description="Total network traffic in last 24h"
                   icon={<Activity size={16} />}
-                  trend={{ direction: 'up', value: '12%', label: 'vs yesterday' }}
+                  // Trend data would need historical daily summaries
+                  // trend={{ direction: 'up', value: '12%', label: 'vs yesterday' }} 
                   variant="info"
                 />
                 
                 <MetricsCard 
                   title="Threats Today" 
-                  value={threatMetrics.critical + threatMetrics.warning + threatMetrics.info}
-                  description={`${threatMetrics.critical} critical, ${threatMetrics.warning} warning, ${threatMetrics.info} info`}
+                  value={currentThreatMetrics.critical + currentThreatMetrics.warning + currentThreatMetrics.info + currentThreatMetrics.blocked}
+                  description={`${currentThreatMetrics.critical} critical, ${currentThreatMetrics.warning} warning, ${currentThreatMetrics.blocked} blocked`}
                   icon={<Shield size={16} />}
-                  trend={{ direction: 'down', value: '5%', label: 'vs yesterday' }}
-                  variant="warning"
+                  // Trend data would need historical metrics
+                  // trend={{ direction: 'down', value: '5%', label: 'vs yesterday' }}
+                  variant={currentThreatMetrics.critical > 0 ? "destructive" : currentThreatMetrics.warning > 0 ? "warning" : "info"}
                 />
                 
                 <MetricsCard 
-                  title="Active Users" 
+                  title="Active Users" // Mock data for now
                   value="184"
                   description="23 admins, 161 standard users"
                   icon={<Users size={16} />}
@@ -293,7 +354,7 @@ const Dashboard = () => {
                 />
                 
                 <MetricsCard 
-                  title="ML Accuracy" 
+                  title="ML Accuracy" // Mock data for now, or from a different store source
                   value="99.7%"
                   description="Based on last 10,000 events"
                   icon={<Database size={16} />}
@@ -313,48 +374,52 @@ const Dashboard = () => {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {emergingThreats.map((threat) => (
-                      <div 
-                        key={threat.id}
-                        className={cn(
-                          "glass-card p-4 border rounded-lg",
-                          threat.severity === 'critical' ? "border-red-500/20" : "border-amber-500/20"
-                        )}
-                      >
-                        <div className="flex justify-between items-start mb-2">
-                          <h3 className="font-medium text-sm">{threat.name}</h3>
-                          <Badge 
-                            variant="outline"
-                            className={cn(
-                              "text-xs",
-                              threat.severity === 'critical' ? "border-red-500 text-red-400" : "border-amber-500 text-amber-400"
-                            )}
-                          >
-                            {threat.severity.toUpperCase()}
-                          </Badge>
-                        </div>
-                        <p className="text-xs text-muted-foreground mb-2">{threat.type}</p>
-                        <p className="text-xs mb-3">{threat.details}</p>
-                        <div className="text-xs text-muted-foreground">
-                          <span>Affected: </span>
-                          {threat.affectedSystems.map((sys, i) => (
-                            <Badge key={i} variant="secondary" className="mr-1 text-[10px]">
-                              {sys}
+                  {emergingThreats.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {emergingThreats.map((threat) => (
+                        <div 
+                          key={threat.id}
+                          className={cn(
+                            "glass-card p-4 border rounded-lg",
+                            threat.severity === 'critical' ? "border-red-500/20" : "border-amber-500/20"
+                          )}
+                        >
+                          <div className="flex justify-between items-start mb-2">
+                            <h3 className="font-medium text-sm">{threat.name}</h3>
+                            <Badge 
+                              variant="outline"
+                              className={cn(
+                                "text-xs",
+                                threat.severity === 'critical' ? "border-red-500 text-red-400" : "border-amber-500 text-amber-400"
+                              )}
+                            >
+                              {threat.severity.toUpperCase()}
                             </Badge>
-                          ))}
+                          </div>
+                          <p className="text-xs text-muted-foreground mb-2">{threat.type}</p>
+                          <p className="text-xs mb-3">{threat.details}</p>
+                          <div className="text-xs text-muted-foreground">
+                            <span>Affected: </span>
+                            {threat.affectedSystems.map((sys, i) => (
+                              <Badge key={i} variant="secondary" className="mr-1 text-[10px]">
+                                {sys}
+                              </Badge>
+                            ))}
+                          </div>
+                          <div className="flex items-center justify-between mt-3 pt-2 border-t border-border/50">
+                            <span className="text-xs text-muted-foreground">
+                              {threat.detectionCount} {threat.detectionCount === 1 ? 'detection' : 'detections'}
+                            </span>
+                            <Button variant="ghost" size="sm" className="h-6 text-xs">
+                              Investigate <ArrowRight className="ml-1" size={12} />
+                            </Button>
+                          </div>
                         </div>
-                        <div className="flex items-center justify-between mt-3 pt-2 border-t border-border/50">
-                          <span className="text-xs text-muted-foreground">
-                            {threat.detectionCount} {threat.detectionCount === 1 ? 'detection' : 'detections'}
-                          </span>
-                          <Button variant="ghost" size="sm" className="h-6 text-xs">
-                            Investigate <ArrowRight className="ml-1" size={12} />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No critical or high severity emerging threats detected recently.</p>
+                  )}
                 </CardContent>
               </Card>
             )}
@@ -384,7 +449,7 @@ const Dashboard = () => {
                       View All <ArrowRight className="ml-1" size={12} />
                     </Button>
                   </h2>
-                  <ActivityStream activities={mockActivities} />
+                  <ActivityStream activities={mappedActivities} />
                 </div>
               </TabsContent>
               

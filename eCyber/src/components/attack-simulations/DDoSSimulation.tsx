@@ -23,256 +23,144 @@ import {
   Legend 
 } from "recharts";
 
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { useToast } from "@/hooks/use-toast";
+
+// Interface for DDoS alerts
+interface DDoSAlert {
+  id: string;
+  timestamp: string;
+  source_ip?: string; // DDoS source can be distributed/spoofed
+  description: string;
+  severity: 'High' | 'Critical' | 'Medium' | 'Low'; // Example severities
+  target_info?: string; // e.g., targeted IP or service
+  packet_rate?: string | number;
+  protocol?: string;
+}
+
 const DDoSSimulation = () => {
-  const [isSimulating, setIsSimulating] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [alerts, setAlerts] = useState<SimulationAlert[]>([]);
-  const [blockedIPs, setBlockedIPs] = useState<string[]>([]);
-  const [trafficData, setTrafficData] = useState<{ time: string; packets: number; baseline: number }[]>([]);
-  
-  // Generate initial data
+  const { toast } = useToast();
+  const [ddosAlerts, setDDoSAlerts] = useState<DDoSAlert[]>([]);
+
   useEffect(() => {
-    const initialData = Array.from({ length: 20 }).map((_, i) => ({
-      time: `${i}s`,
-      packets: Math.floor(Math.random() * 100) + 100,
-      baseline: 120
-    }));
-    setTrafficData(initialData);
-  }, []);
-  
-  const startSimulation = () => {
-    setIsSimulating(true);
-    setProgress(0);
-    setAlerts([]);
-    
-    // Simulation timer
-    const interval = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setIsSimulating(false);
-          return 100;
-        }
-        return prev + 5;
-      });
-      
-      // Update traffic data
-      setTrafficData(prev => {
-        const newData = [...prev];
-        newData.shift();
-        
-        const lastTime = parseInt(newData[newData.length - 1].time);
-        const spikeMultiplier = progress > 20 ? (progress > 70 ? 10 : 5) : 1;
-        
-        newData.push({
-          time: `${lastTime + 1}s`,
-          packets: Math.floor(Math.random() * 500 * spikeMultiplier) + 100,
-          baseline: 120
-        });
-        
-        return newData;
-      });
-      
-      // Generate random alert at 30% and 70% progress
-      if (progress === 30 || progress === 70) {
-        const randomIP = `${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`;
-        
-        const newAlert: SimulationAlert = {
-          id: `ddos-${Date.now()}`,
-          type: 'ddos',
-          message: `DDoS attack detected from IP ${randomIP}`,
-          severity: progress === 70 ? 'critical' : 'warning',
-          timestamp: new Date(),
-          details: {
-            sourceIP: randomIP,
-            packetRate: `${Math.floor(Math.random() * 10000) + 5000}/sec`,
-            protocol: 'SYN',
-          }
+    const handleDDoSAlert = (data: any) => {
+      // Assuming data structure from a potential 'security_alert' event
+      // where data.type might be "DDoS Attack" or similar
+      if (data && data.type && data.type.toLowerCase().includes('ddos')) {
+        const newAlert: DDoSAlert = {
+          id: data.id || `ddos-alert-${Date.now()}-${Math.random()}`,
+          timestamp: data.timestamp || new Date().toISOString(),
+          source_ip: data.source_ip || 'N/A (Distributed/Spoofed)',
+          description: data.description || 'High volume of traffic detected.',
+          severity: data.severity || 'High',
+          target_info: data.target_info || data.metadata?.destination_ip || 'Unknown Target',
+          packet_rate: data.packet_rate || data.metadata?.packet_rate || 'N/A',
+          protocol: data.protocol || data.metadata?.protocol || 'N/A',
         };
-        
-        setAlerts(prev => [...prev, newAlert]);
+        setDDoSAlerts(prev => [newAlert, ...prev.slice(0, 49)]); // Keep last 50
       }
-    }, 500);
-    
-    return () => clearInterval(interval);
-  };
-  
-  const blockIP = (ip: string) => {
-    if (!blockedIPs.includes(ip)) {
-      setBlockedIPs(prev => [...prev, ip]);
+    };
+
+    // TODO: Replace with actual socket listeners for 'security_alert' or specific DDoS events
+    // Example:
+    // if (socket) {
+    //   socket.on('security_alert', handleDDoSAlert); // General security alert
+    //   // Or a specific event like: socket.on('ddos_detected', handleDDoSAlert);
+    // }
+    // console.log("DDoSSimulation: Would listen for DDoS-related socket events here.");
+
+    // Mock data for subtask UI verification
+    if (process.env.NODE_ENV === 'development' && !(window as any).__mockDDoSAlertsAdded) {
+      (window as any).__mockDDoSAlertsAdded = true;
+      setTimeout(() => {
+        handleDDoSAlert({
+          id: 'mockddos1', type: 'DDoS Attack', timestamp: new Date().toISOString(),
+          description: 'Volumetric attack targeting web server cluster.',
+          severity: 'Critical', target_info: 'Web Server Pool (10.0.1.0/24)', packet_rate: '1.2M pps', protocol: 'UDP Flood'
+        });
+        setTimeout(() => {
+          handleDDoSAlert({
+            id: 'mockddos2', type: 'ddos', timestamp: new Date().toISOString(),
+            source_ip: 'Multiple (Botnet Z)', description: 'SYN Flood against login services.',
+            severity: 'High', target_info: 'auth.example.com', packet_rate: '800K pps', protocol: 'TCP/SYN'
+          });
+        }, 2000);
+      }, 1000);
     }
-  };
-  
-  const unblockIP = (ip: string) => {
-    setBlockedIPs(prev => prev.filter(blockedIp => blockedIp !== ip));
-  };
-  
-  const stopSimulation = () => {
-    setIsSimulating(false);
-    setProgress(0);
-  };
-  
-  const chartConfig = {
-    packets: {
-      label: "Packet Rate",
-      color: "#9b87f5"
-    },
-    baseline: {
-      label: "Baseline",
-      color: "#6E59A5"
-    }
-  };
+
+    return () => {
+      // TODO: socket.off('security_alert', handleDDoSAlert);
+      // TODO: socket.off('ddos_detected', handleDDoSAlert);
+      // delete (window as any).__mockDDoSAlertsAdded;
+    };
+  }, []);
 
   return (
     <Card className="overflow-hidden shadow-lg border-isimbi-purple/20">
       <CardHeader className="bg-gradient-to-r from-isimbi-navy to-isimbi-dark-charcoal">
-        <div className="flex justify-between items-center">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <ShieldAlert className="h-5 w-5 text-isimbi-purple" />
-              DDoS / SYN Flood
-            </CardTitle>
-            <CardDescription>Simulate volumetric network attacks and monitor traffic spikes</CardDescription>
-          </div>
-          <Badge variant={isSimulating ? "destructive" : "outline"} className="ml-2">
-            {isSimulating ? "ACTIVE" : "Ready"}
-          </Badge>
-        </div>
+        <CardTitle className="flex items-center gap-2 text-white">
+          <ShieldAlert className="h-5 w-5 text-isimbi-purple" />
+          Detected DDoS Activity
+        </CardTitle>
+        <CardDescription className="text-gray-300">
+          Real-time monitoring of detected Distributed Denial of Service attacks.
+        </CardDescription>
       </CardHeader>
-      
+
       <CardContent className="p-6">
-        {/* Traffic Graph */}
-        <div className="h-[200px] w-full mb-4">
-          <ChartContainer config={chartConfig}>
-            <LineChart data={trafficData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(155, 135, 245, 0.1)" />
-              <XAxis dataKey="time" stroke="#6E59A5" />
-              <YAxis stroke="#6E59A5" />
-              <ChartTooltip content={<ChartTooltipContent />} />
-              <ChartLegend />
-              <Line 
-                type="monotone" 
-                dataKey="packets" 
-                stroke="#9b87f5"
-                strokeWidth={2}
-                dot={false}
-                activeDot={{ r: 6, strokeWidth: 0 }}
-              />
-              <Line 
-                type="monotone" 
-                dataKey="baseline" 
-                stroke="#6E59A5" 
-                strokeDasharray="5 5" 
-                strokeWidth={1.5}
-                dot={false}
-              />
-            </LineChart>
-          </ChartContainer>
-        </div>
-        
-        {/* Alerts Section */}
-        <div className="mb-4">
-          <h3 className="text-sm font-medium mb-2">Attack Alerts</h3>
-          <div className="space-y-2 max-h-[150px] overflow-y-auto">
-            {alerts.length > 0 ? (
-              alerts.map(alert => (
-                <Alert key={alert.id} className={`${
-                  alert.severity === 'critical' ? 'border-red-500/50 bg-red-500/10' : 
-                  alert.severity === 'warning' ? 'border-amber-500/50 bg-amber-500/10' : 
-                  'border-blue-500/50 bg-blue-500/10'}`
-                }>
-                  <AlertCircle className={`h-4 w-4 ${
-                    alert.severity === 'critical' ? 'text-red-500' : 
-                    alert.severity === 'warning' ? 'text-amber-500' : 
-                    'text-blue-500'}`
-                  } />
-                  <AlertTitle className="text-sm">{alert.message}</AlertTitle>
-                  <AlertDescription className="text-xs">
-                    <div className="flex flex-wrap gap-2 mt-1">
-                      <span>Source: {alert.details?.sourceIP}</span>
-                      <span>Rate: {alert.details?.packetRate}</span>
-                      <span>Protocol: {alert.details?.protocol}</span>
-                      <div className="w-full flex gap-2 mt-2">
-                        {blockedIPs.includes(alert.details?.sourceIP) ? (
-                          <Button 
-                            size="sm" 
-                            variant="outline" 
-                            onClick={() => unblockIP(alert.details?.sourceIP)}
-                          >
-                            Unblock IP
-                          </Button>
-                        ) : (
-                          <Button 
-                            size="sm" 
-                            variant="destructive" 
-                            onClick={() => blockIP(alert.details?.sourceIP)}
-                          >
-                            Block IP
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </AlertDescription>
-                </Alert>
-              ))
-            ) : (
-              <div className="text-center py-4 text-sm text-muted-foreground">
-                No alerts detected
-              </div>
-            )}
+        {ddosAlerts.length === 0 ? (
+          <div className="text-center text-muted-foreground py-8">
+            <ShieldAlert size={48} className="mx-auto mb-2 opacity-30" />
+            No DDoS activity detected recently.
           </div>
-        </div>
-        
-        {/* Blocked IPs */}
-        {blockedIPs.length > 0 && (
-          <div className="mb-4">
-            <h3 className="text-sm font-medium mb-2">Blocked IPs</h3>
-            <div className="flex flex-wrap gap-2">
-              {blockedIPs.map(ip => (
-                <Badge key={ip} variant="secondary" className="flex items-center gap-1">
-                  {ip}
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="h-4 w-4 ml-1 hover:bg-transparent" 
-                    onClick={() => unblockIP(ip)}
-                  >
-                    <span className="sr-only">Remove</span>
-                    <AlertCircle className="h-3 w-3" />
-                  </Button>
-                </Badge>
+        ) : (
+          <ScrollArea className="h-[400px] border rounded-md">
+            <div className="divide-y">
+              {ddosAlerts.map((alert) => (
+                <Alert key={alert.id} className={`p-3 m-0 border-0 border-b rounded-none ${
+                  alert.severity === 'Critical' ? 'bg-red-900/20 border-red-700' : 
+                  alert.severity === 'High' ? 'bg-orange-700/20 border-orange-600' : 
+                  'bg-yellow-600/20 border-yellow-500'}`
+                }>
+                  <ShieldAlert className={`h-5 w-5 mt-1 ${
+                    alert.severity === 'Critical' ? 'text-red-400' : 
+                    alert.severity === 'High' ? 'text-orange-400' : 
+                    'text-yellow-400'}`
+                  } />
+                  <div className="ml-2">
+                    <AlertTitle className="font-semibold text-sm mb-0.5">
+                      {alert.description} {alert.target_info && `(Target: ${alert.target_info})`}
+                    </AlertTitle>
+                    <AlertDescription className="text-xs text-muted-foreground space-y-0.5">
+                      <div>Timestamp: {new Date(alert.timestamp).toLocaleString()}</div>
+                      <div>Severity: <Badge variant={
+                          alert.severity === 'Critical' || alert.severity === 'High' ? 'destructive' : 'warning'
+                        } className="text-xs px-1 py-0 h-auto leading-tight">
+                          {alert.severity}
+                        </Badge>
+                      </div>
+                      {alert.source_ip && <div>Source IP(s): {alert.source_ip}</div>}
+                      {alert.packet_rate && <div>Packet Rate: {alert.packet_rate}</div>}
+                      {alert.protocol && <div>Protocol: {alert.protocol}</div>}
+                    </AlertDescription>
+                    <Button 
+                      variant="outline" 
+                      size="xs" 
+                      className="mt-2 h-6 text-xs"
+                      onClick={() => toast({ title: 'Mitigation Action', description: `Initiating mitigation for alert ID: ${alert.id.substring(0,8)}`})}
+                    >
+                      Initiate Mitigation
+                    </Button>
+                  </div>
+                </Alert>
               ))}
             </div>
-          </div>
-        )}
-        
-        {/* Progress indicator during simulation */}
-        {isSimulating && (
-          <div className="w-full bg-secondary rounded-full h-2.5 mb-4">
-            <div 
-              className="bg-isimbi-purple h-2.5 rounded-full transition-all duration-500" 
-              style={{ width: `${progress}%` }}
-            ></div>
-          </div>
+          </ScrollArea>
         )}
       </CardContent>
-      
-      <CardFooter className="bg-card/50 border-t border-border/50 flex justify-between">
+      <CardFooter className="bg-card/50 border-t border-border/50 py-3">
         <div className="text-xs text-muted-foreground">
-          {blockedIPs.length > 0 ? `${blockedIPs.length} IPs blocked` : "No IPs blocked"}
-        </div>
-        <div>
-          {isSimulating ? (
-            <Button variant="outline" onClick={stopSimulation} className="gap-2">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Stop Simulation
-            </Button>
-          ) : (
-            <Button onClick={startSimulation} className="gap-2">
-              <Zap className="h-4 w-4" />
-              Simulate Flood
-            </Button>
-          )}
+          Monitoring for DDoS attack indicators...
         </div>
       </CardFooter>
     </Card>

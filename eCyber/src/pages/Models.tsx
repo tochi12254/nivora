@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import axios from 'axios'
 import { cn } from '@/lib/utils';
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,66 +14,72 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 
-// Sample models data
-const mlModels = [
-  {
-    id: 1,
-    name: "Anomaly Detection",
-    status: "active",
-    accuracy: 94,
-    lastTrained: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-    description: "Detects unusual patterns in network traffic using a neural network",
-    type: "Neural Network"
-  },
-  {
-    id: 2,
-    name: "Malware Classification",
-    status: "active",
-    accuracy: 97,
-    lastTrained: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-    description: "Classifies potential malware based on behavior patterns",
-    type: "Random Forest"
-  },
-  {
-    id: 3,
-    name: "User Behavior Analysis",
-    status: "training",
-    accuracy: 89,
-    lastTrained: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000),
-    description: "Profiles user behavior to detect account compromises",
-    type: "LSTM"
-  },
-  {
-    id: 4,
-    name: "Log Anomaly Detection",
-    status: "inactive",
-    accuracy: 82,
-    lastTrained: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-    description: "Uses NLP to detect anomalies in log files",
-    type: "Transformer"
-  },
-];
+// Define the ModelData interface
+interface ModelData {
+  id: string; // e.g., "Bot_XGBoost"
+  name: string; // e.g., "Bot Detection"
+  status: 'active' | 'inactive' | 'training'; // Status might be dynamic from backend later
+  accuracy: number | null; // From meta.json or calculated
+  lastTrained: string | null; // ISO date string from meta.json or file system
+  description: string;
+  type: string; // e.g., XGBoost, RandomForest from meta.json
+  features?: string[]; // From meta.json
+  model_file?: string;
+  scaler_file?: string;
+  metadata_file?: string;
+}
 
-// Sample model insights
-const modelInsights = [
-  { metric: "Threats detected", value: 28, trend: "up", change: "12%" },
-  { metric: "False positives", value: 3, trend: "down", change: "8%" },
-  { metric: "Processing time", value: "1.2s", trend: "down", change: "5%" },
-  { metric: "Model accuracy", value: "94%", trend: "up", change: "2%" },
-];
+// Sample model insights (to be removed or replaced with dynamic data)
+// const modelInsights = [
+//   { metric: "Threats detected", value: 28, trend: "up", change: "12%" },
+//   { metric: "False positives", value: 3, trend: "down", change: "8%" },
+//   { metric: "Processing time", value: "1.2s", trend: "down", change: "5%" },
+//   { metric: "Model accuracy", value: "94%", trend: "up", change: "2%" },
+// ];
 
 const Models = () => {
-  const [activeModel, setActiveModel] = useState<typeof mlModels[0] | null>(null);
-  const [runningModels, setRunningModels] = useState<Record<number, {progress: number, running: boolean}>>({});
+  const [models, setModels] = useState<ModelData[]>([]);
+  const [insights, setInsights] = useState<any[]>([]); // Placeholder for future dynamic insights
+  const [activeModel, setActiveModel] = useState<ModelData | null>(null);
+  const [runningModels, setRunningModels] = useState<Record<string, {progress: number, running: boolean}>>({});
   const [showAllMetrics, setShowAllMetrics] = useState(false);
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>(['active', 'training', 'inactive']);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  // const [fetchError, setFetchError] = useState<string | null>(null); // Optional: for displaying specific error messages in UI
+
+  useEffect(() => {
+    const fetchModels = async () => {
+      setIsLoading(true);
+      // setFetchError(null); // Reset error state on new fetch
+      try {
+        const response = await axios.get('http://127.0.0.1:8000/api/v1/models/list'); 
+        if (!response.data) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data: ModelData[] = response.data;
+        setModels(data);
+      } catch (error) {
+        console.error("Failed to fetch models:", error);
+        // setFetchError("Failed to load models. Please try again.");
+        toast({
+          title: "Error Fetching Models",
+          description: `Could not load model data from the server. ${error instanceof Error ? error.message : ''}`,
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchModels();
+  }, [refreshKey, toast]);
   
   // Filter models based on search term and status
-  const filteredModels = mlModels.filter(model => {
+  const filteredModels = models.filter(model => {
     const matchesSearch = 
       model.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       model.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -87,21 +94,21 @@ const Models = () => {
   const sortedModels = [...filteredModels].sort((a, b) => {
     switch(sortBy) {
       case 'accuracy-high':
-        return b.accuracy - a.accuracy;
+        return (b.accuracy || 0) - (a.accuracy || 0);
       case 'accuracy-low':
-        return a.accuracy - b.accuracy;
+        return (a.accuracy || 0) - (b.accuracy || 0);
       case 'name-asc':
         return a.name.localeCompare(b.name);
       case 'name-desc':
         return b.name.localeCompare(a.name);
       case 'recent':
-        return new Date(b.lastTrained).getTime() - new Date(a.lastTrained).getTime();
+        return new Date(b.lastTrained || 0).getTime() - new Date(a.lastTrained || 0).getTime();
       default:
         return 0;
     }
   });
   
-  const handleRunModel = (model: typeof mlModels[0]) => {
+  const handleRunModel = (model: ModelData) => {
     if (model.status === "training") {
       toast({
         title: "Model Unavailable",
@@ -123,9 +130,16 @@ const Models = () => {
     }));
     
     // Simulate progress
+    // TODO: Replace with actual model running logic
     const intervalId = setInterval(() => {
       setRunningModels(prev => {
-        const currentProgress = prev[model.id]?.progress || 0;
+        const modelState = prev[model.id];
+        // If model was stopped, clear interval
+        if (!modelState?.running) {
+            clearInterval(intervalId);
+            return prev;
+        }
+        const currentProgress = modelState?.progress || 0;
         
         if (currentProgress >= 100) {
           clearInterval(intervalId);
@@ -150,7 +164,7 @@ const Models = () => {
     }, 300);
   };
   
-  const handleStopModel = (model: typeof mlModels[0]) => {
+  const handleStopModel = (model: ModelData) => {
     toast({
       title: "Model Stopped",
       description: `${model.name} execution has been stopped`,
@@ -158,7 +172,7 @@ const Models = () => {
     
     setRunningModels(prev => ({
       ...prev,
-      [model.id]: { progress: prev[model.id]?.progress || 0, running: false }
+      [model.id]: { ...prev[model.id], running: false } // Keep progress but set running to false
     }));
   };
   
@@ -221,9 +235,10 @@ const Models = () => {
             selectedStatuses={selectedStatuses}
           />
           
-          {/* Model insights */}
+          {/* Model insights (temporarily removed - to be replaced with dynamic insights) */}
+          {/* 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-            {modelInsights.map((insight, index) => (
+            {insights.map((insight, index) => ( // Assuming 'insights' state will be populated later
               <Card 
                 key={index} 
                 className="bg-card/70 backdrop-blur-sm card-hover-subtle animate-fade-in-up"
@@ -248,6 +263,7 @@ const Models = () => {
               </Card>
             ))}
           </div>
+          */}
           
           {/* Show All Metrics section conditionally */}
           {showAllMetrics && (
@@ -261,7 +277,7 @@ const Models = () => {
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {mlModels.map((model, index) => (
+                    {models.map((model, index) => ( // Changed from mlModels to models
                       <div 
                         key={model.id} 
                         className="border border-border rounded-xl p-6 bg-gradient-to-br from-card to-muted/5 card-hover animate-fade-in-up"
@@ -282,7 +298,8 @@ const Models = () => {
                           </Badge>
                           <span className="ml-2 text-xs text-muted-foreground">Type: {model.type}</span>
                         </div>
-                        <ModelMetrics modelName={model.name} modelType={model.type} />
+                        {/* Pass the full model object to ModelMetrics */}
+                        <ModelMetrics model={model} />
                       </div>
                     ))}
                   </div>
@@ -317,7 +334,7 @@ const Models = () => {
                       <DialogTitle>Available Models</DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
-                      {mlModels.map((model) => (
+                      {models.map((model) => ( // Changed from mlModels to models
                         <div key={model.id} className="flex items-center justify-between p-4 border border-border rounded-md bg-card/70 hover:bg-card/90 transition-all card-hover">
                           <div>
                             <h3 className="font-medium">{model.name}</h3>
@@ -354,22 +371,29 @@ const Models = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {sortedModels.length === 0 ? (
+              {isLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <RefreshCw className="h-8 w-8 text-muted-foreground animate-spin mr-2" />
+                  <p className="text-muted-foreground">Loading models...</p>
+                </div>
+              ) : sortedModels.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <AlertCircle className="h-12 w-12 text-muted-foreground mb-3" />
-                  <h3 className="font-medium text-lg mb-1">No models match your filters</h3>
-                  <p className="text-muted-foreground">Try adjusting your search criteria or filters</p>
+                  {/* TODO: Differentiate between no models at all vs. no models matching filters after API call */}
+                  <h3 className="font-medium text-lg mb-1">No Models Found</h3>
+                  <p className="text-muted-foreground">There are currently no models available or your filters cleared all results.</p>
                   <Button variant="outline" className="mt-4" onClick={() => {
                     setSearchTerm('');
-                    setSelectedStatuses(['active', 'training', 'inactive']);
+                    setSelectedStatuses(['active', 'training', 'inactive']); 
                     setSortBy('');
+                    setRefreshKey(prev => prev + 1); // Also trigger a refresh
                   }}>
-                    Reset Filters
+                    Reset Filters & Refresh
                   </Button>
                 </div>
               ) : (
                 <div className="divide-y divide-border">
-                  {sortedModels.map((model, index) => (
+                  {sortedModels.map((model, index) => ( 
                     <div 
                       key={model.id} 
                       className="py-4 first:pt-0 last:pb-0 animate-fade-in-up"
@@ -392,7 +416,8 @@ const Models = () => {
                           <p className="text-sm text-muted-foreground mt-1">{model.description}</p>
                           <div className="flex items-center mt-2 text-xs text-muted-foreground">
                             <span className="mr-4">Type: {model.type}</span>
-                            <span>Last trained: {model.lastTrained.toLocaleDateString()}</span>
+                            {/* Updated to handle null lastTrained and format date */}
+                            <span>Last trained: {model.lastTrained ? new Date(model.lastTrained).toLocaleDateString() : 'N/A'}</span>
                           </div>
                         </div>
                         
@@ -400,17 +425,18 @@ const Models = () => {
                           <div className="flex items-center">
                             <div className="text-right mr-4">
                               <div className="text-sm">Accuracy</div>
-                              <div className="font-medium">{model.accuracy}%</div>
+                              {/* Updated to handle null accuracy */}
+                              <div className="font-medium">{model.accuracy ? `${model.accuracy}%` : 'N/A'}</div>
                             </div>
                             <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
                               <div 
                                 className={cn(
                                   "h-full rounded-full",
-                                  model.accuracy > 95 ? "bg-green-500" :
-                                  model.accuracy > 90 ? "bg-blue-500" :
-                                  model.accuracy > 85 ? "bg-amber-500" : "bg-red-500"
+                                  (model.accuracy || 0) > 95 ? "bg-green-500" :
+                                  (model.accuracy || 0) > 90 ? "bg-blue-500" :
+                                  (model.accuracy || 0) > 85 ? "bg-amber-500" : "bg-red-500"
                                 )} 
-                                style={{ width: `${model.accuracy}%` }}
+                                style={{ width: `${model.accuracy || 0}%` }} // Handle null accuracy
                               ></div>
                             </div>
                           </div>
@@ -428,7 +454,8 @@ const Models = () => {
                               <DialogHeader>
                                 <DialogTitle>{model.name} Metrics</DialogTitle>
                               </DialogHeader>
-                              <ModelMetrics modelName={model.name} modelType={model.type} />
+                              {/* Pass the full model object to ModelMetrics */}
+                              <ModelMetrics model={model} />
                             </DialogContent>
                           </Dialog>
                           
@@ -446,7 +473,7 @@ const Models = () => {
                               <Button 
                                 variant="destructive" 
                                 size="sm"
-                                onClick={() => handleStopModel(model)}
+                                onClick={() => handleStopModel(model)} // Ensure handleStopModel uses the new model structure
                               >
                                 <StopCircle className="h-4 w-4" />
                               </Button>
@@ -456,7 +483,7 @@ const Models = () => {
                               variant="outline" 
                               size="sm" 
                               disabled={model.status === "training" || (runningModels[model.id]?.progress === 100)}
-                              onClick={() => handleRunModel(model)}
+                              onClick={() => handleRunModel(model)} // Ensure handleRunModel uses the new model structure
                               className={cn(
                                 runningModels[model.id]?.progress === 100 ? "bg-green-500/10 text-green-500" : ""
                               )}

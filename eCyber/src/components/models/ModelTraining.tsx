@@ -31,6 +31,7 @@ const ModelTraining = () => {
   };
   
   const startTraining = () => {
+    // TODO: Replace with actual backend API call for model training.
     if (!modelType) {
       toast({
         title: "Model Type Required",
@@ -51,12 +52,14 @@ const ModelTraining = () => {
     
     setIsTraining(true);
     setProgress(0);
-    setTrainingLogs([]);
+    setTrainingLogs([`[${new Date().toLocaleTimeString()}] Starting training simulation for ${modelType} model...`]);
     setActiveTab("progress");
     
     // Simulate training progress
     const interval = setInterval(() => {
       setProgress(prev => {
+        // Ensure logs are updated via setTrainingLogs to avoid stale closures
+        const currentLogCount = trainingLogs.length; 
         const newProgress = prev + Math.random() * 5;
         
         // Add logs at certain points
@@ -138,11 +141,12 @@ const ModelTraining = () => {
                   <SelectValue placeholder="Select model type" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="anomaly-detection">Anomaly Detection</SelectItem>
-                  <SelectItem value="malware-classification">Malware Classification</SelectItem>
-                  <SelectItem value="user-behavior">User Behavior Analysis</SelectItem>
-                  <SelectItem value="traffic-prediction">Traffic Prediction</SelectItem>
-                  <SelectItem value="intrusion-detection">Intrusion Detection</SelectItem>
+                  {/* TODO: Populate these items from backend-defined model types */}
+                  <SelectItem value="anomaly-detection">Anomaly Detection (e.g., Neural Network)</SelectItem>
+                  <SelectItem value="malware-classification">Malware Classification (e.g., RandomForest)</SelectItem>
+                  <SelectItem value="user-behavior">User Behavior Analysis (e.g., LSTM)</SelectItem>
+                  <SelectItem value="traffic-prediction">Traffic Prediction (e.g., ARIMA)</SelectItem>
+                  <SelectItem value="intrusion-detection">Intrusion Detection (e.g., XGBoost)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -154,11 +158,12 @@ const ModelTraining = () => {
                   <SelectValue placeholder="Select data source" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="network-logs">Network Logs</SelectItem>
-                  <SelectItem value="user-activity">User Activity</SelectItem>
-                  <SelectItem value="security-events">Security Events</SelectItem>
-                  <SelectItem value="system-metrics">System Metrics</SelectItem>
-                  <SelectItem value="traffic-flow">Traffic Flow</SelectItem>
+                  {/* TODO: Populate these items from backend-defined data sources */}
+                  <SelectItem value="network-logs">Network Logs (e.g., CICIDS2017)</SelectItem>
+                  <SelectItem value="user-activity">User Activity Logs</SelectItem>
+                  <SelectItem value="security-events">Security Event Logs (SIEM)</SelectItem>
+                  <SelectItem value="system-metrics">System Performance Metrics</SelectItem>
+                  <SelectItem value="traffic-flow">NetFlow/IPFIX Data</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -264,7 +269,7 @@ const ModelTraining = () => {
             <div className="space-y-4">
               <div>
                 <div className="flex justify-between mb-1">
-                  <Label>Training Progress</Label>
+                  <Label>Training Progress (Simulation)</Label>
                   <span className="text-sm">{Math.round(progress)}%</span>
                 </div>
                 <Progress value={progress} className="h-2" />
@@ -281,7 +286,7 @@ const ModelTraining = () => {
                 ) : (
                   <div className="flex items-center justify-center h-full text-muted-foreground">
                     <Code className="mr-2 h-4 w-4" />
-                    Training logs will appear here
+                    (Simulated logs will appear here once training starts)
                   </div>
                 )}
               </div>
@@ -289,11 +294,11 @@ const ModelTraining = () => {
               <div className="flex justify-between">
                 <div className="flex items-center text-xs text-muted-foreground">
                   <Server className="mr-1 h-4 w-4" />
-                  <span>GPU Utilization: 86%</span>
+                  <span>Simulated GPU Utilization: 86%</span>
                 </div>
                 <div className="flex items-center text-xs text-muted-foreground">
                   <Database className="mr-1 h-4 w-4" />
-                  <span>Memory Usage: 4.2GB</span>
+                  <span>Simulated Memory Usage: 4.2GB</span>
                 </div>
               </div>
             </div>
@@ -329,6 +334,7 @@ const ModelTraining = () => {
 };
 
 // Helper functions
+// TODO: These helper functions may need to be updated based on actual backend model types and their specific parameters/recommendations.
 function getConfigDescription(modelType: string, dataSource: string): string {
   switch(modelType) {
     case 'anomaly-detection':

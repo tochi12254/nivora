@@ -24,7 +24,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
   return (
     <div 
       className={cn(
-        "max-w-[80%] rounded-lg p-3 relative group",
+        "max-w-[80%] rounded-xl p-3 relative group", // Changed to rounded-xl
         message.sender === 'user' 
           ? "bg-isimbi-purple/20 ml-auto" 
           : "bg-secondary/50"
@@ -59,6 +59,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
               size="sm"
               className="h-6 w-6 p-0 hover:bg-transparent"
               onClick={() => onLike(message.id)}
+              aria-label={message.liked ? "Unlike message" : "Like message"}
             >
               <ThumbsUp 
                 size={14} 
@@ -70,6 +71,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
               size="sm"
               className="h-6 w-6 p-0 hover:bg-transparent hover:text-destructive"
               onClick={() => onDelete(message.id)}
+              aria-label="Delete message"
             >
               <Trash2 size={14} />
             </Button>

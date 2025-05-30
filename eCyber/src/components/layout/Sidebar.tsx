@@ -75,7 +75,7 @@ const navItems = [
   { icon: Settings, label: 'Settings', path: '/settings', badge: null },
   { 
     icon: ShieldAlert, 
-    label: 'Attack Simulations', 
+    label: 'Attacks', 
     path: '/attack-simulations', 
     badge: { count: 2, severity: 'warning' },
     highlight: true
@@ -206,7 +206,7 @@ const Sidebar = () => {
           <SidebarGroup>
             <SidebarGroupLabel className="px-4 flex items-center">
               <ShieldAlert size={14} className="mr-1 text-isimbi-purple" />
-              ATTACK SIMULATIONS
+              ATTACKS
               <Badge variant="outline" className="ml-2 bg-isimbi-purple/20 border-isimbi-purple text-isimbi-purple text-[10px] h-4 px-1">
                 INTERACTIVE
               </Badge>
@@ -236,7 +236,7 @@ const Sidebar = () => {
                     </TooltipTrigger>
                     <TooltipContent side="right" className="w-60 p-2">
                       <div className="space-y-1">
-                        <h4 className="font-medium text-sm">{sim.name} Simulation</h4>
+                        <h4 className="font-medium text-sm">{sim.name} Attack</h4>
                         <p className="text-xs text-muted-foreground">{sim.description}</p>
                         <div className="flex items-center pt-1">
                           <div className="w-2 h-2 rounded-full bg-green-500 mr-1.5"></div>

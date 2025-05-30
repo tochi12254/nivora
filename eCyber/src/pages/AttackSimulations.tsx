@@ -60,7 +60,7 @@ const AttackSimulations = () => {
     <div className="container mx-auto py-8 animate-fade-in">
       <header className="mb-8">
         <h1 className="text-3xl font-bold text-isimbi-purple mb-2">
-          Attack Simulations Playground
+          Attacks Playground
         </h1>
         <p className="text-muted-foreground">
           Interactive security testing environment for simulating various cyber attacks and monitoring system responses
@@ -72,7 +72,7 @@ const AttackSimulations = () => {
         <TabsList className="grid grid-cols-4 md:grid-cols-8 mb-8">
           <TabsTrigger value="attack-simulations" className="gap-2">
             <Shield size={16} />
-            <span className="hidden md:inline">Simulations</span>
+            <span className="hidden md:inline">Attacks</span>
           </TabsTrigger>
           <TabsTrigger value="network">
             <Network size={16} />

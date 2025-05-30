@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
-from app.services.monitoring.packet import PacketSniffer
+from app.services.monitoring.sniffer import PacketSniffer
 from app.core.dependencies import get_packet_sniffer
 from utils.get_system_info import get_system_info
 

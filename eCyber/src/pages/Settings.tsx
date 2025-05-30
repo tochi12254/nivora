@@ -65,7 +65,7 @@ const Settings = () => {
                     <CardContent className="space-y-6">
                       <div className="space-y-2">
                         <Label htmlFor="system-name">System Name</Label>
-                        <Input id="system-name" defaultValue="ISIMBI Security Platform" />
+                        <Input id="system-name" defaultValue="eCyber Security Platform" />
                       </div>
                       
                       <div className="space-y-2">

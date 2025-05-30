@@ -1,6 +1,7 @@
 import re
 import math
 import json
+import uuid # Added import
 
 import gzip, joblib, json
 import time
@@ -727,19 +728,19 @@ class PacketSniffer:
                 packet_info["protocol"] = "Unknown"
 
             # Log the packet now with accurate data
-            logger.info(
-                "Packet Received: proto=%(protocol)s src=%(src_ip)s:%(src_port)s "
-                "dst=%(dst_ip)s:%(dst_port)s size=%(size)d flags=%(flags)s",
-                {
-                    "protocol": packet_info["protocol"],
-                    "src_ip": src_ip,
-                    "src_port": packet_info.get("src_port", "N/A"),
-                    "dst_ip": dst_ip,
-                    "dst_port": packet_info.get("dst_port", "N/A"),
-                    "size": packet_info["size"],
-                    "flags": packet_info.get("flags", "N/A")
-                }
-            )
+            # logger.info(
+            #     "Packet Received: proto=%(protocol)s src=%(src_ip)s:%(src_port)s "
+            #     "dst=%(dst_ip)s:%(dst_port)s size=%(size)d flags=%(flags)s",
+            #     {
+            #         "protocol": packet_info["protocol"],
+            #         "src_ip": src_ip,
+            #         "src_port": packet_info.get("src_port", "N/A"),
+            #         "dst_ip": dst_ip,
+            #         "dst_port": packet_info.get("dst_port", "N/A"),
+            #         "size": packet_info["size"],
+            #         "flags": packet_info.get("flags", "N/A")
+            #     }
+            # )
             
             # --- Populate _endpoint_tracker (Task 4) ---
             if src_ip and dst_ip and packet_info.get("protocol") and packet_info.get("dst_port") is not None:
@@ -764,25 +765,25 @@ class PacketSniffer:
             try:
                 if packet.haslayer(HTTPRequest) or packet.haslayer(HTTPResponse):
                     self._analyze_http(packet)
-                    logger.info(
-                        "HTTP %s %s%s",
-                        (
-                            packet[HTTPRequest].Method.decode(errors="replace")
-                            if packet.haslayer(HTTPRequest) else "Response"
-                        ),
-                        (
-                            packet[HTTPRequest].Host.decode(errors="replace")
-                            if packet.haslayer(HTTPRequest) else ""
-                        ),
-                        (
-                            packet[HTTPRequest].Path.decode(errors="replace")
-                            if packet.haslayer(HTTPRequest) else ""
-                        ),
-                    )
+                    # logger.info(
+                    #     "HTTP %s %s%s",
+                    #     (
+                    #         packet[HTTPRequest].Method.decode(errors="replace")
+                    #         if packet.haslayer(HTTPRequest) else "Response"
+                    #     ),
+                    #     (
+                    #         packet[HTTPRequest].Host.decode(errors="replace")
+                    #         if packet.haslayer(HTTPRequest) else ""
+                    #     ),
+                    #     (
+                    #         packet[HTTPRequest].Path.decode(errors="replace")
+                    #         if packet.haslayer(HTTPRequest) else ""
+                    #     ),
+                    # )
 
                 elif packet.haslayer(DNS):
                     self._analyze_dns(packet)
-                    logger.debug("DNS Query: %s", packet[DNS].summary())
+                    # logger.debug("DNS Query: %s", packet[DNS].summary())
 
             except Exception as e:
                 logger.debug("Application layer error: %s", str(e))
@@ -825,9 +826,9 @@ class PacketSniffer:
                 feature_vector = self.packet_processor.prepare_feature_vector(features)
 
                 # Optional: Save for offline debugging
-                if len(features) > 1:
-                    save_feature_vectors_to_json(feature_vector)
-                    save_features_to_json(features)
+                # if len(features) > 1:
+                #     save_feature_vectors_to_json(feature_vector)
+                #     save_features_to_json(features)
 
                 # ── ML SCORING ──
                 # For each attack-specific model, scale & predict
@@ -835,17 +836,51 @@ class PacketSniffer:
                     Xs = scaler.transform(feature_vector)            # shape (1,40)
                     prob = float(model.predict_proba(Xs)[0,1])       # P(attack)
                     if prob >= thresh:
+                        alert_id = f"ml_{attack.replace(' ', '_')}_{str(uuid.uuid4())[:8]}"
+
+                        # Determine severity (example heuristic)
+                        severity = "High" if prob > 0.9 else "Medium" if prob > 0.75 else "Low"
+                        if "DDoS" in attack or "Brute_Force" in attack: # Example: elevate severity for certain attack types
+                            severity = "Critical" if prob > 0.8 else "High"
+                        
+                        description = f"Machine learning model detected {attack.replace('_', ' ')} with {prob*100:.2f}% confidence."
+                        
+                        source_ip_val = features.get('Src IP', packet_info.get('src_ip', 'N/A'))
+                        destination_ip_val = features.get('Dst IP', packet_info.get('dst_ip', 'N/A'))
+                        destination_port_val = features.get('Dst Port', packet_info.get('dst_port', 0))
+                        
+                        protocol_val_numeric = features.get('Protocol', packet_info.get('protocol_num')) # Assuming protocol_num if direct from packet_info
+                        
+                        # Ensure protocol_for_alert is a string name
+                        protocol_map_for_alert = {6: "TCP", 17: "UDP", 1: "ICMP"}
+                        protocol_str = protocol_map_for_alert.get(protocol_val_numeric)
+                        if not protocol_str: # If not found in map, try to get from packet_info['protocol'] (string name) or default
+                            protocol_str = packet_info.get('protocol', str(protocol_val_numeric))
+
+
                         alert = {
-                            "type":        attack,
-                            "probability": prob,
-                            "features":    features,
-                            "timestamp":   datetime.utcnow().isoformat() + "Z"
+                            "id": alert_id,
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                            "severity": severity,
+                            "source_ip": source_ip_val,
+                            "destination_ip": destination_ip_val,
+                            "destination_port": int(destination_port_val) if isinstance(destination_port_val, (str, float)) and str(destination_port_val).isdigit() else destination_port_val if isinstance(destination_port_val, int) else 0,
+                            "protocol": protocol_str,
+                            "description": description,
+                            "threat_type": attack.replace('_', ' '), 
+                            "rule_id": f"ml_model_{attack.replace(' ', '_')}", 
+                            "metadata": {
+                                "probability": round(prob, 4),
+                                "model_name": attack, # Original attack name from model iteration
+                                "features_contributing": {k: v for k, v in features.items() if v != 0}, # Send non-zero features
+                                # "model_algorithm": self.models[attack][1].__class__.__name__ # Example if model object has algo info
+                            }
                         }
                         try:
                             self.sio_queue.put_nowait(("ml_alert", alert))
                         except Full:
-                            logger.warning("ML alert queue full, dropping")
-
+                            logger.warning("ML alert queue full, dropping: %s", alert_id)
+                
                 # Step 3: Update flow state & export on flow end
                 self.packet_processor.process_packet(packet)
 

@@ -724,9 +724,9 @@ class AdvancedFeatureExtractor:
             del self.flows[fk]
 
             # Log flow cleanup (for debugging or audit purposes)
-            print(
-                f"[INFO] Cleared flow: {fk.src_ip}:{fk.src_port} → {fk.dst_ip}:{fk.dst_port} (Protocol {fk.protocol})"
-            )
+            # print(
+            #     f"[INFO] Cleared flow: {fk.src_ip}:{fk.src_port} → {fk.dst_ip}:{fk.dst_port} (Protocol {fk.protocol})"
+            # )
 
         else:
             # Log unexpected cleanup attempt
@@ -739,11 +739,12 @@ class AdvancedFeatureExtractor:
         expired = [fk for fk, fs in self.flows.items() if now - fs.last_seen > timeout]
         for fk in expired:
             pkt_count = self.flows[fk].total_packets
+            features = self.compute_features(fk)
             features = {k: features[k] for k in EXPECTED_FEATURES if k in features}
 
-            features = self.compute_features(fk)
-            if features:
-                self.append_features_row("ml_ready_features.csv", features)
+            
+            # if features:
+            #     self.append_features_row("ml_ready_features.csv", features)
             del self.flows[fk]
             if fk in self.flow_packets:
                 del self.flow_packets[fk]
@@ -2483,10 +2484,10 @@ class EnhancedPacketProcessor:
                 features = self.feature_extractor.compute_features(flow_key_obj)
 
                 # If features are computed successfully, append them to CSV
-                if features:
-                    self.feature_extractor.append_features_row(
-                        "ml_ready_features.csv", features
-                    )
+                # if features:
+                #     self.feature_extractor.append_features_row(
+                #         "ml_ready_features.csv", features
+                #     )
 
                 # Clear flow-specific data to free memory
                 self.feature_extractor.clear_flow(flow_key_obj)

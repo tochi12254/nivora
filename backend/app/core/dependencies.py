@@ -1,5 +1,5 @@
 from fastapi import Depends
-from app.services.monitoring.packet import PacketSniffer
+from app.services.monitoring.sniffer import PacketSniffer
 from app.services.prevention.firewall import FirewallManager
 from app.services.detection.signature import SignatureEngine
 from app.database import get_db
