@@ -1,0 +1,11 @@
+{
+  "attack": "Infiltration",
+  "algorithm": "XGBoost",
+  "threshold": 0.4949018359184265,
+  "f1": 0.9999999999995,
+  "precision": 1.0,
+  "recall": 1.0,
+  "auc": 1.0,
+  "n_train_pos": 36,
+  "n_train_neg": 36
+}

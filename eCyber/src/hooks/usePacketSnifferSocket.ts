@@ -340,6 +340,7 @@ export interface PacketMetadata { // This is for the PacketData slice, used by P
 // ==================== Event Type Definitions ====================
 export type SocketEvent =
   | { type: 'threat_detected'; data: Alert } // Uses refined Alert
+  | { type: 'ml_alert'; data: Alert}
   | { type: 'analysis_error'; data: AnalysisError}
   | { type: 'network_metrics'; data: any } // Keep as any if structure is unknown or varies
   | { type: 'phishing_link_detected'; data: PhishingData } // Uses refined PhishingData
@@ -463,7 +464,7 @@ const ALL_SOCKET_EVENTS: SocketEvent['type'][] = [
   'threat_detected', 'network_metrics', 'phishing_link_detected',
   'training_progress', 'training_completed', 'network_anomaly',
   'unauthorized_access', 'firewall_blocked', 'url_classification_result',
-  'service_status', 'user_alert', 'security_alert', 'http_activity', 'tcp_activity', 'icmp_activity',
+  'service_status', 'user_alert', 'ml_alert','security_alert', 'http_activity', 'tcp_activity', 'icmp_activity',
   'udp_activity','arp_activity','behavior_analysis',
   'dns_activity', 'database_error', 'ssh_connection', 'firewall_event','payload_analysis',
   'detection_error', 'rules_updated', 'get_rules', 'system_stats',

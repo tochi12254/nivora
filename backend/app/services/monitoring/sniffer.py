@@ -1,6 +1,8 @@
 import re
 import math
 import json
+
+import gzip, joblib, json
 import time
 import logging
 import platform
@@ -110,8 +112,28 @@ class PacketSniffer:
         self._stop_event = Event()
         self.sniffer_process: Optional[Process] = None
         self.stop_sniffing_event = mp.Event()
+        
+        
 
         ##Machine learning part
+        # Load all ML artifacts once at startup:
+        self.models = {}   # attack → (scaler, model, threshold)
+        bundle_dir = Path(__file__).parent / "ml" / "cicids_models_bundle"
+        for meta_path in bundle_dir.glob("*_meta.json"):
+            attack = meta_path.stem.replace("_meta","").replace("_"," ")
+            mdir = meta_path.parent
+            meta = json.loads(meta_path.read_text())
+            algo = meta["algorithm"]
+            thresh = meta["threshold"]
+            # Paths:
+            scaler_p = mdir / f"{meta_path.stem.replace('_meta','')}_scaler.pkl.gz"
+            model_p  = mdir / f"{meta_path.stem.replace('_meta','')}_{algo}_model.pkl.gz"
+            # Load:
+            with gzip.open(scaler_p,"rb") as f: scaler = joblib.load(f)
+            with gzip.open(model_p ,"rb") as f: model  = joblib.load(f)
+            self.models[attack] = (scaler, model, thresh)
+        
+        
 
         self.feature_extractor = AdvancedFeatureExtractor(
             cleanup_interval=300, flow_timeout=120
@@ -794,28 +816,45 @@ class PacketSniffer:
                 logger.error("Final processing error: %s", str(e))
                 logger.error("Traceback:\n%s", traceback.format_exc())
             # ── Feature Extraction ──
-
+            
             try:
+                # Step 1: Extract CICIDS features
                 features = self.feature_extractor.extract_features(packet)
 
-                # Step 2: Prepare ML-ready vector (even if flow is not complete)
+                # Step 2: Prepare ML-ready vector
                 feature_vector = self.packet_processor.prepare_feature_vector(features)
 
-                # Optional: Save features for inspection/debug
+                # Optional: Save for offline debugging
                 if len(features) > 1:
-                    feature_vector = self.packet_processor.prepare_feature_vector(features)
                     save_feature_vectors_to_json(feature_vector)
                     save_features_to_json(features)
-                    
 
-                # Step 3: Feed into enhanced_processor to detect end-of-flow (FIN/RST)
-                self.packet_processor.process_packet(packet)  # Handles per-flow export + memory cleanup
+                # ── ML SCORING ──
+                # For each attack-specific model, scale & predict
+                for attack, (scaler, model, thresh) in self.models.items():
+                    Xs = scaler.transform(feature_vector)            # shape (1,40)
+                    prob = float(model.predict_proba(Xs)[0,1])       # P(attack)
+                    if prob >= thresh:
+                        alert = {
+                            "type":        attack,
+                            "probability": prob,
+                            "features":    features,
+                            "timestamp":   datetime.utcnow().isoformat() + "Z"
+                        }
+                        try:
+                            self.sio_queue.put_nowait(("ml_alert", alert))
+                        except Full:
+                            logger.warning("ML alert queue full, dropping")
 
-                # Optional: Periodic backup to CSV (e.g. to catch flows with no FIN/RST)
+                # Step 3: Update flow state & export on flow end
+                self.packet_processor.process_packet(packet)
+
+                # Periodic cleanup/backup of long‐lived flows
                 if self.packet_counter.value % 300 == 0:
-                    self.feature_extractor.cleanup_old_flows(timeout=60.0)  #   
+                    self.feature_extractor.cleanup_old_flows(timeout=60.0)
+
             except Exception as e:
-                logger.debug("Feature extraction failed: %s", e)
+                logger.debug("Feature extraction or ML scoring failed: %s", e)
 
             # ── Rule-Based Threat Detection ──
             try:

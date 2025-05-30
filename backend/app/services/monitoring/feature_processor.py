@@ -39,6 +39,26 @@ from scapy.packet import Packet
 from statistics import mean, stdev
 
 logger = logging.getLogger(__name__)
+# Top 40 selected features (in training)
+
+
+# -----------------------------------------------------------------------------
+# Module-level Feature Definition (shared by all processors)
+# -----------------------------------------------------------------------------
+EXPECTED_FEATURES = [
+    'Destination Port', 'Flow Duration', 'Total Length of Fwd Packets',
+    'Fwd Packet Length Min', 'Bwd Packet Length Max', 'Bwd Packet Length Min',
+    'Bwd Packet Length Mean', 'Bwd Packet Length Std', 'Flow IAT Mean',
+    'Flow IAT Std', 'Flow IAT Max', 'Fwd IAT Total', 'Fwd IAT Mean',
+    'Fwd IAT Std', 'Fwd IAT Max', 'Bwd IAT Total', 'Bwd IAT Mean',
+    'Bwd IAT Std', 'Bwd IAT Max', 'Bwd Packets/s', 'Min Packet Length',
+    'Max Packet Length', 'Packet Length Mean', 'Packet Length Std',
+    'Packet Length Variance', 'FIN Flag Count', 'SYN Flag Count',
+    'PSH Flag Count', 'ACK Flag Count', 'URG Flag Count', 'Down/Up Ratio',
+    'Average Packet Size', 'Avg Bwd Segment Size', 'Subflow Fwd Bytes',
+    'Init_Win_bytes_forward', 'Init_Win_bytes_backward', 'Idle Mean',
+    'Idle Std', 'Idle Max', 'Idle Min'
+]
 
 
 def new_deque():
@@ -261,9 +281,9 @@ class AdvancedFeatureExtractor:
         flow_id_str = f"{flow_key.src_ip}-{flow_key.src_port}-{flow_key.dst_ip}-{flow_key.dst_port}-{flow_key.protocol}"
         f["Flow ID"] = flow_id_str
         f["Src IP"] = flow_key.src_ip
-        f["Src Port"] = flow_key.src_port  # Already int
+        f["Source Port"] = flow_key.src_port  # Already int
         f["Dst IP"] = flow_key.dst_ip
-        f["Dst Port"] = flow_key.dst_port  # Already int
+        f["Destination Port"] = flow_key.dst_port  # Already int
         protocol_map = {"TCP": 6, "UDP": 17, "ICMP": 1}
         f["Protocol"] = protocol_map.get(
             str(flow_key.protocol).upper(), 0
@@ -278,7 +298,7 @@ class AdvancedFeatureExtractor:
         )  # CICFlowMeter expects microseconds
         f["Total Fwd Packet"] = st.forward_packets
         f["Total Backward Packets"] = st.backward_packets
-        f["Total Length of Fwd Packet"] = float(st.total_length_forward)
+        f["Total Length of Fwd Packets"] = float(st.total_length_forward)
         f["Total Length of Bwd Packet"] = float(st.total_length_backward)
 
         # --- Packet Length Statistics (Fwd & Bwd) ---
@@ -446,10 +466,10 @@ class AdvancedFeatureExtractor:
         f["Subflow Bwd Bytes"]   = float(sum(st.backward_packet_lengths[:N]))
 
         # --- Initial Window Bytes ---
-        f["Init Fwd Win Byts"] = float(
+        f["Init_Win_bytes_forward"] = float(
             st.init_win_forward if st.init_win_forward is not None else 0
         )
-        f["Init Bwd Win Byts"] = float(
+        f["Init_Win_bytes_backward"] = float(
             st.init_win_backward if st.init_win_backward is not None else 0
         )
 
@@ -480,7 +500,7 @@ class AdvancedFeatureExtractor:
         # )
         # f["Idle Max"] = max(st.idle_times) * micro_converter if st.idle_times else 0.0
         # f["Idle Min"] = min(st.idle_times) * micro_converter if st.idle_times else 0.0
-        
+
         # Active / Idle summaries
         if st.active_times:
             f["Active Mean"] = statistics.mean(st.active_times)
@@ -523,6 +543,8 @@ class AdvancedFeatureExtractor:
             "Bwd Avg Bytes/Bulk":   float(b_avg_bytes),
             "Bwd Avg Bulk Rate":    b_avg_bytes / b_avg_dur if b_avg_dur>0 else 0.0,
         })
+        # Only keep expected features in the final dictionary
+        f = {k: f[k] for k in EXPECTED_FEATURES if k in f}
 
         return f
 
@@ -586,7 +608,6 @@ class AdvancedFeatureExtractor:
         avg_duration = sum(b[2] for b in bulks) / total_runs
 
         return avg_pkts, avg_bytes, avg_duration
-
 
     def update_flow(self, packet: Packet) -> Optional[FlowStatistics]:
         packet_info = self._extract_basic_info(packet)
@@ -713,14 +734,16 @@ class AdvancedFeatureExtractor:
                 f"[WARNING] Attempted to clear unknown flow: {fk.src_ip}:{fk.src_port} → {fk.dst_ip}:{fk.dst_port} (Protocol {fk.protocol})"
             )
 
-    def _cleanup_old_flows(self, timeout: float = 60.0):
+    def cleanup_old_flows(self, timeout: float = 60.0):
         now = time.time()
         expired = [fk for fk, fs in self.flows.items() if now - fs.last_seen > timeout]
         for fk in expired:
             pkt_count = self.flows[fk].total_packets
-            features = self.compute_features(fk, pkt_count)
+            features = {k: features[k] for k in EXPECTED_FEATURES if k in features}
+
+            features = self.compute_features(fk)
             if features:
-                self._append_features_row("ml_ready_features.csv", features)
+                self.append_features_row("ml_ready_features.csv", features)
             del self.flows[fk]
             if fk in self.flow_packets:
                 del self.flow_packets[fk]
@@ -746,7 +769,7 @@ class AdvancedFeatureExtractor:
             with self.lock:
                 # Cleanup old flows periodically
                 if time.time() - self.last_cleanup > self.cleanup_interval:
-                    self._cleanup_old_flows()  # This calls compute_features, which needs a flow_key. Ensure flows only contain IP flows.
+                    self.cleanup_old_flows()  # This calls compute_features, which needs a flow_key. Ensure flows only contain IP flows.
 
                 packet_info = self._extract_basic_info(packet)
                 if not packet_info or not packet_info.get("is_ip_packet"):
@@ -1906,32 +1929,19 @@ class AdvancedFeatureExtractor:
         )
 
         return features
+    
 
-    def _cleanup_old_flows(self):
-        """Remove old flows to prevent memory leaks"""
-        current_time = time.time()
-        flows_to_remove = []
-
-        for flow_key, flow_stats in self.flows.items():
-            if current_time - flow_stats.last_seen > self.flow_timeout:
-                flows_to_remove.append(flow_key)
-
-        for flow_key in flows_to_remove:
-            del self.flows[flow_key]
-            if flow_key in self.flow_packets:
-                del self.flow_packets[flow_key]
-
-        self.last_cleanup = current_time
-        logger.debug(f"Cleaned up {len(flows_to_remove)} old flows")
-
-    def _append_features_row(self, filename: str, features: Dict[str, Any]):
-        fieldnames = list(features.keys())
+    def append_features_row(self, filename: str, features: Dict[str, Any]):
+        # Filter & order by module-level EXPECTED_FEATURES
+        filtered = {key: features.get(key, 0.0) for key in EXPECTED_FEATURES}
         write_header = not os.path.exists(filename) or os.path.getsize(filename) == 0
+
         with open(filename, "a", newline="") as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer = csv.DictWriter(csvfile, fieldnames=EXPECTED_FEATURES)
             if write_header:
                 writer.writeheader()
-            writer.writerow(features)
+            writer.writerow(filtered)
+
 
     def get_flow_summary(self, flow_key: FlowKey) -> Dict[str, Any]:
         """Get comprehensive flow summary for threat detection"""
@@ -2429,93 +2439,7 @@ class EnhancedPacketProcessor:
 
         # Define the order of features for the CSV and feature vector preparation.
         # This list must match the keys produced by compute_features, including identifiers.
-        self.expected_features = [
-            "Flow ID",
-            "Src IP",
-            "Src Port",
-            "Dst IP",
-            "Dst Port",
-            "Protocol",
-            "Timestamp",
-            "Flow Duration",
-            "Total Fwd Packet",
-            "Total Backward Packets",
-            "Total Length of Fwd Packet",
-            "Total Length of Bwd Packet",
-            "Fwd Packet Length Max",
-            "Fwd Packet Length Min",
-            "Fwd Packet Length Mean",
-            "Fwd Packet Length Std",
-            "Bwd Packet Length Max",
-            "Bwd Packet Length Min",
-            "Bwd Packet Length Mean",
-            "Bwd Packet Length Std",
-            "Flow Bytes/s",
-            "Flow Packets/s",
-            "Flow IAT Mean",
-            "Flow IAT Std",
-            "Flow IAT Max",
-            "Flow IAT Total",
-            "Flow IAT Min",
-            "Fwd IAT Total",
-            "Fwd IAT Mean",
-            "Fwd IAT Std",
-            "Fwd IAT Max",
-            "Fwd IAT Min",
-            "Bwd IAT Total",
-            "Bwd IAT Mean",
-            "Bwd IAT Std",
-            "Bwd IAT Max",
-            "Bwd IAT Min",
-            "Fwd PSH Flags",
-            "Bwd PSH Flags",
-            "Fwd URG Flags",
-            "Bwd URG Flags",
-            "Fwd Header Length",
-            "Bwd Header Length",  # First occurrence of Fwd Header Length
-            "Fwd Packets/s",
-            "Bwd Packets/s",
-            "Min Packet Length",
-            "Max Packet Length",
-            "Packet Length Mean",
-            "Packet Length Std",
-            "Packet Length Variance",
-            "FIN Flag Count",
-            "SYN Flag Count",
-            "RST Flag Count",
-            "PSH Flag Count",
-            "ACK Flag Count",
-            "URG Flag Count",
-            "CWE Flag Count",
-            "ECE Flag Count",
-            "Down/Up Ratio",
-            "Average Packet Size",
-            "Avg Fwd Segment Size",
-            "Avg Bwd Segment Size",
-            "Fwd Header Length",  # Second occurrence of Fwd Header Length as per prompt's list for expected_features
-            "Subflow Fwd Packets",
-            "Subflow Fwd Bytes",
-            "Subflow Bwd Packets",
-            "Subflow Bwd Bytes",
-            "Fwd Avg Bytes/Bulk",
-            "Fwd Avg Packets/Bulk",
-            "Fwd Avg Bulk Rate",  # Moved these after Subflow for consistency with typical groupings
-            "Bwd Avg Bytes/Bulk",
-            "Bwd Avg Packets/Bulk",
-            "Bwd Avg Bulk Rate",
-            "Init Fwd Win Byts",
-            "Init Bwd Win Byts",
-            "Fwd Act Data Pkts",
-            "Fwd Seg Size Min",
-            "Active Mean",
-            "Active Std",
-            "Active Max",
-            "Active Min",
-            "Idle Mean",
-            "Idle Std",
-            "Idle Max",
-            "Idle Min",
-        ]  # Re-ordered and ensured Fwd Header Length is twice, total 84.
+        
 
     def load_model(self, model_path: str):
         """Load pre-trained threat detection model"""
@@ -2560,7 +2484,7 @@ class EnhancedPacketProcessor:
 
                 # If features are computed successfully, append them to CSV
                 if features:
-                    self.feature_extractor._append_features_row(
+                    self.feature_extractor.append_features_row(
                         "ml_ready_features.csv", features
                     )
 
@@ -2570,57 +2494,40 @@ class EnhancedPacketProcessor:
                     del self._pkt_counts[flow_key_obj]
 
     def prepare_feature_vector(self, features: Dict[str, Any]) -> List[float]:
-        """Prepare feature vector for ML model in the exact order used during training."""
-        # self.expected_features is now defined in __init__
+        """Prepare aligned feature vector for real-time ML model prediction."""
         vector = []
-        for feat_name in self.expected_features:
-            raw_value = features.get(
-                feat_name
-            )  # Get the raw value, could be string, int, float
 
-            # The `compute_features` method already applies `_sanitize_value` which handles NaN/Inf
-            # and type conversion for its output. Here, we primarily ensure that any
-            # non-numeric identifier fields (like "Flow ID", "Src IP", "Timestamp")
-            # become 0.0 in the numerical vector. Numeric values are taken as is.
+        for feat_name in EXPECTED_FEATURES:
+            raw_value = features.get(feat_name, 0.0)
+
             if isinstance(raw_value, (int, float)):
-                # np.isfinite check is important as np.nan or np.inf might pass through
-                # if not explicitly handled by a prior _sanitize_value in some edge case.
-                if np.isfinite(raw_value):
-                    val = float(raw_value)
-                else:
-                    val = 0.0  # Convert non-finite numbers like NaN/Inf to 0.0
-            elif isinstance(raw_value, str):  # Handles "Flow ID", "Src IP", "Timestamp"
-                val = 0.0  # Convert string identifiers to 0.0 for the numerical vector
-            elif raw_value is None:  # Handle cases where a feature might be missing
-                val = 0.0
-            else:
-                # Attempt conversion for other types, default to 0.0 if not possible
+                val = float(raw_value) if np.isfinite(raw_value) else 0.0
+            elif isinstance(raw_value, str):
                 try:
                     val = float(raw_value)
-                    if not np.isfinite(val):  # Check again after conversion
+                    if not np.isfinite(val):
+                        val = 0.0
+                except ValueError:
+                    val = 0.0
+            elif raw_value is None:
+                val = 0.0
+            else:
+                try:
+                    val = float(raw_value)
+                    if not np.isfinite(val):
                         val = 0.0
                 except (TypeError, ValueError):
                     val = 0.0
+
             vector.append(val)
 
-        if len(vector) != len(
-            self.expected_features
-        ):  # Compare against the source of truth length
+        if len(vector) != len(EXPECTED_FEATURES):
             logger.warning(
-                f"Feature vector length mismatch. Got: {len(vector)}, Expected: {len(self.expected_features)}. "
-                f"Input feature keys: {list(features.keys())}. Expected keys: {self.expected_features}"
+                f"Feature vector length mismatch. Got: {len(vector)}, Expected: {len(EXPECTED_FEATURES)}"
             )
-            # To find missing/extra keys for more detailed logging:
-            # input_keys_set = set(features.keys())
-            # expected_keys_set = set(self.expected_features)
-            # missing_in_input = list(expected_keys_set - input_keys_set)
-            # extra_in_input = list(input_keys_set - expected_keys_set)
-            # if missing_in_input:
-            #     logger.warning(f"Features expected but missing in input: {missing_in_input}")
-            # if extra_in_input:
-            #      logger.warning(f"Features in input but not in expected_features list: {extra_in_input}")
 
         return vector
+
 
     # x_raw = self._prepare_feature_vector(features)
     # x_scaled = preprocessor.transform([x_raw])
@@ -2767,7 +2674,7 @@ class EnhancedPacketProcessor:
             return
 
         # self.expected_features is used as the header
-        header = self.expected_features
+        header = EXPECTED_FEATURES
 
         file_exists = os.path.exists(filepath)
         # Check if file is empty only if it exists

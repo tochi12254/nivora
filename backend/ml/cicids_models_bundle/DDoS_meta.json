@@ -1,0 +1,11 @@
+{
+  "attack": "DDoS",
+  "algorithm": "XGBoost",
+  "threshold": 0.2286364734172821,
+  "f1": 0.999960943602062,
+  "precision": 0.9999218902558095,
+  "recall": 1.0,
+  "auc": 0.9999998840649063,
+  "n_train_pos": 128016,
+  "n_train_neg": 128016
+}
