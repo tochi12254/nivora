@@ -289,7 +289,7 @@ ${bestMatch.troubleshooting}
       {!isOpen && (
         <Button 
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg bg-isimbi-purple hover:bg-isimbi-purple/90 flex items-center justify-center"
+          className="fixed bottom-20 right-6 h-14 w-14 rounded-full shadow-lg bg-blue-700 hover:bg-blue-600 flex items-center justify-center"
           aria-label="Open AI Assistant"
         >
           <Bot size={24} />
@@ -300,7 +300,7 @@ ${bestMatch.troubleshooting}
       {isOpen && (
         <div 
           className={cn(
-            "fixed bottom-6 right-6 glass-card border border-white/10 shadow-xl flex flex-col",
+            "fixed bottom-20 right-6 glass-card border border-white/10 shadow-xl flex flex-col",
             "transition-all duration-300 z-50",
             isExpanded ? "w-[80vw] h-[80vh] max-w-4xl translate-x-0" : "w-96 h-[500px] max-w-[90vw]",
             theme === 'dark' ? 'bg-background/90 backdrop-blur-md' : 'bg-white/95 backdrop-blur-md',
@@ -310,11 +310,11 @@ ${bestMatch.troubleshooting}
           {/* Header */}
           <div className="p-4 border-b border-border flex items-center justify-between">
             <div className="flex items-center">
-              <div className="h-8 w-8 rounded-full bg-isimbi-purple/20 flex items-center justify-center mr-2">
-                <Bot className="h-5 w-5 text-isimbi-purple" />
+              <div className="h-8 w-8 rounded-full bg-blue-700/30 flex items-center justify-center mr-2">
+                <Bot className="h-5 w-5 text-blue-300" />
               </div>
               <div>
-                <h3 className="font-medium">ISIMBI AI Assistant</h3>
+                <h3 className="font-medium">eCyber AIAssistant</h3>
                 <p className="text-xs text-muted-foreground">Expert security guidance</p>
               </div>
             </div>

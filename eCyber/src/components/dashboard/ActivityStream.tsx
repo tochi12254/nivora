@@ -42,9 +42,9 @@ const ActivityStream: React.FC<ActivityStreamProps> = ({
 }) => {
   return (
     <div className={cn("space-y-1", className)}>
-      {activities.slice(0, maxItems).map((activity) => (
+      {activities.slice(0, maxItems).map((activity, idx) => (
         <div 
-          key={activity.id} 
+          key={idx} 
           className="glass-card p-3 transition-all hover:bg-card"
         >
           <div className="flex">

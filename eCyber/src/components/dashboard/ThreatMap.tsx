@@ -11,40 +11,101 @@ import {
 import { Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert } from '@/hooks/usePacketSnifferSocket'; // Import Alert type
 
-// Simulated data - in a real app, this would come from an API
-const generateData = () => {
-  const now = new Date();
-  return Array.from({ length: 24 }, (_, i) => {
-    const time = new Date(now);
-    time.setHours(time.getHours() - 23 + i);
-    
-    return {
-      time: `${time.getHours()}:00`,
-      threats: Math.floor(Math.random() * 15),
-      traffic: Math.floor(Math.random() * 100) + 20,
-    };
-  });
-};
+// Define interfaces for props and state
+interface ThreatLocation {
+  id: string;
+  latitude?: number; 
+  longitude?: number;
+  country?: string; // Or source_ip
+  severity: 'critical' | 'warning' | 'info' | 'blocked' | string;
+  count: number;
+  name?: string; 
+}
 
-// Simulated threat locations
-const threatLocations = [
-  { id: 1, latitude: 40.7128, longitude: -74.0060, country: "United States", severity: "critical", count: 27 },
-  { id: 2, latitude: 51.5074, longitude: -0.1278, country: "United Kingdom", severity: "warning", count: 15 },
-  { id: 3, latitude: 35.6762, longitude: 139.6503, country: "Japan", severity: "info", count: 8 },
-  { id: 4, latitude: -33.8688, longitude: 151.2093, country: "Australia", severity: "blocked", count: 42 },
-  { id: 5, latitude: 55.7558, longitude: 37.6173, country: "Russia", severity: "critical", count: 31 },
-];
+interface ThreatActivityDataPoint {
+  time: string;
+  threats: number;
+}
 
 interface ThreatMapProps {
   className?: string;
+  threatsData?: Alert[];
 }
 
-const ThreatMap: React.FC<ThreatMapProps> = ({ className }) => {
-  const [data, setData] = React.useState(generateData());
+// Simulated data for canvas map points (as lat/long not in alerts)
+const mockCanvasLocations: ThreatLocation[] = [
+  { id: "canvas-1", latitude: 40.7128, longitude: -74.0060, name: "New York", severity: "critical", count: 5 },
+  { id: "canvas-2", latitude: 51.5074, longitude: -0.1278, name: "London", severity: "warning", count: 3 },
+  { id: "canvas-3", latitude: 35.6762, longitude: 139.6503, name: "Tokyo", severity: "info", count: 2 },
+];
+
+
+const ThreatMap: React.FC<ThreatMapProps> = ({ className, threatsData }) => {
+  const [chartData, setChartData] = React.useState<ThreatActivityDataPoint[]>([]);
+  const [processedThreatLocations, setProcessedThreatLocations] = React.useState<ThreatLocation[]>([]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
-  // Redraw canvas when component mounts
+  useEffect(() => {
+    if (threatsData) {
+      // Process for Threat Activity Chart
+      const now = new Date();
+      const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const hourlyThreats: { [key: string]: number } = {};
+
+      for (let i = 0; i < 24; i++) {
+        const d = new Date(twentyFourHoursAgo.getTime() + i * 60 * 60 * 1000);
+        hourlyThreats[`${d.getHours()}:00`] = 0;
+      }
+
+      threatsData.forEach(threat => {
+        const threatTime = new Date(threat.timestamp);
+        if (threatTime >= twentyFourHoursAgo) {
+          const hourKey = `${threatTime.getHours()}:00`;
+          if (hourlyThreats[hourKey] !== undefined) {
+            hourlyThreats[hourKey]++;
+          }
+        }
+      });
+
+      const newChartData = Object.entries(hourlyThreats)
+        .map(([time, threats]) => ({ time, threats }))
+        .sort((a, b) => parseInt(a.time.split(':')[0]) - parseInt(b.time.split(':')[0])); // Ensure correct time order
+      setChartData(newChartData);
+
+      // Process for Top Threat Locations List
+      const locationsMap: { [key: string]: ThreatLocation } = {};
+      threatsData.forEach(threat => {
+        const key = threat.source_ip || 'Unknown'; // Group by source_ip
+        if (!locationsMap[key]) {
+          locationsMap[key] = {
+            id: key,
+            name: key, // Use IP as name
+            country: key, // Use IP as country placeholder
+            count: 0,
+            severity: threat.severity?.toLowerCase() || 'info', // Default to info
+          };
+        }
+        locationsMap[key].count++;
+        // Update severity if a more critical one is found for the same source
+        const severityOrder = { critical: 3, warning: 2, blocked: 1, info: 0 };
+        const currentSeverity = locationsMap[key].severity.toLowerCase();
+        const newSeverity = threat.severity?.toLowerCase() || 'info';
+        if (severityOrder[newSeverity] > severityOrder[currentSeverity]) {
+          locationsMap[key].severity = newSeverity;
+        }
+      });
+      
+      const newLocations = Object.values(locationsMap)
+        .sort((a, b) => b.count - a.count) // Sort by count
+        .slice(0, 5); // Take top 5
+      setProcessedThreatLocations(newLocations);
+    }
+  }, [threatsData]);
+
+
+  // Redraw canvas when component mounts - uses MOCK data for points
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -80,156 +141,187 @@ const ThreatMap: React.FC<ThreatMapProps> = ({ className }) => {
       ctx.stroke();
     }
     
-    // Draw animated pulse circles
+    // Draw animated pulse circles using MOCK canvas locations
     const drawPulses = () => {
-      threatLocations.forEach((threat) => {
+      if (!canvasRef.current) return; // Ensure canvas is still there
+      const currentCtx = canvasRef.current.getContext('2d');
+      if (!currentCtx) return;
+
+      currentCtx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height); // Clear for redraw
+      // Redraw map outline and grid
+      currentCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+      currentCtx.beginPath();
+      currentCtx.arc(canvasRef.current.width / 2, canvasRef.current.height / 2, canvasRef.current.height / 3, 0, Math.PI * 2);
+      currentCtx.stroke();
+      currentCtx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+      for (let i = 0; i < 360; i += 20) {
+        const angle = (i * Math.PI) / 180;
+        const radius = canvasRef.current.height / 3;
+        currentCtx.beginPath();
+        currentCtx.moveTo(canvasRef.current.width / 2, canvasRef.current.height / 2);
+        currentCtx.lineTo(
+          canvasRef.current.width / 2 + Math.cos(angle) * radius,
+          canvasRef.current.height / 2 + Math.sin(angle) * radius
+        );
+        currentCtx.stroke();
+      }
+
+
+      mockCanvasLocations.forEach((threat) => {
+        if (!threat.latitude || !threat.longitude || !canvasRef.current) return;
         // Convert lat/long to x,y (simplified)
-        const x = canvas.width / 2 + (threat.longitude / 180) * (canvas.width / 3);
-        const y = canvas.height / 2 - (threat.latitude / 90) * (canvas.height / 4);
+        const x = canvasRef.current.width / 2 + (threat.longitude / 180) * (canvasRef.current.width / 3);
+        const y = canvasRef.current.height / 2 - (threat.latitude / 90) * (canvasRef.current.height / 4);
         
-        // Draw threat point
         let color = 'rgba(14, 165, 233, 0.8)'; // info blue
         if (threat.severity === 'warning') color = 'rgba(245, 158, 11, 0.8)';
         if (threat.severity === 'critical') color = 'rgba(239, 68, 68, 0.8)';
         if (threat.severity === 'blocked') color = 'rgba(16, 185, 129, 0.8)';
         
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(x, y, 4, 0, Math.PI * 2);
-        ctx.fill();
+        currentCtx.fillStyle = color;
+        currentCtx.beginPath();
+        currentCtx.arc(x, y, 4, 0, Math.PI * 2);
+        currentCtx.fill();
         
-        // Draw pulse animation
         const time = Date.now() / 1000;
-        const pulseSize = 8 + (Math.sin(time * 2 + threat.id) + 1) * 8;
+        const idSegment = parseInt(threat.id.split('-')[1]) || 0;
+        const pulseSize = 8 + (Math.sin(time * 2 + idSegment) + 1) * 8;
+
         
-        ctx.strokeStyle = color.replace('0.8', '0.3');
-        ctx.beginPath();
-        ctx.arc(x, y, pulseSize, 0, Math.PI * 2);
-        ctx.stroke();
+        currentCtx.strokeStyle = color.replace('0.8', '0.3');
+        currentCtx.beginPath();
+        currentCtx.arc(x, y, pulseSize, 0, Math.PI * 2);
+        currentCtx.stroke();
       });
       
-      requestAnimationFrame(drawPulses);
+      
     };
+    let animationFrameId= requestAnimationFrame(drawPulses);
     
     drawPulses();
+
     
-    // Update data every 15 seconds
-    const interval = setInterval(() => {
-      setData(generateData());
-    }, 15000);
+    return () => cancelAnimationFrame(animationFrameId);
     
-    return () => clearInterval(interval);
-  }, []);
+  }, []); // Empty dependency array means this runs once on mount and keeps canvas animation running with mock data.
   
   return (
     <Card className={`${className} shadow-lg border-border relative overflow-hidden`}>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
+      <CardHeader className="flex flex-row items-center justify-between pb-2 z-10 relative bg-card/50 backdrop-blur-sm">
         <CardTitle className="text-sm font-medium">Global Threat Map</CardTitle>
-        <Button variant="ghost" size="sm">
+        <Button variant="ghost" size="sm" className="text-muted-foreground">
           <Settings size={16} />
         </Button>
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Threat map visualization */}
-          <div className="glass-card p-4 lg:col-span-2">
+          <div className="glass-card p-0 lg:col-span-2 relative rounded-lg overflow-hidden"> {/* Added rounded-lg and overflow-hidden */}
             <div className="aspect-[16/9] relative">
               <canvas 
                 ref={canvasRef} 
                 className="absolute inset-0 w-full h-full"
               ></canvas>
             </div>
-            <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
-              <div className="flex items-center space-x-4">
+            <div className="absolute bottom-2 left-2 right-2 p-2 bg-card/30 backdrop-blur-sm rounded flex items-center justify-between text-xs text-muted-foreground">
+              <div className="flex items-center space-x-2 sm:space-x-4">
                 <div className="flex items-center">
-                  <span className="inline-block w-3 h-3 rounded-full bg-blue-500 mr-1"></span>
+                  <span className="inline-block w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-blue-500 mr-1"></span>
                   <span>Info</span>
                 </div>
                 <div className="flex items-center">
-                  <span className="inline-block w-3 h-3 rounded-full bg-amber-500 mr-1"></span>
+                  <span className="inline-block w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-amber-500 mr-1"></span>
                   <span>Warning</span>
                 </div>
                 <div className="flex items-center">
-                  <span className="inline-block w-3 h-3 rounded-full bg-red-500 mr-1"></span>
+                  <span className="inline-block w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-red-500 mr-1"></span>
                   <span>Critical</span>
                 </div>
                 <div className="flex items-center">
-                  <span className="inline-block w-3 h-3 rounded-full bg-green-500 mr-1"></span>
+                  <span className="inline-block w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-green-500 mr-1"></span>
                   <span>Blocked</span>
                 </div>
               </div>
-              <span>Updated just now</span>
+              <span>Map Illustrative</span>
             </div>
           </div>
           
           {/* Threat metrics */}
           <div className="space-y-4">
             <div className="glass-card p-4">
-              <h3 className="text-xs font-medium text-muted-foreground mb-2">Threat Activity (24h)</h3>
+              <h3 className="text-xs font-medium text-muted-foreground mb-2">Threat Activity (Last 24h)</h3>
               <ResponsiveContainer width="100%" height={120}>
-                <AreaChart data={data}>
+                <AreaChart data={chartData}>
                   <defs>
                     <linearGradient id="threatGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#9b87f5" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#9b87f5" stopOpacity={0} />
+                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} /> {/* Red for threats */}
+                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <XAxis 
                     dataKey="time"
-                    tick={{ fontSize: 10, fill: '#64748b' }}
+                    tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
                     tickLine={false}
                     axisLine={false}
+                    interval="preserveStartEnd" // Show start and end ticks
+                    minTickGap={30} // Adjust for space
                   />
                   <YAxis 
                     hide={true}
+                    domain={['auto', 'auto']} // Ensure y-axis scales
                   />
                   <Tooltip 
                     contentStyle={{
-                      backgroundColor: 'rgba(26, 31, 44, 0.9)',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      borderRadius: '8px',
-                      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
+                      backgroundColor: 'hsl(var(--background-tooltip))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: 'var(--radius)',
+                      color: 'hsl(var(--foreground-tooltip))'
                     }}
-                    itemStyle={{ color: '#f8fafc' }}
-                    formatter={(value) => [`${value} threats`, 'Detected']}
-                    labelFormatter={(label) => `Time: ${label}`}
+                    itemStyle={{ color: 'hsl(var(--foreground-tooltip))' }}
+                    formatter={(value: number) => [`${value} threats`, 'Detected']}
+                    labelFormatter={(label: string) => `Time: ${label}`}
                   />
                   <Area 
                     type="monotone" 
                     dataKey="threats" 
-                    stroke="#9b87f5" 
+                    stroke="hsl(var(--destructive))" 
                     fill="url(#threatGradient)" 
                     strokeWidth={2}
+                    dot={false}
                   />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
             
             <div className="glass-card p-4">
-              <h3 className="text-xs font-medium text-muted-foreground mb-3">Top Threat Locations</h3>
-              <ul className="space-y-3">
-                {threatLocations.slice(0, 3).map((location) => (
-                  <li key={location.id} className="flex items-center justify-between">
-                    <div className="flex items-center">
-                      <div 
-                        className={`w-2 h-2 rounded-full mr-2 ${
-                          location.severity === 'critical' ? 'bg-red-500' : 
-                          location.severity === 'warning' ? 'bg-amber-500' : 
-                          location.severity === 'blocked' ? 'bg-green-500' :
-                          'bg-blue-500'
-                        }`}
-                      ></div>
-                      <span className="text-sm">{location.country}</span>
-                    </div>
-                    <span className="text-sm font-medium data-highlight">
-                      {location.count}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <h3 className="text-xs font-medium text-muted-foreground mb-3">Top Threat Sources (by IP)</h3>
+              {processedThreatLocations.length > 0 ? (
+                <ul className="space-y-3">
+                  {processedThreatLocations.map((location) => (
+                    <li key={location.id} className="flex items-center justify-between">
+                      <div className="flex items-center">
+                        <div 
+                          className={`w-2 h-2 rounded-full mr-2 ${
+                            location.severity === 'critical' ? 'bg-red-500' : 
+                            location.severity === 'warning' ? 'bg-amber-500' : 
+                            location.severity === 'blocked' ? 'bg-green-500' :
+                            'bg-blue-500'
+                          }`}
+                        ></div>
+                        <span className="text-sm truncate" title={location.name}>{location.name}</span>
+                      </div>
+                      <span className="text-sm font-medium data-highlight">
+                        {location.count}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">No significant threat sources detected.</p>
+              )}
               <div className="mt-3 pt-3 border-t border-border">
-                <Button variant="ghost" size="sm" className="w-full text-xs text-muted-foreground hover:text-primary">
-                  View All Locations
+                <Button variant="ghost" size="sm" className="w-full text-xs text-muted-foreground hover:text-primary" disabled={processedThreatLocations.length === 0}>
+                  View All Sources
                 </Button>
               </div>
             </div>

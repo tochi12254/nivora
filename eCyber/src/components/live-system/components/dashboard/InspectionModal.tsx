@@ -34,7 +34,7 @@ export function InspectionModal({ isOpen, onClose, item, type }: InspectionModal
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-2xl bg-background/95 backdrop-blur-sm border-border/50 shadow-2xl">
+      <DialogContent className="max-w-2xl bg-background/95 backdrop-blur-sm border-border/50 shadow-2xl overflow-y-auto" style={{ maxHeight: "90vh" }}>
         <DialogHeader>
           <DialogTitle className="text-xl flex items-center gap-2">
             {isProcess(item) ? (

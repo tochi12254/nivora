@@ -37,13 +37,13 @@ class ModelInfo(BaseModel):
 
 # Define paths to model directories
 CLASSIFIER_MODELS_METRICS_DIR = (
-    pathlib.Path(__file__).resolve().parent.parent.parent.parent.parent
+    pathlib.Path(__file__).resolve().parent.parent.parent
     / "ml"
     / "models"
     / "eCyber_classifier_models"
 )
 ANOMALY_MODELS_DIR = (
-    pathlib.Path(__file__).resolve().parent.parent.parent.parent.parent
+    pathlib.Path(__file__).resolve().parent.parent.parent
     / "ml"
     / "models"
     / "eCyber_anomaly_isolation"
@@ -56,9 +56,7 @@ def get_file_mod_time(file_path: pathlib.Path) -> Optional[str]:
         mod_timestamp = os.path.getmtime(file_path)
         return datetime.fromtimestamp(mod_timestamp).isoformat() + "Z"
     except FileNotFoundError:
-        logger.warning(
-            f"File not found when trying to get modification time: {file_path}"
-        )
+
         return None
     except Exception as e:
         logger.error(f"Error getting modification time for {file_path}: {e}")
@@ -77,9 +75,6 @@ async def list_models():
         CLASSIFIER_MODELS_METRICS_DIR.exists()
         and CLASSIFIER_MODELS_METRICS_DIR.is_dir()
     ):
-        logger.info(
-            f"Scanning for classifier models in: {CLASSIFIER_MODELS_METRICS_DIR}"
-        )
         for model_dir in CLASSIFIER_MODELS_METRICS_DIR.iterdir():
             if model_dir.is_dir():
                 model_name_from_dir = model_dir.name
@@ -105,20 +100,16 @@ async def list_models():
                 metadata_filename = "metrics.json"
 
                 if not metrics_json_path.exists():
-                    logger.warning(
-                        f"Metrics file ({metrics_json_path}) not found for classifier model {model_name_from_dir}. Skipping this model."
-                    )
+    
                     continue  # Essential metrics are missing
 
                 try:
                     with open(metrics_json_path, "r", encoding="utf-8") as f:
                         metrics_data = json.load(f)
-                    logger.info(
-                        f"Successfully loaded metrics from {metrics_json_path} for {model_name_from_dir}"
-                    )
+    
 
                     accuracy = metrics_data.get("accuracy")
-                    f1_score = metrics_data.get("f1_score")
+                    f1_score = metrics_data.get("f1")
                     precision = metrics_data.get("precision")
                     recall = metrics_data.get("recall")
                     auc = metrics_data.get("auc")
@@ -130,22 +121,10 @@ async def list_models():
                             {"label": f"Actual Class {i}", "values": row_values}
                             for i, row_values in enumerate(raw_cm)
                         ]
-                    else:
-                        logger.warning(
-                            f"Confusion matrix for {model_id} in {metrics_json_path} is not in the expected format. Raw: {raw_cm}"
-                        )
-
                 except json.JSONDecodeError:
-                    logger.error(
-                        f"Malformed JSON in metrics file: {metrics_json_path}",
-                        exc_info=True,
-                    )
+            
                     continue  # Skip if metrics JSON is unreadable
                 except Exception as e:
-                    logger.error(
-                        f"Could not process metrics file {metrics_json_path}: {e}",
-                        exc_info=True,
-                    )
                     continue
 
                 if training_json_path.exists():
@@ -165,19 +144,9 @@ async def list_models():
                         display_name = training_data.get("name", display_name)
                         description = training_data.get("description", description)
                     except json.JSONDecodeError:
-                        logger.error(
-                            f"Malformed JSON in training file: {training_json_path}",
-                            exc_info=True,
-                        )
+                        pass
                     except Exception as e:
-                        logger.error(
-                            f"Could not process training file {training_json_path}: {e}",
-                            exc_info=True,
-                        )
-                else:
-                    logger.warning(
-                        f"Training.json not found for {model_name_from_dir} at {training_json_path}. Using defaults."
-                    )
+                        pass
 
                 if not last_trained_str and model_pkl_path.exists():
                     last_trained_str = get_file_mod_time(model_pkl_path)
@@ -201,12 +170,8 @@ async def list_models():
                     status="active",
                 )
                 model_infos.append(model_info)
-                logger.debug(f"Successfully processed classifier model: {model_id}")
-    else:
-        logger.warning(
-            f"Classifier models directory not found or is not a directory: {CLASSIFIER_MODELS_METRICS_DIR}"
-        )
-
+                
+                
     # Process Anomaly Isolation Model
     if ANOMALY_MODELS_DIR.exists() and ANOMALY_MODELS_DIR.is_dir():
         # logger.info(f"Scanning for anomaly model in: {ANOMALY_MODELS_DIR}")
@@ -224,9 +189,7 @@ async def list_models():
             try:
                 with open(anomaly_meta_path, "r", encoding="utf-8") as f:
                     meta_data = json.load(f)
-                logger.info(
-                    f"Successfully loaded metadata from {anomaly_meta_path} for {model_id}"
-                )
+    
 
                 algorithm = meta_data.get("algorithm", algorithm)
                 features_list = meta_data.get("features", features_list)
@@ -236,25 +199,15 @@ async def list_models():
                     ]
                 last_trained_str = meta_data.get("training_date", last_trained_str)
                 accuracy = meta_data.get(
-                    "threshold", meta_data.get("accuracy")
+                    "best_f1_score", meta_data.get("accuracy")
                 )  # Use threshold as accuracy
                 display_name = meta_data.get("name", display_name)
                 description = meta_data.get("description", description)
 
             except json.JSONDecodeError:
-                logger.error(
-                    f"Malformed JSON in anomaly metadata file: {anomaly_meta_path}",
-                    exc_info=True,
-                )
+               pass
             except Exception as e:
-                logger.error(
-                    f"Could not process anomaly metadata file {anomaly_meta_path}: {e}",
-                    exc_info=True,
-                )
-        else:
-            logger.warning(
-                f"Anomaly metadata file ({anomaly_meta_path}) not found for {model_id}. Using defaults."
-            )
+               pass
 
         if not last_trained_str and model_pkl_path.exists():
             last_trained_str = get_file_mod_time(model_pkl_path)
@@ -278,14 +231,6 @@ async def list_models():
             status="active",
         )
         model_infos.append(model_info)
-        logger.debug(f"Successfully processed anomaly model: {model_id}")
-    else:
-        logger.warning(
-            f"Anomaly model directory not found or is not a directory: {ANOMALY_MODELS_DIR}"
-        )
-
-    if not model_infos:
-        logger.info("No models found after scanning all configured directories.")
 
     return model_infos
 

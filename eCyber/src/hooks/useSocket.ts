@@ -3,7 +3,6 @@ import { useEffect, useCallback, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { throttle } from 'lodash';
 import { useDispatch } from 'react-redux';
-import { addSystemTelemetry } from '@/app/slices/socketSlice';
 
 // ==================== Event export interfaces ====================
 export interface ThreatData { id: string; message: string; severity: 'low' | 'medium' | 'high'; }
@@ -145,11 +144,6 @@ export default function useSocket(): UseSocketReturn {
     'training_progress': (data: TrainingProgress) => console.info('🏋️ Training Progress:', data),
     'training_completed': () => console.info('✅ Training Completed'),
     
-    // Telemetry events (throttled)
-    'system_telemetry': throttle((data: SystemTelemetry[]) => {
-      console.log('📊 System Telemetry:', data);
-      // dispatch(addSystemTelemetry(data)); // 🔥 This is now valid
-    }, 500),
     
     'system_stats': (data: SystemStats) => console.debug('📈 System Stats:', data),
     

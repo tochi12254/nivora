@@ -17,11 +17,12 @@ import psutil
 from app.core.config import settings
 from app.middleware.blocker_middleware import BlocklistMiddleware
 from app.api.v1.api import api_v1_router
+# from app.api.v1.endpoints.threats import router as threat_router_v1
 from app.services.prevention.app_blocker import ApplicationBlocker
 from app.core.logger import setup_logger
 from socket_events import get_socket_app
 from app.services.system.monitor import SystemMonitor
-from app.services.detection.phishing_blocker import PhishingBlocker
+# from app.services.detection.phishing_blocker import PhishingBlocker
 
 # from app.services.system.malware_detection import activate_cyber_defense
 
@@ -37,15 +38,17 @@ from app.api import (
     network as network_router,
     auth as auth_router,
     threats as threat_router,
+    models as ml_models_router,
     system as system_router,
     admin as admin_router,
-    ids as ids_router,
-)
 
+)
+from app.api.v1.endpoints.threats import router as ml_threats
 from api.firewall_api import router as firewall_router
 from api.threat_intel_api import router as intel_router
 from api.nac_api import router as nac_router
 from api.dns_api import router as dns_router
+from api.ml_models_api import router as ml_models_api_router # Added for ML models API
 from app.utils.report import (
     get_24h_network_traffic,
     get_daily_threat_summary,
@@ -57,7 +60,7 @@ from app.utils.report import (
 # Services
 from app.services.monitoring.sniffer import PacketSniffer
 from app.services.detection.signature import SignatureEngine
-from app.services.detection.ids_signature import IdsSignatureEngine
+# from app.services.detection.ids_signature import IdsSignatureEngine
 from app.services.ips.engine import EnterpriseIPS, ThreatIntel
 
 # from app.services.ips.adapter import IPSPacketAdapter
@@ -116,7 +119,7 @@ async def create_app() -> FastAPI:
         # Initialize services
         firewall = FirewallManager(sio)
         signature_engine = SignatureEngine(sio)
-        ids_signature_engine = IdsSignatureEngine(sio)
+        # ids_signature_engine = IdsSignatureEngine(sio)
         blocker = ApplicationBlocker(sio)
 
         # Initialize packet components INDEPENDENTLY
@@ -166,7 +169,7 @@ async def create_app() -> FastAPI:
 
         app.state.firewall = firewall
         app.state.signature_engine = signature_engine
-        app.state.ids_signature_engine = ids_signature_engine
+        # app.state.ids_signature_engine = ids_signature_engine
         # app.state.phishing_blocker = (
         #     phishing_blocker  # Store PhishingBlocker in app state
         # )
@@ -193,20 +196,20 @@ async def create_app() -> FastAPI:
             # asyncio.create_task(ips_updates_task(ips))
 
             # Emit periodic summary
-            # @sio.on("request_daily_summary")
-            # async def _on_request_summary(sid):
-            #     try:
-            #         if not monitor.data_queue.empty():
-            #             stats = monitor.data_queue.get_nowait()
-            #             net24 = get_24h_network_traffic(stats)
-            #             threats = get_daily_threat_summary(monitor)
-            #             await sio.emit(
-            #                 "daily_summary",
-            #                 {"network24h": net24, "threatSummary": threats},
-            #                 to=sid,
-            #             )
-            #     except Empty:
-            #         pass
+            @sio.on("request_daily_summary")
+            async def _on_request_summary(sid):
+                try:
+                    if not monitor.data_queue.empty():
+                        stats = monitor.data_queue.get_nowait()
+                        net24 = get_24h_network_traffic(stats)
+                        threats = get_daily_threat_summary(monitor)
+                        await sio.emit(
+                            "daily_summary",
+                            {"network24h": net24, "threatSummary": threats},
+                            to=sid,
+                        )
+                except Empty:
+                    pass
 
             yield
 
@@ -236,17 +239,8 @@ async def create_app() -> FastAPI:
             await engine.dispose()  # Dispose DB engine
             if ips:  # ips.stop() is async
                 await ips.stop()
-            # health_status = {
-            #             "ips_queue_size": ips.input_queue.qsize(),
-            #             "sniffer_packets": sniffer.packet_counter.value,
-            #             "memory_usage": psutil.virtual_memory().percent,
-            #             "timestamp": datetime.utcnow().isoformat()
-            #         }
-            # await sio.emit("system_health", health_status)
-
-            # emitter_task.cancel()
-            # scanner.stop_silent_monitor()
-
+            
+           
     # Set the lifespan after app creation
     app.router.lifespan_context = lifespan
 
@@ -279,15 +273,20 @@ async def create_app() -> FastAPI:
     app.include_router(user_router.router, prefix="/api/users", tags=["Users"])
     app.include_router(network_router.router, prefix="/api/network", tags=["Network"])
     app.include_router(auth_router.router, prefix="/api/auth", tags=["Auth"])
+    # app.include_router(threat_router_v1, prefix="/api/v1/threats", tags=["Threats"])
     app.include_router(threat_router.router, prefix="/api/threats", tags=["Threats"])
     app.include_router(system_router.router, prefix="/api/system", tags=["System"])
     app.include_router(admin_router.router, prefix="/api/admin", tags=["Admin"])
-    app.include_router(ids_router.router, prefix="/api/ids", tags=["IDS"])
+    app.include_router(api_v1_router, tags=["APIv1"])
+    app.include_router(ml_models_router.router, prefix="/api/v1/models", tags=["models"]) # Added for ML models
+    # app.include_router(ids_router.router, prefix="/api/ids", tags=["IDS"])
     app.include_router(firewall_router, prefix="/firewall")
     app.include_router(intel_router, prefix="/intel")
     app.include_router(nac_router, prefix="/nac")
     app.include_router(dns_router, prefix="/dns")
-    app.include_router(api_v1_router, prefix="/api/v1", tags=["APIv1"])
+    # Include the ML Models API router
+    
+    
 
     # Health check endpoint
     @app.get("/api/health", include_in_schema=False)
@@ -304,9 +303,10 @@ async def create_app() -> FastAPI:
 # Socket.IO events
 @sio.event
 async def connect(sid, environ):
+    pass
     # interfaces = get_if_list()
     # await sio.emit("interfaces", interfaces, to=sid)
-    logger.info(f"Client connected: {sid[:8]}...")
+    # PROD_CLEANUP: logger.info(f"Client connected: {sid[:8]}...")
 
 
 # @sio.on("get_interfaces")
@@ -315,9 +315,9 @@ async def connect(sid, environ):
 #     await sio.emit("interfaces", interfaces, to=sid)
 
 
-@sio.event
-async def disconnect(sid):
-    logger.info(f"Client disconnected: {sid[:8]}...")
+# @sio.event
+# async def disconnect(sid):
+#     # PROD_CLEANUP: logger.info(f"Client disconnected: {sid[:8]}...")
 
 
 # Hypercorn entry point

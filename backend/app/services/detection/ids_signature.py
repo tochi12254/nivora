@@ -34,7 +34,7 @@ class IdsSignatureEngine:
                         rule.pattern.encode(), flags
                     )
                 except re.error:
-                    print(f"Invalid regex pattern in rule {rule.id}: {rule.pattern}")
+                    # PROD_CLEANUP: print(f"Invalid regex pattern in rule {rule.id}: {rule.pattern}")
 
     def load_rules(self, db_session):
         """Load rules from database with caching"""

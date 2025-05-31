@@ -20,6 +20,11 @@ interface ModelData {
   name: string; // e.g., "Bot Detection"
   status: 'active' | 'inactive' | 'training'; // Status might be dynamic from backend later
   accuracy: number | null; // From meta.json or calculated
+  f1Score?: number | null;
+  precision?: number | null;
+  recall?: number | null;
+  auc?: number | null;
+  confusionMatrixData?: Array<{ label: string; values: number[] }> | null;
   lastTrained: string | null; // ISO date string from meta.json or file system
   description: string;
   type: string; // e.g., XGBoost, RandomForest from meta.json
@@ -36,6 +41,9 @@ interface ModelData {
 //   { metric: "Processing time", value: "1.2s", trend: "down", change: "5%" },
 //   { metric: "Model accuracy", value: "94%", trend: "up", change: "2%" },
 // ];
+
+const MODELS_CACHE_KEY = 'models_cache';
+const CACHE_FRESHNESS_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
 
 const Models = () => {
   const [models, setModels] = useState<ModelData[]>([]);
@@ -54,17 +62,34 @@ const Models = () => {
   useEffect(() => {
     const fetchModels = async () => {
       setIsLoading(true);
-      // setFetchError(null); // Reset error state on new fetch
+      // Attempt to load from cache first
       try {
-        const response = await axios.get('http://127.0.0.1:8000/api/v1/models/list'); 
-        if (!response.data) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+        const cachedDataString = localStorage.getItem(MODELS_CACHE_KEY);
+        if (cachedDataString) {
+          const cachedData = JSON.parse(cachedDataString);
+          if (cachedData && cachedData.data && cachedData.timestamp && (Date.now() - cachedData.timestamp < CACHE_FRESHNESS_DURATION)) {
+            setModels(cachedData.data);
+            setIsLoading(false);
+            toast({ title: "Models Loaded", description: "Displaying up-to-date cached model data.", variant: "default" });
+            return; // Exit fetchModels as fresh data is loaded
+          }
         }
+      } catch (e) {
+        // If parsing fails, proceed to fetch from API
+        console.warn("Failed to parse cached model data or cache is invalid:", e);
+        localStorage.removeItem(MODELS_CACHE_KEY); // Clear corrupted cache
+      }
+
+      // Original API fetching logic
+      try {
+        const response = await axios.get("http://127.0.0.1:8000/api/v1/models/list");
         const data: ModelData[] = response.data;
+  
+        // Save to Cache on Successful Fetch
+        localStorage.setItem(MODELS_CACHE_KEY, JSON.stringify({ timestamp: Date.now(), data: data }));
         setModels(data);
-      } catch (error) {
-        console.error("Failed to fetch models:", error);
-        // setFetchError("Failed to load models. Please try again.");
+      } catch (error:any) {
+        console.error("Failed to fetch models:", error?.toString());
         toast({
           title: "Error Fetching Models",
           description: `Could not load model data from the server. ${error instanceof Error ? error.message : ''}`,
@@ -78,18 +103,23 @@ const Models = () => {
     fetchModels();
   }, [refreshKey, toast]);
   
-  // Filter models based on search term and status
-  const filteredModels = models.filter(model => {
-    const matchesSearch = 
-      model.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      model.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      model.type.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesStatus = selectedStatuses.includes(model.status);
-    
+    // Filter models based on search term and status
+    const safeString = (value) => (typeof value === 'string' ? value.toLowerCase() : '');
+
+  const filteredModels = (Array.isArray(models) ? models : []).filter(model => {
+    const name = safeString(model?.name);
+    const description = safeString(model?.description);
+    const type = safeString(model?.type);
+    const status = model?.status;
+
+    const search = safeString(searchTerm);
+    const matchesSearch = name.includes(search) || description.includes(search) || type.includes(search);
+
+    const matchesStatus = Array.isArray(selectedStatuses) && selectedStatuses.includes(status);
+
     return matchesSearch && matchesStatus;
   });
-  
+
   // Sort models based on selected sort option
   const sortedModels = [...filteredModels].sort((a, b) => {
     switch(sortBy) {
@@ -177,13 +207,13 @@ const Models = () => {
   };
   
   const handleRefreshModels = () => {
+    localStorage.removeItem(MODELS_CACHE_KEY); // Clear cache
     toast({
       title: "Refreshing Models",
-      description: "Updating model status and metrics...",
+      description: "Fetching latest model status and metrics...",
     });
     
-    // Simulate refresh by updating the key to force re-render
-    setRefreshKey(prev => prev + 1);
+    setRefreshKey(prev => prev + 1); // Trigger useEffect to call fetchModels
   };
 
   return (
@@ -276,11 +306,11 @@ const Models = () => {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-h-[70vh] overflow-y-auto">
                     {models.map((model, index) => ( // Changed from mlModels to models
                       <div 
                         key={model.id} 
-                        className="border border-border rounded-xl p-6 bg-gradient-to-br from-card to-muted/5 card-hover animate-fade-in-up"
+                        className="border border-border rounded-xl p-6 bg-gradient-to-br from-card to-muted/5 card-hover animate-fade-in-up "
                         style={{ animationDelay: `${index * 0.15}s` }}
                       >
                         <h3 className="font-medium flex items-center">
@@ -329,12 +359,12 @@ const Models = () => {
                       View All Models
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="max-w-3xl">
+                  <DialogContent className="max-w-4xl">
                     <DialogHeader>
                       <DialogTitle>Available Models</DialogTitle>
                     </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                      {models.map((model) => ( // Changed from mlModels to models
+                    <div className="grid gap-4 py-4 max-h-[80vh] overflow-y-auto">
+                      {Array.isArray(models) && models.map((model) => ( // Changed from mlModels to models
                         <div key={model.id} className="flex items-center justify-between p-4 border border-border rounded-md bg-card/70 hover:bg-card/90 transition-all card-hover">
                           <div>
                             <h3 className="font-medium">{model.name}</h3>
@@ -426,17 +456,17 @@ const Models = () => {
                             <div className="text-right mr-4">
                               <div className="text-sm">Accuracy</div>
                               {/* Updated to handle null accuracy */}
-                              <div className="font-medium">{model.accuracy ? `${model.accuracy}%` : 'N/A'}</div>
+                              <div className="font-medium">{model.accuracy ? `${(model.accuracy * 100).toFixed(2)}%` : 'N/A'}</div>
                             </div>
                             <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
                               <div 
                                 className={cn(
                                   "h-full rounded-full",
-                                  (model.accuracy || 0) > 95 ? "bg-green-500" :
-                                  (model.accuracy || 0) > 90 ? "bg-blue-500" :
-                                  (model.accuracy || 0) > 85 ? "bg-amber-500" : "bg-red-500"
+                                  ((model.accuracy * 100) || 0) > 95 ? "bg-green-500" :
+                                  ((model.accuracy * 100) || 0) > 90 ? "bg-blue-500" :
+                                  ((model.accuracy * 100) || 0) > 85 ? "bg-amber-500" : "bg-red-500"
                                 )} 
-                                style={{ width: `${model.accuracy || 0}%` }} // Handle null accuracy
+                                style={{ width: `${(model.accuracy * 100) || 0}%` }} // Handle null accuracy
                               ></div>
                             </div>
                           </div>
@@ -450,7 +480,7 @@ const Models = () => {
                                 View Metrics
                               </Button>
                             </DialogTrigger>
-                            <DialogContent className="max-w-3xl">
+                            <DialogContent className="max-w-2xl h-[500px] top-[30%]">
                               <DialogHeader>
                                 <DialogTitle>{model.name} Metrics</DialogTitle>
                               </DialogHeader>

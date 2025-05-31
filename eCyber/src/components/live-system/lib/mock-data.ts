@@ -14,11 +14,11 @@ import { useSelector } from 'react-redux';
 export const useTelemetryData = () => {
   
 
-  const telemetry = useSelector((state: RootState) => state.socket.systemTelemetry);
+  // const telemetry = useSelector((state: RootState) => state.socket.systemTelemetry);
 
-  if (telemetry.length > 0) {
-    console.log("Telemetry Data: ", telemetry);
-  }
+  // if (telemetry.length > 0) {
+  //   console.log("Telemetry Data: ", telemetry);
+  // }
 
   // Generate CPU history data based on current CPU usage
   const generateCpuHistory = (currentUsage: number): DataPoint[] => {

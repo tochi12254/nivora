@@ -11,6 +11,4 @@ class PacketSnifferNamespace(AsyncNamespace):
     def __init__(self, namespace: str, sio_queue: Queue):
         super().__init__(namespace)
         self.sio_queue = sio_queue
-        
 
-   

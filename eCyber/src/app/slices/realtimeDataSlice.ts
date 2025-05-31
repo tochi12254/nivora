@@ -15,6 +15,8 @@ import {
   FileQuarantined,// Refined
 } from '../../hooks/usePacketSnifferSocket'; 
 
+import { clearOldPacketBytes } from '@/lib/clearOldPacketBytes'
+
 // --- DNS Activities Slice ---
 interface DnsActivityState {
   dnsActivities: DnsActivityData[]; // Use updated DnsActivityData
@@ -216,6 +218,27 @@ const threatResponsesSlice = createSlice({
   },
 });
 
+
+clearOldPacketBytes(); // 🔁 Ensure it's called before accessing localStorage
+
+const initialVolume = Number(localStorage.getItem('packet_bytes')) || 0;
+
+const networkVolume = createSlice({
+  name: 'networkVolume',
+  initialState: {
+    networkVolume: initialVolume
+  },
+  reducers: {
+    addNetworkVolume: (state, action) => {
+      state.networkVolume += action.payload;
+      localStorage.setItem('packet_bytes', JSON.stringify(state.networkVolume));
+    }
+  }
+});
+
+
+export const { addNetworkVolume } = networkVolume.actions
+export const networkVolumeReducer = networkVolume.reducer
 export const { addThreatResponse } = threatResponsesSlice.actions;
 export const threatResponsesReducer = threatResponsesSlice.reducer;
 

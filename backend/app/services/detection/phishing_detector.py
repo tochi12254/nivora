@@ -632,9 +632,9 @@ class ClassicalPhishingDetector:
                     risk_score += self.risk_weights.get(f"pattern_{pattern_str}", 0.3)
             except re.error as e:
                 # Log this error, as it indicates an issue with the defined patterns
-                print(
-                    f"Warning: Invalid regex pattern in self.suspicious_url_patterns: {pattern_str} - {e}"
-                )
+                # PROD_CLEANUP: print(
+                    # PROD_CLEANUP: f"Warning: Invalid regex pattern in self.suspicious_url_patterns: {pattern_str} - {e}"
+                # PROD_CLEANUP: )
 
         # --- Domain Reputation Checking (DNS & WHOIS) ---
         # Only perform these checks if we have a valid, non-IP registered domain,
@@ -698,9 +698,9 @@ class ClassicalPhishingDetector:
                         )
                         risk_score += self.risk_weights["dns_suspicious_mx"]
             except Exception as e:  # Catch-all for other DNS query library issues
-                print(
-                    f"General DNS check error for {domain} or {main_domain_with_tld}: {e}"
-                )
+                # PROD_CLEANUP: print(
+                    # PROD_CLEANUP: f"General DNS check error for {domain} or {main_domain_with_tld}: {e}"
+                # PROD_CLEANUP: )
 
             # 14. WHOIS Checks (Creation Date, Privacy Protection)
             try:
@@ -711,7 +711,7 @@ class ClassicalPhishingDetector:
                 except (
                     whois.parser.PywhoisError
                 ) as e:  # Catch parsing errors from python-whois library
-                    print(f"WHOIS parsing error for {main_domain_with_tld}: {e}")
+                    # PROD_CLEANUP: print(f"WHOIS parsing error for {main_domain_with_tld}: {e}")
                     reasons.append(
                         f"WHOIS: Data parsing issue for {main_domain_with_tld}"
                     )
@@ -721,7 +721,7 @@ class ClassicalPhishingDetector:
                 except (
                     Exception
                 ) as e:  # Catch other errors like network issues, timeouts from the library
-                    print(f"WHOIS query error for {main_domain_with_tld}: {e}")
+                    # PROD_CLEANUP: print(f"WHOIS query error for {main_domain_with_tld}: {e}")
                     reasons.append(f"WHOIS: Query failed for {main_domain_with_tld}")
                     risk_score += (
                         self.risk_weights["whois_recent_creation"] * 0.1
@@ -818,7 +818,7 @@ class ClassicalPhishingDetector:
 
             except Exception as e:
                 # Catch-all for any other unexpected errors in WHOIS processing logic
-                print(f"Critical WHOIS logic error for {main_domain_with_tld}: {e}")
+                # PROD_CLEANUP: print(f"Critical WHOIS logic error for {main_domain_with_tld}: {e}")
 
         # --- HTML Content Inspection (if content is provided) ---
         if html_content:
@@ -930,9 +930,9 @@ class ClassicalPhishingDetector:
         Also prints a message indicating the detector is active.
         """
         self.running.value = True
-        print(
-            f"ClassicalPhishingDetector started. Multiprocessing pool size: {self.pool._processes}"
-        )
+        # PROD_CLEANUP: print(
+            # PROD_CLEANUP: f"ClassicalPhishingDetector started. Multiprocessing pool size: {self.pool._processes}"
+        # PROD_CLEANUP: )
 
     def stop(self):
         """
@@ -940,14 +940,15 @@ class ClassicalPhishingDetector:
         This includes setting the `running` flag to False, closing the
         multiprocessing pool, and joining its processes to ensure graceful shutdown.
         """
-        print("Stopping ClassicalPhishingDetector...")
+        # PROD_CLEANUP: print("Stopping ClassicalPhishingDetector...")
         self.running.value = False
         if self.pool:
             try:
                 self.pool.close()  # Prevents new tasks from being submitted
                 self.pool.terminate()  # Terminate running tasks - use with caution if tasks are critical
                 self.pool.join()  # Waits for worker processes to exit
-                print("Multiprocessing pool stopped.")
+                # PROD_CLEANUP: print("Multiprocessing pool stopped.")
             except Exception as e:
-                print(f"Error stopping multiprocessing pool: {e}")
-        print("ClassicalPhishingDetector stopped.")
+                pass
+                # PROD_CLEANUP: print(f"Error stopping multiprocessing pool: {e}")
+        # PROD_CLEANUP: print("ClassicalPhishingDetector stopped.")

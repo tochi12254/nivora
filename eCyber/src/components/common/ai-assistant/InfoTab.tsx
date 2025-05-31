@@ -2,13 +2,20 @@
 import React from 'react';
 import { FileText, AlertTriangle, Database, Server } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { SECURITY_TOPICS } from './constants';
+import { SECURITY_TOPICS, initialMessages } from './constants'; // Import initialMessages
+import { Message } from './types'; // Import Message type
 
 interface InfoTabProps {
   clearChat: () => void;
+  showSuggestions: boolean;
+  setShowSuggestions: (show: boolean) => void;
+  messages: Message[];
 }
 
-const InfoTab: React.FC<InfoTabProps> = ({ clearChat }) => {
+const InfoTab: React.FC<InfoTabProps> = ({ clearChat, showSuggestions, setShowSuggestions, messages }) => {
+  // const canShowSuggestions = !showSuggestions && messages.length > initialMessages.length; // Not directly used, but logic is in disabled state
+  const initialMessagesLength = initialMessages.length;
+
   return (
     <div className="p-4 space-y-4 data-[state=active]:flex-1 h-0 overflow-auto">
       <div>
@@ -56,8 +63,19 @@ const InfoTab: React.FC<InfoTabProps> = ({ clearChat }) => {
         </ul>
       </div>
       
-      <div className="pt-2">
-        <Button variant="outline" size="sm" onClick={clearChat}>Clear conversation history</Button>
+      <div className="pt-2 space-y-2">
+        <Button variant="outline" size="sm" onClick={clearChat} className="w-full sm:w-auto">
+          Clear conversation history
+        </Button>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={() => setShowSuggestions(true)}
+          disabled={showSuggestions || messages.length <= initialMessagesLength}
+          className="w-full sm:w-auto"
+        >
+          Show Suggested Questions
+        </Button>
         <div className="mt-4 text-xs text-muted-foreground">
           Platform version: 1.4.2 | AI Assistant version: 2.1.0
         </div>

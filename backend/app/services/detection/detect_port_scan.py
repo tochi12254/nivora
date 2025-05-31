@@ -168,7 +168,7 @@ class PortScanDetector:
 
         except Exception as e:
             logger.error(f"Scan detection error: {str(e)}", exc_info=True)
-            logger.debug(f"Packet causing error: {packet.summary()}")
+            # PROD_CLEANUP: logger.debug(f"Packet causing error: {packet.summary()}")
 
         return None
 

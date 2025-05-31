@@ -19,7 +19,7 @@ interface ModelData {
   precision?: number | null;
   recall?: number | null;
   auc?: number | null;
-  confusionMatrixData?: { label: string, values: number[] }[]; // Example structure
+  confusionMatrixData?: Array<{ label: string; values: number[] }> | null;
   featureImportanceData?: { name: string, importance: number }[];
 }
 
@@ -139,7 +139,7 @@ const PerformanceMetrics = ({ model }: { model: ModelData }) => {
             <div className="absolute top-2 right-2 flex items-center space-x-4 bg-background/80 backdrop-blur-sm p-1 rounded-md text-xs">
               <div className="flex items-center">
                 <div className="w-2 h-2 bg-blue-500 mr-1"></div>
-                <span>Accuracy</span>
+                <span className="">Accuracy</span>
               </div>
               <div className="flex items-center">
                 <div className="w-2 h-2 bg-red-500 mr-1"></div>
@@ -154,90 +154,79 @@ const PerformanceMetrics = ({ model }: { model: ModelData }) => {
       <div className="grid grid-cols-2 gap-4">
         <div className="p-4 border border-border rounded-md">
           <div className="text-sm text-muted-foreground mb-1">Accuracy</div>
-          <div className="text-2xl font-semibold">{model.accuracy !== null ? `${model.accuracy.toFixed(1)}%` : 'N/A'}</div>
-          {/* <div className="flex items-center text-xs text-green-500 mt-1">
-            <span className="mr-1">↑</span>
-            2.3% from previous version
-          </div> */}
+          <div className="text-md font-semibold">{model.accuracy !== null && model.accuracy !== undefined ? `${(model.accuracy * 100).toFixed(2) }%` : 'N/A'}</div>
         </div>
         
         <div className="p-4 border border-border rounded-md">
           <div className="text-sm text-muted-foreground mb-1">F1 Score</div>
           <div className="text-2xl font-semibold">{model.f1Score !== null && model.f1Score !== undefined ? model.f1Score.toFixed(3) : 'N/A'}</div>
-          {/* <div className="flex items-center text-xs text-green-500 mt-1">
-            <span className="mr-1">↑</span>
-            0.05 from previous version
-          </div> */}
         </div>
         
         <div className="p-4 border border-border rounded-md">
           <div className="text-sm text-muted-foreground mb-1">Precision</div>
           <div className="text-2xl font-semibold">{model.precision !== null && model.precision !== undefined ? model.precision.toFixed(3) : 'N/A'}</div>
-          {/* <div className="flex items-center text-xs text-amber-500 mt-1">
-            <span className="mr-1">↓</span>
-            0.02 from previous version
-          </div> */}
         </div>
         
         <div className="p-4 border border-border rounded-md">
           <div className="text-sm text-muted-foreground mb-1">Recall</div>
           <div className="text-2xl font-semibold">{model.recall !== null && model.recall !== undefined ? model.recall.toFixed(3) : 'N/A'}</div>
-          {/* <div className="flex items-center text-xs text-green-500 mt-1">
-            <span className="mr-1">↑</span>
-            0.08 from previous version
-          </div> */}
         </div>
       </div>
     </div>
   );
 };
+const ConfusionMatrix = ({ model }) => {
+  const matrix = model.confusion_matrix_data;
 
-const ConfusionMatrix = ({ model }: { model: ModelData }) => {
-  if (model.accuracy === null && !model.confusionMatrixData) { 
-     return (
+  if (!matrix || matrix.length === 0) {
+    return (
       <div className="space-y-4">
         <h3 className="text-sm font-medium">Confusion Matrix</h3>
         <div className="border border-border rounded-md p-4 flex justify-center items-center h-60">
           <p className="text-muted-foreground text-center">
-            Confusion matrix data is not available for this model. <br />
-            Detailed metrics will be populated once the model is run or its metadata is processed.
+            Confusion matrix data is not available for this model.
           </p>
         </div>
       </div>
     );
   }
 
-  const staticMatrix = { // Fallback illustrative data
-    headers: ["Normal", "Suspicious", "Malicious"],
-    rows: [
-      { label: "Normal", values: [243, 12, 3] },
-      { label: "Suspicious", values: [8, 87, 5] },
-      { label: "Malicious", values: [2, 7, 65] },
-    ],
-    truePositives: 243 + 87 + 65,
-    falsePositives: 12 + 3 + 8 + 5 + 2 + 7,
-  };
-  
-  // TODO: Replace staticMatrix with dynamic data from model.confusionMatrixData when available and correctly structured
+  const headers = matrix[0].values.map((_, i) => `Predicted Class ${i}`);
+  const numCols = headers.length + 1;
 
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-medium">Confusion Matrix (Illustrative)</h3>
-      <div className="border border-border rounded-md p-4 flex justify-center">
+      <h3 className="text-sm font-medium">Confusion Matrix</h3>
+      <div className="border border-border rounded-md p-4 flex justify-center overflow-x-auto">
         <div className="relative">
-          <div className={`grid grid-cols-${staticMatrix.headers.length + 1} gap-1`}>
-            <div className="h-10"></div> {/* Empty top-left cell */}
-            {staticMatrix.headers.map(header => (
-              <div key={header} className="h-10 bg-muted flex items-center justify-center font-medium text-xs sm:text-sm">{header}</div>
+          <div className={`grid grid-cols-${numCols} gap-1 min-w-max`}>
+            {/* Top-left empty cell */}
+            <div className="h-10 sticky left-0 bg-card z-10"></div>
+            
+            {/* Header row */}
+            {headers.map(header => (
+              <div
+                key={header}
+                className="h-10 bg-muted flex items-center justify-center font-medium text-xs sm:text-sm px-2"
+              >
+                {header}
+              </div>
             ))}
-            {staticMatrix.rows.map(row => (
+
+            {/* Data rows */}
+            {matrix.map((row, i) => (
               <React.Fragment key={row.label}>
-                <div className="h-16 bg-muted flex items-center justify-center font-medium text-xs sm:text-sm">{row.label}</div>
-                {row.values.map((value, index) => (
-                  <div 
-                    key={index} 
+                {/* Row label */}
+                <div className="h-16 bg-muted flex items-center justify-center font-medium text-xs sm:text-sm sticky left-0 bg-card z-10 px-2">
+                  {row.label}
+                </div>
+
+                {/* Row values */}
+                {row.values.map((value, j) => (
+                  <div
+                    key={j}
                     className={`h-16 flex items-center justify-center text-lg font-bold ${
-                      staticMatrix.headers[index] === row.label ? 'bg-green-500/20' : 'bg-red-500/10' // Simple coloring logic
+                      i === j ? 'bg-green-500/20' : 'bg-red-500/10'
                     }`}
                   >
                     {value}
@@ -246,18 +235,14 @@ const ConfusionMatrix = ({ model }: { model: ModelData }) => {
               </React.Fragment>
             ))}
           </div>
-          <div className="absolute -left-12 top-1/2 transform -translate-y-1/2 -rotate-90 text-sm text-muted-foreground">Actual</div>
-          <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-6 text-sm text-muted-foreground">Predicted</div>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4 text-sm">
-        <div className="p-3 border border-green-500/20 rounded-md bg-green-500/5">
-          <div className="font-medium">True Positives (Example)</div>
-          <div className="text-muted-foreground">Correctly identified: {staticMatrix.truePositives}</div>
-        </div>
-        <div className="p-3 border border-red-500/20 rounded-md bg-red-500/5">
-          <div className="font-medium">False Positives (Example)</div>
-          <div className="text-muted-foreground">Incorrectly identified: {staticMatrix.falsePositives}</div>
+
+          {/* Axis labels */}
+          <div className="absolute -left-12 top-1/2 transform -translate-y-1/2 -rotate-90 text-sm text-muted-foreground">
+            Actual
+          </div>
+          <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-6 text-sm text-muted-foreground">
+            Predicted
+          </div>
         </div>
       </div>
     </div>
@@ -265,14 +250,13 @@ const ConfusionMatrix = ({ model }: { model: ModelData }) => {
 };
 
 const ROCCurve = ({ model }: { model: ModelData }) => {
-   if (model.auc === null && model.accuracy === null) {
+   if (model.auc === null || model.auc === undefined) { // Check specifically for auc for this component
      return (
       <div className="space-y-4">
         <h3 className="text-sm font-medium">ROC Curve</h3>
         <div className="border border-border rounded-md p-4 flex justify-center items-center h-60">
           <p className="text-muted-foreground text-center">
-            ROC Curve data is not available for this model. <br />
-            Detailed metrics will be populated once the model is run or its metadata is processed.
+            ROC Curve data (AUC value) is not available for this model.
             </p>
         </div>
       </div>
@@ -282,31 +266,29 @@ const ROCCurve = ({ model }: { model: ModelData }) => {
 
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-medium">ROC Curve (Illustrative Path)</h3>
+      <h3 className="text-sm font-medium">ROC Curve / AUC</h3>
       <div className="border border-border rounded-md p-4 h-60 relative">
-        <div className="absolute top-0 bottom-0 left-10 w-[1px] bg-border"></div>
-        <div className="absolute bottom-10 left-0 right-0 h-[1px] bg-border"></div>
+        {/* Illustrative Axes and Dashed Line */}
+        <div className="absolute top-0 bottom-0 left-10 w-[1px] bg-border"></div> {/* Y-axis line */}
+        <div className="absolute bottom-10 left-0 right-0 h-[1px] bg-border"></div> {/* X-axis line */}
         <div className="absolute top-0 bottom-0 left-2 flex flex-col justify-between text-xs text-muted-foreground">
-          <span>1.0</span><span>0.8</span><span>0.6</span><span>0.4</span><span>0.2</span><span>0.0</span>
+          <span>1.0</span><span>0.8</span><span>0.6</span><span>0.4</span><span>0.2</span><span>0.0</span> {/* Y-axis labels */}
         </div>
         <div className="absolute bottom-2 left-10 right-0 flex justify-between text-xs text-muted-foreground">
-          <span>0.0</span><span>0.2</span><span>0.4</span><span>0.6</span><span>0.8</span><span>1.0</span>
+          <span>0.0</span><span>0.2</span><span>0.4</span><span>0.6</span><span>0.8</span><span>1.0</span> {/* X-axis labels */}
         </div>
         <div className="absolute -left-8 top-1/2 transform -translate-y-1/2 -rotate-90 text-xs text-muted-foreground">True Positive Rate</div>
         <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-xs text-muted-foreground">False Positive Rate</div>
         
-        <svg className="absolute top-0 left-10 bottom-10 right-0" preserveAspectRatio="none">
+        <svg className="absolute top-0 left-10 bottom-10 right-0" preserveAspectRatio="none"> {/* Reference dashed line */}
           <line x1="0%" y1="100%" x2="100%" y2="0%" stroke="#d4d4d8" strokeWidth="1" strokeDasharray="4,4"/>
         </svg>
         
-        {/* Static SVG path, ensure it's scaled correctly if possible, or use a library for actual plotting later */}
-        <svg className="absolute top-0 left-10 bottom-10 right-0" preserveAspectRatio="none" viewBox="0 0 100 100">
-          <path d="M0,100 C20,80 40,50 70,30 C90,10 100,0" fill="none" stroke="#3b82f6" strokeWidth="2"/>
-        </svg>
+        {/* Removed static SVG path for the curve itself */}
         
-        <div className="absolute top-4 right-4 bg-background/80 backdrop-blur-sm p-2 rounded-md border border-border text-xs">
-          <div className="font-medium">AUC</div>
-          <div className="text-lg font-bold text-blue-500">{aucValue}</div>
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center">
+          <div className="text-sm text-muted-foreground">AUC</div>
+          <div className="text-3xl font-bold text-blue-500">{aucValue}</div>
         </div>
       </div>
       <div className="p-3 border border-border rounded-md bg-muted/10 text-sm">

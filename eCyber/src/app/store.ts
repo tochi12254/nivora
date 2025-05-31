@@ -12,11 +12,13 @@ import {
   phishingDetectionsReducer,
   threatResponsesReducer,
   quarantinedFilesReducer,
+  networkVolumeReducer
 } from './slices/realtimeDataSlice';
 
 export const store = configureStore({
   reducer: {
     socket:socketSlice,
+    networkVolume: networkVolumeReducer,
     dnsActivity: dnsActivityReducer,
     firewallEvents: firewallEventsReducer,
     threatDetections: threatDetectionsReducer,

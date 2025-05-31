@@ -55,6 +55,7 @@
     "embla-carousel-react": "^8.3.0",
     "framer-motion": "^11.18.2",
     "input-otp": "^1.2.4",
+    "jaro-winkler": "^0.2.8",
     "lucide-react": "^0.462.0",
     "next-themes": "^0.3.0",
     "react": "^18.3.1",
@@ -75,6 +76,7 @@
   "devDependencies": {
     "@eslint/js": "^9.9.0",
     "@tailwindcss/typography": "^0.5.15",
+    "@types/jaro-winkler": "^0.2.4",
     "@types/node": "^22.5.5",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
@@ -108,16 +110,26 @@
     ],
     "asar": true,
     "win": {
-      "target": ["nsis", "portable"],
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "icon": "build_assets/icon.ico"
     },
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "build_assets/icon.icns",
       "category": "public.app-category.security"
     },
     "linux": {
-      "target": ["AppImage", "deb", "rpm"],
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm"
+      ],
       "icon": "build_assets/icon.png",
       "category": "Security"
     },

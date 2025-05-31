@@ -23,7 +23,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version') // Example for invoking a handler
 });
 
-console.log('Preload script loaded.');
+// PROD_CLEANUP_FRONTEND: console.log('Preload script loaded.');
 
 // You can also expose basic Electron information if needed by the AI assistant
 // For example, to let it know it's running in Electron.

@@ -62,7 +62,7 @@ from ..prevention.firewall import FirewallManager
 # from ...database import get_sync_db
 from ..detection.signature import SignatureEngine
 from ..detection.detect_port_scan import PortScanDetector
-from ..detection.phishing_blocker import PhishingBlocker
+# from ..detection.phishing_blocker import PhishingBlocker
 from .reporter_helper import _reporter_loop, default_asn, default_geo
 from ml.feature_extraction import analyze_and_flatten,map_to_cicids2017_features
 from ...utils.format_http_data import transform_http_activity
@@ -87,7 +87,7 @@ def default_recent_packet():
 
 
 class PacketSniffer:
-    def __init__(self, sio_queue: Queue, phishing_blocker: Optional[PhishingBlocker] = None):
+    def __init__(self, sio_queue: Queue):
         """
         Initializes the PacketSniffer.
 
@@ -98,7 +98,7 @@ class PacketSniffer:
                                                           If None, phishing analysis will be skipped.
         """
         self.sio_queue = sio_queue
-        self.phishing_blocker = phishing_blocker # Store the PhishingBlocker instance
+        # self.phishing_blocker = phishing_blocker # Store the PhishingBlocker instance
         self._http_listeners: list[Callable[[Dict], bool]] = []
         self.manager = Manager()
         self.packet_counter = mp.Value("i", 0)
@@ -113,7 +113,7 @@ class PacketSniffer:
         self._stop_event = Event()
         self.sniffer_process: Optional[Process] = None
         self.stop_sniffing_event = mp.Event()
-        
+        self.total_bytes = 0
         
 
         ##Machine learning part
@@ -237,7 +237,7 @@ class PacketSniffer:
                 promisc=True
             )
             sniffer.start()
-            logger.info("AsyncSniffer started sniffing in dedicated process on %s", interface)
+            # logger.info("AsyncSniffer started sniffing in dedicated process on %s", interface)
             self.stop_sniffing_event.wait()  # Wait until stop event is set
         except Exception as e:
             logger.error(f"Error in sniffer process on interface {interface}: {e}", exc_info=True)
@@ -248,7 +248,7 @@ class PacketSniffer:
                     logger.info("AsyncSniffer stopped in dedicated process on %s", interface)
                 except Exception as e: # pylint: disable=broad-except
                     logger.error(f"Error stopping AsyncSniffer in dedicated process: {e}", exc_info=True)
-            logger.info("Sniffer process on interface %s stopped.", interface)
+            # logger.info("Sniffer process on interface %s stopped.", interface)
 
     def __getstate__(self):
         # 1) Copy everything
@@ -303,6 +303,7 @@ class PacketSniffer:
         self._endpoint_tracker = defaultdict(lambda: defaultdict(set))
         self._dns_counter = {}
         self._protocol_counter = {}
+        self.stop_sniffing_event = mp.Event()
 
 
     def _init_ip_databases(self):
@@ -312,7 +313,15 @@ class PacketSniffer:
 
         # Load local IP data (example - extend with actual data)
         self._load_sample_data()
+        
+    def _count_packet(self,packet):
+        # Increment total bytes and packet count
+        self.total_bytes += len(packet)
+        # Optional: Emit the current stats to the frontend
+        self.sio_queue.put(("packet_bytes", self.total_bytes))
 
+        
+        
     def _load_sample_data(self):
         """Load sample IP data (replace with real data import)"""
         self.asn_db['8.8.8.8'] = {'asn': 15169, 'org': 'Google LLC'}
@@ -651,11 +660,13 @@ class PacketSniffer:
         }
     def _packet_handler(self, packet: Packet):
         """Main packet processing method with enhanced analysis"""
+        
         self.start_time = time.perf_counter()
         features = {}
 
         with self.packet_counter.get_lock():
             self.packet_counter.value += 1
+            self._count_packet(packet)
 
         try:
             # self.processing_lock has been removed.
@@ -670,7 +681,7 @@ class PacketSniffer:
                     src_ip = arp.psrc
                     dst_ip = arp.pdst
                     is_arp = True
-                    logger.info(f"ARP Packet: {arp.op} {src_ip} -> {dst_ip}")
+                    # logger.info(f"ARP Packet: {arp.op} {src_ip} -> {dst_ip}")
                 elif packet.haslayer(IP):
                     ip_version = 4
                     src_ip = str(packet[IP].src)
@@ -1512,27 +1523,27 @@ class PacketSniffer:
                     logger.warning("sio_queue is full. Dropping event: http_activity")
                 # --- End Refine http_activity payload ---
 
-                # <<< Integration with PhishingBlocker >>>
-                if self.phishing_blocker:
-                    try:
-                        # Prepare data for PhishingBlocker. This should include essential HTTP details.
-                        # PhishingBlocker.submit_http_for_analysis is a synchronous method that
-                        # schedules the asynchronous PhishingBlocker.process_http_activity,
-                        # ensuring the sniffer's packet processing loop is not blocked.
-                        blocker_data = {
-                            "host": http_data.get("host"), # Target host/domain
-                            "path": http_data.get("path"), # Request path
-                            "source_ip": http_data.get("source_ip"), # Source IP of the request
-                            "headers": header_fields, # Extracted HTTP headers
-                            # Additional fields like 'method', 'user_agent' can be added if PhishingBlocker uses them.
-                        }
-                        if blocker_data["host"]: # Only submit if a host is present.
-                            logger.info(f"Submitting HTTP data for host '{blocker_data['host']}' to PhishingBlocker for analysis.")
-                            self.phishing_blocker.submit_http_for_analysis(blocker_data)
-                        else:
-                            logger.debug("Skipping PhishingBlocker submission: Host information is missing in http_data.")
-                    except Exception as pb_e: # Catch any errors during the submission process.
-                        logger.error(f"Error submitting HTTP data to PhishingBlocker: {pb_e}", exc_info=True)
+                # # <<< Integration with PhishingBlocker >>>
+                # if self.phishing_blocker:
+                #     try:
+                #         # Prepare data for PhishingBlocker. This should include essential HTTP details.
+                #         # PhishingBlocker.submit_http_for_analysis is a synchronous method that
+                #         # schedules the asynchronous PhishingBlocker.process_http_activity,
+                #         # ensuring the sniffer's packet processing loop is not blocked.
+                #         blocker_data = {
+                #             "host": http_data.get("host"), # Target host/domain
+                #             "path": http_data.get("path"), # Request path
+                #             "source_ip": http_data.get("source_ip"), # Source IP of the request
+                #             "headers": header_fields, # Extracted HTTP headers
+                #             # Additional fields like 'method', 'user_agent' can be added if PhishingBlocker uses them.
+                #         }
+                #         if blocker_data["host"]: # Only submit if a host is present.
+                #             # logger.info(f"Submitting HTTP data for host '{blocker_data['host']}' to PhishingBlocker for analysis.")
+                #             self.phishing_blocker.submit_http_for_analysis(blocker_data)
+                #         else:
+                #             logger.debug("Skipping PhishingBlocker submission: Host information is missing in http_data.")
+                #     except Exception as pb_e: # Catch any errors during the submission process.
+                #         logger.error(f"Error submitting HTTP data to PhishingBlocker: {pb_e}", exc_info=True)
 
             except Exception as e:
                 logger.critical(f"Notification or PhishingBlocker submission failed: {str(e)}", exc_info=True)
@@ -2919,7 +2930,7 @@ class PacketSniffer:
         if not self.worker_process or not self.worker_process.is_alive():
             self.worker_process = Process(target=self._process_queue, daemon=True)
             self.worker_process.start()
-            logger.info("Queue processing worker started.")
+            # logger.info("Queue processing worker started.")
 
         # 2) Start the new sniffer process for AsyncSniffer
         self.stop_sniffing_event.clear()
@@ -2929,7 +2940,7 @@ class PacketSniffer:
             daemon=True
         )
         self.sniffer_process.start()
-        logger.info("Packet sniffer process started on interface %s.", interface)
+        # logger.info("Packet sniffer process started on interface %s.", interface)
         
         # The original `await self._stop_event.wait()` was likely for keeping the main thread alive
         # or for a different kind of sniffer lifecycle. In a multiprocessing setup,
@@ -2962,11 +2973,11 @@ class PacketSniffer:
 
     def stop(self):
         """Stop packet capture and cleanup."""
-        logger.info("Stopping packet sniffer and associated processes...")
+        # logger.info("Stopping packet sniffer and associated processes...")
 
         # 1) Stop the new sniffer process
         if self.sniffer_process and self.sniffer_process.is_alive():
-            logger.info("Signaling sniffer process to stop...")
+            # logger.info("Signaling sniffer process to stop...")
             self.stop_sniffing_event.set()
             self.sniffer_process.join(timeout=10) # Increased timeout for sniffer to stop gracefully
             if self.sniffer_process.is_alive():
@@ -2985,7 +2996,7 @@ class PacketSniffer:
 
         # 2) Stop worker and reporter as before
         if self.worker_process and self.worker_process.is_alive():
-            logger.info("Stopping queue processing worker...")
+            # logger.info("Stopping queue processing worker...")
             self.worker_process.terminate() # Consider a more graceful shutdown if possible
             self.worker_process.join(timeout=5)
             if not self.worker_process.is_alive():
@@ -3003,7 +3014,8 @@ class PacketSniffer:
                 self.reporter_process.terminate()
                 self.reporter_process.join(timeout=5)
             if not self.reporter_process.is_alive():
-                logger.info("Reporter process stopped.")
+                pass
+                # logger.info("Reporter process stopped.")
             else:
                 logger.warning("Reporter process did not stop gracefully after termination.")
             self.reporter_process = None # Clear the process reference

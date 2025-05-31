@@ -11,6 +11,9 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
+
+import {RootState} from '@app/store'
+
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -82,6 +85,8 @@ const Dashboard = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
+  const networkVolume = useSelector((state:RootState) => state.networkVolume.networkVolume);
+
   const { getSocket, isOfflineMode } = useTelemetrySocket();
   
   // State for last updated time and dynamic data
@@ -91,15 +96,23 @@ const Dashboard = () => {
   // Redux state selectors
   const securityAlerts = useSelector((state: RootState) => state.realtimeData?.recentAlerts);
   const threatDetections = useSelector((state: RootState) => state.realtimeData?.threatDetectionsData);
-  const httpActivities = useSelector((state: RootState) => state.socket?.httpActivities);
-  const dnsActivities = useSelector((state: RootState) => state.realtimeData?.dnsActivities);
-  const firewallEvents = useSelector((state: RootState) => state.realtimeData?.firewallEventsData);
+  const httpActivities = useSelector((state: RootState) => state.socket?.httpActivities || []);
+  const dnsActivities = useSelector((state: RootState) => state.realtimeData?.dnsActivities || []);
+  const firewallEvents = useSelector((state: RootState) => state.realtimeData?.firewallEventsData || []);
+  const tcpActivities = useSelector((state: RootState) => state.socket?.tcpActivities || []);
+  const udpActivities = useSelector((state: RootState) => state.socket?.udpActivities || []);
+  const icmpActivities = useSelector((state: RootState) => state.socket?.icmpActivities || []);
+  const arpActivities = useSelector((state: RootState) => state.socket?.arpActivities || []);
+  const payloadAnalysisEvents = useSelector((state: RootState) => state.socket?.payloadAnalysisEvents || []);
+  const behaviorAnalysisEvents = useSelector((state: RootState) => state.socket?.behaviorAnalysisEvents || []);
   // const systemStats = useSelector((state: RootState) => state.realtimeData.systemStats); // For later use if needed
 
   // Local state derived from Redux or for UI
   const [currentThreatMetrics, setCurrentThreatMetrics] = useState({ critical: 0, warning: 0, info: 0, blocked: 0 });
   const [isAnomalyDetected, setIsAnomalyDetected] = useState(false);
   const [lastAnomalyToastTime, setLastAnomalyToastTime] = useState(0); // To prevent toast spam
+  const [networkStats, setNetworkStats] = useState<any>(null); // Define a proper type later
+  const [isLoadingNetworkStats, setIsLoadingNetworkStats] = useState(false);
   
   // Determine active tab based on current route
   const activeTab = routeToTabMap[location.pathname] || 'overview';
@@ -202,6 +215,34 @@ const Dashboard = () => {
       }
     }
   }, [securityAlerts, toast, lastAnomalyToastTime]);
+
+  useEffect(() => {
+    if (activeTab === 'network' && !networkStats) { // Fetch only if tab is active and stats are not yet loaded
+      const fetchNetworkStats = async () => {
+        setIsLoadingNetworkStats(true);
+        try {
+          // TODO: Add authentication headers if required by the backend
+          const response = await fetch('/api/network/stats'); 
+          if (!response.ok) {
+            throw new Error(`Failed to fetch network stats: ${response.statusText}`);
+          }
+          const data = await response.json();
+          setNetworkStats(data);
+          toast({ title: "Network Stats Loaded", description: "Successfully fetched network statistics." });
+        } catch (error) {
+          console.error("Error fetching network stats:", error);
+          toast({ 
+            title: "Error Loading Network Stats", 
+            description: error instanceof Error ? error.message : "Could not load network stats.",
+            variant: "destructive"
+          });
+        } finally {
+          setIsLoadingNetworkStats(false);
+        }
+      };
+      fetchNetworkStats();
+    }
+  }, [activeTab, networkStats]); // Add networkStats to dependencies to prevent re-fetch if already loaded
   
   
   // Activity Stream Data Mapping
@@ -250,9 +291,175 @@ const Dashboard = () => {
     });
     
     // Add more mappers for dnsActivities, etc. if needed for the stream
+    dnsActivities && dnsActivities.forEach(dns => {
+      let severity: ActivityItemProps['severity'] = 'info';
+      if (dns.is_suspicious || dns.tunnel_detected || (dns.dga_score && dns.dga_score > 0.7)) {
+        severity = 'warning';
+      }
+      if (dns.tunnel_detected && dns.is_suspicious) {
+        severity = 'critical';
+      }
+    
+      let message = `DNS Activity: ${dns.source_ip}`;
+      if (dns.queries && dns.queries.length > 0) {
+        const query = dns.queries[0];
+        message = `DNS Query: ${query.query_name} (Type: ${query.query_type}) from ${dns.source_ip}`;
+      } else if (dns.responses && dns.responses.length > 0) {
+        const response = dns.responses[0];
+        message = `DNS Response: ${response.name} (Type: ${response.type}) from ${dns.source_ip}`;
+      }
+      
+      combinedActivities.push({
+        id: dns.id || `dns-${new Date(dns.timestamp).getTime()}-${dns.source_ip}`,
+        type: 'network',
+        severity: severity,
+        message: message,
+        details: `DGA Score: ${dns.dga_score?.toFixed(2)}, NXDomain Ratio: ${dns.nxdomain_ratio?.toFixed(2)}. ${dns.tunnel_detected ? 'Tunnel Detected.' : ''} ${dns.is_suspicious ? 'Suspicious.' : ''}`,
+        source: dns.source_ip,
+        destination: dns.responses && dns.responses.length > 0 ? dns.responses.map(r => r.response_data).join(', ') : undefined,
+        timestamp: new Date(dns.timestamp),
+      });
+    });
+
+    firewallEvents && firewallEvents.forEach(fe => {
+      let severity: ActivityItemProps['severity'] = 'info';
+      if (fe.action?.toLowerCase() === 'blocked' || fe.action?.toLowerCase() === 'denied') {
+        severity = 'critical';
+      } else if (fe.severity?.toLowerCase() === 'high' || fe.severity?.toLowerCase() === 'medium') {
+        severity = 'warning';
+      }
+
+      combinedActivities.push({
+        id: fe.id || `fw-${new Date(fe.timestamp).getTime()}-${fe.source_ip}`,
+        type: 'network', // Could be 'system' depending on context
+        severity: severity,
+        message: `Firewall: ${fe.action} ${fe.protocol} from ${fe.source_ip}:${fe.source_port} to ${fe.destination_ip}:${fe.destination_port}`,
+        details: `Rule: ${fe.rule_id || 'N/A'}. Reason: ${fe.reason || 'N/A'}. Severity: ${fe.severity || 'N/A'}`,
+        source: fe.source_ip,
+        destination: fe.destination_ip,
+        timestamp: new Date(fe.timestamp),
+      });
+    });
+
+    tcpActivities && tcpActivities.forEach(tcp => {
+      let severity: ActivityItemProps['severity'] = 'info';
+      if (tcp.flags?.RST) severity = 'warning';
+      if (tcp.syn_flood_detected || tcp.rst_attack_detected) severity = 'critical';
+      else if (tcp.fin_scan_detected || tcp.sequence_analysis?.predictable) severity = 'warning';
+
+      combinedActivities.push({
+        id: tcp.id || `tcp-${new Date(tcp.timestamp).getTime()}-${tcp.source_ip}-${tcp.source_port}`,
+        type: 'network',
+        severity: severity,
+        message: `TCP: ${tcp.source_ip}:${tcp.source_port} -> ${tcp.destination_ip}:${tcp.destination_port} Flags: ${Object.entries(tcp.flags || {}).filter(([, val]) => val).map(([key]) => key).join(',') || 'N/A'}`,
+        details: `Window: ${tcp.window_size}, Seq: ${tcp.seq_num}, Payload: ${tcp.tcp_payload_size}B. ${tcp.sequence_analysis?.predictable ? 'Predictable Seq!' : ''} ${tcp.syn_flood_detected ? 'SYN Flood!' : ''}`,
+        source: tcp.source_ip,
+        destination: tcp.destination_ip,
+        timestamp: new Date(tcp.timestamp),
+      });
+    });
+
+    udpActivities && udpActivities.forEach(udp => {
+      let severity: ActivityItemProps['severity'] = 'info';
+      if (udp.udp_flood_detected || udp.ntp_amplification_detected) severity = 'critical';
+      else if (udp.suspicious_port_detected) severity = 'warning';
+      
+      combinedActivities.push({
+        id: udp.id || `udp-${new Date(udp.timestamp).getTime()}-${udp.source_ip}-${udp.source_port}`,
+        type: 'network',
+        severity: severity,
+        message: `UDP: ${udp.source_ip}:${udp.source_port} -> ${udp.destination_ip}:${udp.destination_port}`,
+        details: `Length: ${udp.length}, Payload: ${udp.udp_payload_size}B. ${udp.ntp_amplification_detected ? 'NTP Amp!' : ''} ${udp.udp_flood_detected ? 'UDP Flood!' : ''}`,
+        source: udp.source_ip,
+        destination: udp.destination_ip,
+        timestamp: new Date(udp.timestamp),
+      });
+    });
+
+    icmpActivities && icmpActivities.forEach(icmp => {
+      let severity: ActivityItemProps['severity'] = 'info';
+      if (icmp.ping_flood_detected || icmp.ping_of_death_detected) severity = 'warning';
+      if (icmp.icmp_redirect_detected) severity = 'critical';
+
+      combinedActivities.push({
+        id: icmp.id || `icmp-${new Date(icmp.timestamp).getTime()}-${icmp.source_ip}-${icmp.destination_ip}`,
+        type: 'network',
+        severity: severity,
+        message: `ICMP: ${icmp.source_ip} -> ${icmp.destination_ip} Type: ${icmp.icmp_type}, Code: ${icmp.icmp_code}`,
+        details: `Payload: ${icmp.icmp_payload_size}B. ${icmp.ping_of_death_detected ? 'Ping of Death!' : ''} ${icmp.ping_flood_detected ? 'Ping Flood!' : ''}`,
+        source: icmp.source_ip,
+        destination: icmp.destination_ip,
+        timestamp: new Date(icmp.timestamp),
+      });
+    });
+
+    arpActivities && arpActivities.forEach(arp => {
+      let severity: ActivityItemProps['severity'] = 'info';
+      if (arp.arp_spoofing_detected || arp.mac_spoofing_detected) severity = 'critical'; // ARP spoofing is serious
+      else if (arp.gratuitous_arp_detected) severity = 'warning';
+
+      combinedActivities.push({
+        id: arp.id || `arp-${new Date(arp.timestamp).getTime()}-${arp.sender_ip}`,
+        type: 'network',
+        severity: severity,
+        message: `ARP: ${arp.operation} - Sender: ${arp.sender_ip} (${arp.sender_mac}), Target: ${arp.target_ip} (${arp.target_mac || 'N/A'})`,
+        details: `${arp.arp_spoofing_detected ? 'ARP Spoofing!' : ''} ${arp.mac_spoofing_detected ? 'MAC Spoofing!' : ''} ${arp.gratuitous_arp_detected ? 'Gratuitous ARP.' : ''}`,
+        source: arp.sender_ip,
+        destination: arp.target_ip, // Or N/A if not applicable for requests
+        timestamp: new Date(arp.timestamp),
+      });
+    });
+
+    payloadAnalysisEvents && payloadAnalysisEvents.forEach(pa => {
+      let severity: ActivityItemProps['severity'] = 'info';
+      if (pa.shellcode_detected || pa.sql_injection_detected || pa.xss_detected) severity = 'critical';
+      else if (pa.exploit_kit_pattern_detected || pa.obfuscation_detected || pa.high_entropy_detected) severity = 'warning';
+
+      combinedActivities.push({
+        id: pa.id || `payload-${new Date(pa.timestamp).getTime()}-${pa.source_ip}`,
+        type: 'threat',
+        severity: severity,
+        message: `Payload Anomaly: ${pa.protocol} from ${pa.source_ip || 'N/A'} to ${pa.destination_ip || 'N/A'}`,
+        details: `Size: ${pa.actual_payload_size}, Entropy: ${pa.entropy?.toFixed(2)}. ${pa.shellcode_detected ? 'Shellcode!' : ''} ${pa.sql_injection_detected ? 'SQLi!' : ''} ${pa.xss_detected ? 'XSS!' : ''}`,
+        source: pa.source_ip,
+        destination: pa.destination_ip,
+        timestamp: new Date(pa.timestamp),
+      });
+    });
+
+    behaviorAnalysisEvents && behaviorAnalysisEvents.forEach(ba => {
+      let severity: ActivityItemProps['severity'] = 'info';
+      // Determine behavior_type for message (example, could be an actual field)
+      let behavior_type = 'General';
+      if (ba.port_scan_detected) { behavior_type = 'Port Scan'; severity = 'warning'; }
+      if (ba.dos_attempt_detected) { behavior_type = 'DoS Attempt'; severity = 'critical'; }
+      if (ba.data_exfiltration_detected) { behavior_type = 'Data Exfiltration'; severity = 'critical'; }
+
+      combinedActivities.push({
+        id: ba.id || `behavior-${new Date(ba.timestamp).getTime()}-${ba.source_ip}`,
+        type: 'threat', 
+        severity: severity,
+        message: `Behavior Anomaly: ${ba.source_ip} - ${behavior_type}`,
+        details: `Flow ID: ${ba.flow_id}, Duration: ${ba.duration_seconds?.toFixed(2)}s. Packets: ${ba.packet_count_in_flow}, Bytes: ${ba.byte_count_in_flow}. ${ba.port_scan_detected ? 'Port Scan!' : ''} ${ba.dos_attempt_detected ? 'DoS Attempt!' : ''} ${ba.data_exfiltration_detected ? 'Data Exfil!' : ''}`,
+        source: ba.source_ip,
+        destination: ba.destination_ip, // May not always be relevant for behavior analysis
+        timestamp: new Date(ba.timestamp),
+      });
+    });
 
     return combinedActivities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()).slice(0, 50);
-  }, [securityAlerts, httpActivities]);
+  }, [
+    securityAlerts, 
+    httpActivities, 
+    dnsActivities, 
+    firewallEvents, 
+    tcpActivities, 
+    udpActivities, 
+    icmpActivities, 
+    arpActivities, 
+    payloadAnalysisEvents, 
+    behaviorAnalysisEvents
+  ]);
 
   // Emerging Threats from Redux
   const emergingThreats = React.useMemo(() => {
@@ -274,9 +481,18 @@ const Dashboard = () => {
   }, [threatDetections, securityAlerts]);
 
 
-  if (dailySummary) {
-    console.log("Daily summary: ", dailySummary);
+  function formatBytes(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    const units = ['KB', 'MB', 'GB', 'TB'];
+    let i = -1;
+    do {
+      bytes = bytes / 1024;
+      i++;
+    } while (bytes >= 1024 && i < units.length - 1);
+    return `${bytes.toFixed(2)} ${units[i]}`;
   }
+  
+
   
   return (
     <div className="flex h-screen bg-background">
@@ -327,7 +543,7 @@ const Dashboard = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                 <MetricsCard 
                   title="Traffic Volume" 
-                  value={dailySummary ? `${(dailySummary.network24h.sent_mb + dailySummary.network24h.recv_mb).toFixed(1)} MB` : "Loading..."}
+                  value={ formatBytes(networkVolume)}
                   description="Total network traffic in last 24h"
                   icon={<Activity size={16} />}
                   // Trend data would need historical daily summaries
@@ -437,7 +653,15 @@ const Dashboard = () => {
               </TabsList>
               
               <TabsContent value="overview" className="space-y-4">
-                <ThreatMap className="animate-fade-in" />
+                <ThreatMap 
+                  className="animate-fade-in" 
+                  threatsData={
+                    [
+                      ...(Array.isArray(securityAlerts) ? securityAlerts : []), 
+                      ...(Array.isArray(threatDetections) ? threatDetections : [])
+                    ]
+                  } 
+                />
                 
                 <div className="mt-6">
                   <h2 className="text-xl font-semibold mb-4 flex items-center">
@@ -500,56 +724,83 @@ const Dashboard = () => {
               
               <TabsContent value="network">
                 <div className="glass-card p-6">
-                  <h2 className="text-xl font-semibold mb-4">Network Map</h2>
-                  <p className="mb-4">Visualize your network topology and monitor traffic patterns.</p>
-                  <div className="h-64 border border-border rounded-lg flex items-center justify-center bg-background/50">
-                    <p className="text-muted-foreground">Network visualization will be displayed here</p>
-                  </div>
+                  <h2 className="text-xl font-semibold mb-4">Network Statistics</h2>
+                  <p className="mb-4 text-muted-foreground">Overview of network traffic and sniffer performance.</p>
+                  {isLoadingNetworkStats && <p>Loading network data...</p>}
+                  {!isLoadingNetworkStats && !networkStats && <p>No network data available or failed to load.</p>}
+                  {networkStats && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-base">Sniffer Performance</CardTitle>
+                        </CardHeader>
+                        <CardContent className="text-sm space-y-2">
+                          <p><strong>Total Packets Processed:</strong> {networkStats.total_packets?.toLocaleString() || 'N/A'}</p>
+                          <p><strong>Total Bytes Sniffed:</strong> {(networkStats.total_bytes_processed / (1024*1024))?.toFixed(2) || 'N/A'} MB</p>
+                          <p><strong>Sniffer Uptime:</strong> {networkStats.uptime_seconds?.toFixed(0) || 'N/A'} seconds</p>
+                           <p><strong>Avg. Packets/Sec:</strong> {networkStats.avg_packets_per_second?.toFixed(2) || 'N/A'}</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-base">Protocol Distribution</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          {networkStats.protocols && Object.keys(networkStats.protocols).length > 0 ? (
+                            <ul className="list-disc pl-5 text-sm space-y-1">
+                              {Object.entries(networkStats.protocols).map(([protocol, count]) => (
+                                <li key={protocol}>
+                                  <span className="font-medium">{protocol}:</span> {Number(count).toLocaleString()} packets
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">No protocol data available.</p>
+                          )}
+                        </CardContent>
+                      </Card>
+                      <Card className="md:col-span-2">
+                        <CardHeader>
+                          <CardTitle className="text-base">Top Talkers (Source IPs)</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          {networkStats.top_talkers && Object.keys(networkStats.top_talkers).length > 0 ? (
+                             <div className="overflow-x-auto">
+                              <table className="w-full text-sm">
+                                <thead>
+                                  <tr className="text-left text-muted-foreground">
+                                    <th className="py-2 pr-2 font-normal">IP Address</th>
+                                    <th className="py-2 pl-2 font-normal">Packets Sent</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {Object.entries(networkStats.top_talkers)
+                                    .sort(([, a], [, b]) => Number(b) - Number(a)) // Sort by packet count desc
+                                    .slice(0, 10) // Display top 10
+                                    .map(([ip, count]) => (
+                                    <tr key={ip} className="border-t border-border">
+                                      <td className="py-2 pr-2 font-mono">{ip}</td>
+                                      <td className="py-2 pl-2">{Number(count).toLocaleString()}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">No top talker data available.</p>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
                 </div>
               </TabsContent>
               
               <TabsContent value="logs">
                 <div className="glass-card p-6">
-                  <h2 className="text-xl font-semibold mb-4">Security Logs</h2>
-                  <p className="mb-4">Search, filter, and analyze security event logs.</p>
-                  <div className="border border-border rounded-lg bg-background/50 overflow-hidden">
-                    <div className="p-4 bg-muted text-sm font-medium border-b border-border">
-                      <div className="grid grid-cols-12 gap-4">
-                        <div className="col-span-2">Timestamp</div>
-                        <div className="col-span-2">Event Type</div>
-                        <div className="col-span-2">Source</div>
-                        <div className="col-span-6">Message</div>
-                      </div>
-                    </div>
-                    <div className="divide-y divide-border">
-                      {[...Array(5)].map((_, i) => (
-                        <div key={i} className="p-4 text-sm">
-                          <div className="grid grid-cols-12 gap-4">
-                            <div className="col-span-2 text-muted-foreground">
-                              {new Date(Date.now() - i * 1000 * 60 * 10).toLocaleTimeString()}
-                            </div>
-                            <div className="col-span-2">
-                              <Badge variant="outline" className={
-                                i % 3 === 0 ? "bg-red-500/10 text-red-500" : 
-                                i % 3 === 1 ? "bg-amber-500/10 text-amber-500" : 
-                                "bg-blue-500/10 text-blue-500"
-                              }>
-                                {i % 3 === 0 ? "ERROR" : i % 3 === 1 ? "WARNING" : "INFO"}
-                              </Badge>
-                            </div>
-                            <div className="col-span-2 font-mono text-xs">
-                              10.0.1.{Math.floor(Math.random() * 255)}
-                            </div>
-                            <div className="col-span-6">
-                              {i % 3 === 0 ? "Failed login attempt" : 
-                               i % 3 === 1 ? "Suspicious outbound connection" : 
-                               "System update completed successfully"}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                  <h2 className="text-xl font-semibold mb-4">Aggregated Security Logs</h2>
+                  <p className="mb-4 text-muted-foreground">Chronological stream of all monitored activities and alerts.</p>
+                  <ActivityStream activities={mappedActivities} maxItems={100} />
                 </div>
               </TabsContent>
               

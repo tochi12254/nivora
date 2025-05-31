@@ -35,4 +35,4 @@ class IPSPacketAdapter:
                 packet, db = await self.queue.get()
                 await self.ips_engine.process_packet(packet, db)
             except Exception as e:
-                print(f"Error processing packet in IPS: {e}")
+                # PROD_CLEANUP: print(f"Error processing packet in IPS: {e}")

@@ -94,10 +94,10 @@ class ThreatIntel:
     async def load_threat_feeds(self):
         """Load threat intelligence feeds, using cached data if available."""
         if self._is_cache_valid():
-            logger.info("Loading threat feeds from cache...")
+            # logger.info("Loading threat feeds from cache...")
             await self.load_from_cache()
         else:
-            logger.info("Fetching threat feeds from the web...")
+            # logger.info("Fetching threat feeds from the web...")
             await self.fetch_and_cache_feeds()
 
     def _is_cache_valid(self) -> bool:
@@ -121,8 +121,9 @@ class ThreatIntel:
                 self.malicious_ips = set(cache.get("malicious_ips", []))
                 self.tor_exit_nodes = set(cache.get("tor_exit_nodes", []))
         except FileNotFoundError:
+            pass
             # no cache yet: that's OK, we'll fill it later
-            logger.info("No cache file found, will fetch feeds on background startup")
+            # logger.info("No cache file found, will fetch feeds on background startup")
         except Exception as e:
             logger.error(f"Error reading cache: {e}")
 
@@ -183,17 +184,17 @@ class ThreatIntel:
             # Save results atomically
             try:
                 self._save_cache()
-                logger.info(
-                    "Threat feeds updated: %d malicious IPs, %d TOR exit nodes",
-                    len(self.malicious_ips),
-                    len(self.tor_exit_nodes),
-                )
+                # logger.info(
+                #     "Threat feeds updated: %d malicious IPs, %d TOR exit nodes",
+                #     len(self.malicious_ips),
+                #     len(self.tor_exit_nodes),
+                # )
             except Exception as save_error:
                 logger.error(f"Failed to save cache: {str(save_error)}")
 
         except Exception as e:
             logger.error(f"Critical failure in feed update: {str(e)}")
-            logger.info("Attempting to fall back to cached data...")
+            # logger.info("Attempting to fall back to cached data...")
 
             try:
                 # Try loading last successful cache
@@ -242,7 +243,7 @@ class ThreatIntel:
                 json.dump(cache_data, f)
 
             self.last_cache_update = datetime.now()
-            logger.debug("Threat data cached successfully")
+            # logger.debug("Threat data cached successfully")
 
         except Exception as e:
             logger.error(f"Failed to save cache: {e}")
@@ -256,7 +257,7 @@ class ThreatIntel:
             self.malicious_ips = set(cache_data.get("malicious_ips", []))
             self.tor_exit_nodes = set(cache_data.get("tor_exit_nodes", []))
             self.last_cache_update = datetime.fromisoformat(cache_data["timestamp"])
-            logger.info("Loaded cached threat data from %s", self.last_cache_update)
+            # logger.info("Loaded cached threat data from %s", self.last_cache_update)
 
         except FileNotFoundError:
             logger.warning("No cache file found - starting with empty threat data")
@@ -316,7 +317,7 @@ class RuleManager:
                 if len(set(ids)) != len(ids):
                     raise ValueError("Duplicate rule IDs found!")
 
-                logger.info(f"Loaded {len(self.rules)} rules from {self.rule_file}")
+                # logger.info(f"Loaded {len(self.rules)} rules from {self.rule_file}")
                 self.validate_rules()
                 return True
         except Exception as e:
@@ -324,7 +325,7 @@ class RuleManager:
             return False
 
     def validate_rules(self):
-        logger.info("Validating IPS rules...")
+        # logger.info("Validating IPS rules...")
         valid_actions = {"block", "alert", "throttle", "quarantine"}
         required_fields = {"id", "action", "severity", "description"}
 
@@ -356,7 +357,7 @@ class RuleManager:
             if "protocol" in rule and not isinstance(rule["protocol"], str):
                 raise ValueError(f"{context} - Protocol must be a string")
 
-        logger.info(f"✔️ All {len(self.rules)} rules validated successfully.")
+        # logger.info(f"✔️ All {len(self.rules)} rules validated successfully.")
 
     def get_rules_for_protocol(self, protocol: str) -> List[Dict]:
         """Get rules filtered by protocol"""
@@ -550,8 +551,8 @@ class PacketProcessor:
                 match_results.append(False)
             self.sequence_tracker[key] = context.tcp_seq
 
-        logger.debug(f"[PAYLOAD]: {context.payload.decode(errors='ignore')[:200]}")
-        logger.debug(f"[PATTERN]: {rule.get('pattern')}")
+        # logger.debug(f"[PAYLOAD]: {context.payload.decode(errors='ignore')[:200]}")
+        # logger.debug(f"[PATTERN]: {rule.get('pattern')}")
 
         # All specified pattern checks must pass
         return all(match_results) if match_results else True
@@ -690,7 +691,7 @@ class MatchHistoryTracker:
             self._cleanup(now)
             last_match = self.match_history.get(key)
             if last_match and (now - last_match) < self.ttl:
-                logger.debug(f"Skipping repeated match: {key}")
+                # logger.debug(f"Skipping repeated match: {key}")
                 return True
             self.match_history[key] = now
             return False
@@ -873,7 +874,7 @@ class MitigationEngine:
         elif action == "quarantine":
             await self._quarantine_ip(ip, match)
         elif action == "alert":
-            logger.info(f"ALERT only: {match.description} for IP {ip}")
+            # logger.info(f"ALERT only: {match.description} for IP {ip}")
             # For 'alert' actions, we still want to notify the frontend and potentially SIEM
             await self._send_mitigation_event(
                 "alert", ip, match, success=True
@@ -1253,7 +1254,7 @@ class MitigationEngine:
         if self.firewall_backend == "in_memory":
             return
 
-        logger.info("Cleaning up firewall rules...")
+        # logger.info("Cleaning up firewall rules...")
 
         async with self.lock:
             # Unblock all blocked IPs
@@ -1319,10 +1320,10 @@ class MitigationEngine:
         """Update threat intelligence feeds"""
         threat_intel_api_url = self.config.get("threat_intel_api")
         if not threat_intel_api_url:
-            logger.debug(
-                "Threat intelligence API URL not configured. Skipping update for IP %s.",
-                ip,
-            )
+            # logger.debug(
+            #     "Threat intelligence API URL not configured. Skipping update for IP %s.",
+            #     ip,
+            # )
             return False
 
         api_key = self.config.get("threat_intel_api_key", "")
@@ -1335,17 +1336,17 @@ class MitigationEngine:
         # Explicit timeout example: timeout=aiohttp.ClientTimeout(total=self.config.get("threat_intel_api_timeout", 15)))
 
         try:
-            logger.debug(
-                f"Attempting to update threat intel for IP {ip} (action: {action}) via {threat_intel_api_url}"
-            )
+            # logger.debug(
+            #     f"Attempting to update threat intel for IP {ip} (action: {action}) via {threat_intel_api_url}"
+            # )
             async with self.session.post(
                 threat_intel_api_url, json=payload, headers=headers
             ) as resp:
                 response_text = await resp.text()
                 if resp.status == 200:
-                    logger.info(
-                        f"Successfully updated threat intelligence for IP {ip} (action: {action}). Response: {response_text}"
-                    )
+                    # logger.info(
+                    #     f"Successfully updated threat intelligence for IP {ip} (action: {action}). Response: {response_text}"
+                    # )
                     return True
                 else:
                     logger.warning(
@@ -1409,7 +1410,7 @@ class MitigationEngine:
         # Emit to frontend via Socket.IO
         try:
             await self.sio.emit(event_name, event_payload)
-            logger.info(f"Emitted frontend event '{event_name}' for IP {ip}")
+            # logger.info(f"Emitted frontend event '{event_name}' for IP {ip}")
         except Exception as e:
             logger.error(f"Failed to emit frontend event '{event_name}': {e}")
 
@@ -1463,9 +1464,9 @@ class MitigationEngine:
                     timeout=timeout,
                 ) as response:
                     if response.status == 200:
-                        logger.info(
-                            f"Successfully sent SIEM event for {ip} (action: {action}) to dashboard"
-                        )
+                        # logger.info(
+                        #     f"Successfully sent SIEM event for {ip} (action: {action}) to dashboard"
+                        # )
                         return  # Successfully sent to SIEM
 
                     if response.status == 401:
@@ -1602,7 +1603,7 @@ class MitigationEngine:
 
     async def _retry_failed_events(self):
         """Background task to retry failed events"""
-        logger.info("Starting failed events retry handler")
+        # logger.info("Starting failed events retry handler")
         while True:
             try:
                 # Wait for new events with timeout
@@ -1613,7 +1614,7 @@ class MitigationEngine:
                     event_data = json.loads(zlib.decompress(compressed).decode("utf-8"))
                 except asyncio.TimeoutError:
                     if self.failed_events_queue.empty():
-                        logger.info("No more failed events to retry")
+                        # logger.info("No more failed events to retry")
                         del self._retry_task
                         return
                     continue
@@ -1651,7 +1652,7 @@ class MitigationEngine:
 
         Returns True if any isolation method succeeds.
         """
-        logger.info(f"Attempting to isolate internal IP: {ip}")
+        # logger.info(f"Attempting to isolate internal IP: {ip}")
         isolation_methods = {
             "Network Controller": self._isolate_via_network_controller,
             "NAC": self._isolate_via_nac,
@@ -1662,7 +1663,7 @@ class MitigationEngine:
         for method_name, method_func in isolation_methods.items():
             try:
                 if await method_func(ip):
-                    logger.info(f"Successfully isolated IP {ip} using {method_name}.")
+                    # logger.info(f"Successfully isolated IP {ip} using {method_name}.")
                     return True
                 # Failure of a single method is logged within the method itself
             except Exception as e:
@@ -1716,9 +1717,9 @@ class MitigationEngine:
             async with self.session.post(url, json=payload, headers=headers) as resp:
                 response_text = await resp.text()
                 if resp.status in (200, 201, 202):  # Accepted or OK
-                    logger.info(
-                        f"Successfully isolated IP {ip} via network controller {controller_type} (URL: {url}). Status: {resp.status}"
-                    )
+                    # logger.info(
+                    #     f"Successfully isolated IP {ip} via network controller {controller_type} (URL: {url}). Status: {resp.status}"
+                    # )
                     return True
                 else:
                     logger.warning(
@@ -1787,9 +1788,9 @@ class MitigationEngine:
                     202,
                     204,
                 ):  # OK, Created, Accepted, No Content
-                    logger.info(
-                        f"Successfully isolated/quarantined IP {ip} via NAC ({nac_api_url}). Status: {resp.status}"
-                    )
+                    # logger.info(
+                    #     f"Successfully isolated/quarantined IP {ip} via NAC ({nac_api_url}). Status: {resp.status}"
+                    # )
                     return True
                 else:
                     logger.warning(
@@ -1811,7 +1812,7 @@ class MitigationEngine:
     async def _isolate_via_local_firewall(self, ip: str) -> bool:
         """Create local firewall rules to block internal communication for a given IP."""
         current_os = platform.system().lower()
-        logger.info(f"Attempting local firewall isolation for IP {ip} on {current_os}.")
+        # logger.info(f"Attempting local firewall isolation for IP {ip} on {current_os}.")
 
         commands = []
         if current_os == "linux":
@@ -1863,9 +1864,10 @@ class MitigationEngine:
                 # Depending on policy, might stop or continue; current logic: try all, succeed if all pass
 
         if all_succeeded:
-            logger.info(
-                f"Successfully applied all local firewall isolation rules for IP {ip}."
-            )
+            pass
+            # logger.info(
+            #     f"Successfully applied all local firewall isolation rules for IP {ip}."
+            # )
         else:
             logger.warning(
                 f"One or more local firewall isolation rules failed for IP {ip}."
@@ -2392,7 +2394,7 @@ class EnterpriseIPS:
             try:
                 stats = self.stats_collector.get_stats()
                 await self.sio.emit("ips_stats", stats)
-                logger.debug(f"System stats: {stats}")
+                # logger.debug(f"System stats: {stats}")
                 await asyncio.sleep(STATS_REPORT_INTERVAL)
             except Exception as e:
                 logger.error(f"Error reporting stats: {e}")

@@ -83,7 +83,7 @@ const HttpActivityTable = ({ activities, className }: HttpActivityTableProps) =>
       header: "Security Issues",
       cell: (activity: HttpActivity) => (
         <div className="flex flex-wrap gap-1">
-          {activity.missingSecurityHeaders.length > 0 && (
+          {activity?.missingSecurityHeaders?.length > 0 && (
             <span className="bg-threat-high/10 text-threat-high px-1.5 py-0.5 rounded text-xs">
               Missing Headers
             </span>

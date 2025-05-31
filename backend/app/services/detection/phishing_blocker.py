@@ -129,7 +129,7 @@ class PhishingBlocker:
             # Configure client timeouts: 5 seconds for connect, 10 seconds total for the request.
             timeout = aiohttp.ClientTimeout(total=10, connect=5)
             self.http_session = aiohttp.ClientSession(timeout=timeout)
-            logger.debug("aiohttp.ClientSession initialized or re-initialized.")
+            # PROD_CLEANUP: logger.debug("aiohttp.ClientSession initialized or re-initialized.")
 
 
     def _ensure_data_dir_exists(self):
@@ -221,7 +221,7 @@ class PhishingBlocker:
             with open(file_path, "w", encoding="utf-8") as f: # Specify UTF-8 encoding.
                 for item in sorted(list(data_set)): # Save in sorted order for consistency.
                     f.write(f"{item}\n")
-            logger.debug(f"Successfully saved {len(data_set)} items to {file_path}")
+            # PROD_CLEANUP: logger.debug(f"Successfully saved {len(data_set)} items to {file_path}")
         except IOError as e: # Catch file I/O specific errors.
             logger.error(f"IOError saving items to file {file_path}: {e}", exc_info=True)
         except Exception as e: # Catch any other unexpected errors during file writing.
@@ -288,7 +288,7 @@ class PhishingBlocker:
         }
         try:
             await self.sio.emit("phishing_stats_update", stats)
-            logger.debug(f"Emitted phishing statistics: {stats}")
+            # PROD_CLEANUP: logger.debug(f"Emitted phishing statistics: {stats}")
             # Reset counters for the next reporting interval.
             self.urls_scanned_since_last_update = 0
             self.phishing_detected_since_last_update = 0
@@ -326,7 +326,7 @@ class PhishingBlocker:
                 return
 
             url_to_check = url_to_check.strip()
-            logger.info(f"Received manual_phishing_check event for URL: {url_to_check}")
+            # PROD_CLEANUP: logger.info(f"Received manual_phishing_check event for URL: {url_to_check}")
 
             # The internal `manual_check` method handles the analysis and returns a result dictionary.
             result_dict = await self.manual_check(url_to_check) 
@@ -345,7 +345,7 @@ class PhishingBlocker:
             Args:
                 data (Optional[Dict]): Optional data from the client (currently unused).
             """
-            logger.debug("Received get_blocked_domains request via Socket.IO.")
+            # PROD_CLEANUP: logger.debug("Received get_blocked_domains request via Socket.IO.")
             await self.sio.emit(
                 "blocked_domains_list",
                 {"domains": list(self.blocked_domains), "ips": list(self.blocked_ips)},
@@ -365,7 +365,7 @@ class PhishingBlocker:
             """
             domain_to_whitelist = data.get("domain", "").lower().strip() # Normalize: lowercase and strip whitespace.
             if not domain_to_whitelist: 
-                logger.debug("Add to whitelist request received with an empty domain.")
+                # PROD_CLEANUP: logger.debug("Add to whitelist request received with an empty domain.")
                 await self.sio.emit("whitelist_updated", {"action": "add_failed", "error": "Domain cannot be empty."})
                 return
             
@@ -404,7 +404,7 @@ class PhishingBlocker:
             """
             domain_to_remove = data.get("domain", "").lower().strip()
             if not domain_to_remove: 
-                logger.debug("Remove from whitelist request received with an empty domain.")
+                # PROD_CLEANUP: logger.debug("Remove from whitelist request received with an empty domain.")
                 await self.sio.emit("whitelist_updated", {"action": "remove_failed", "error": "Domain cannot be empty."})
                 return
             
@@ -430,7 +430,7 @@ class PhishingBlocker:
             """
             domain_to_blacklist = data.get("domain", "").lower().strip()
             if not domain_to_blacklist: 
-                logger.debug("Add to blacklist request received with an empty domain.")
+                # PROD_CLEANUP: logger.debug("Add to blacklist request received with an empty domain.")
                 await self.sio.emit("blacklist_updated", {"action": "add_failed", "error": "Domain cannot be empty."})
                 return
 
@@ -459,7 +459,7 @@ class PhishingBlocker:
             """
             domain_to_remove = data.get("domain", "").lower().strip()
             if not domain_to_remove: 
-                logger.debug("Remove from blacklist request received with an empty domain.")
+                # PROD_CLEANUP: logger.debug("Remove from blacklist request received with an empty domain.")
                 await self.sio.emit("blacklist_updated", {"action": "remove_failed", "error": "Domain cannot be empty."})
                 return
             
@@ -656,7 +656,7 @@ class PhishingBlocker:
             # The aiohttp session will be initialized within the async process_http_activity method
             # when it's first needed, ensuring it's created within the correct asyncio event loop.
             self.sio.start_background_task(self.process_http_activity, http_data)
-            logger.debug(f"Submitted HTTP data for host '{http_data.get('host', 'N/A')}' for asynchronous phishing analysis.")
+            # PROD_CLEANUP: logger.debug(f"Submitted HTTP data for host '{http_data.get('host', 'N/A')}' for asynchronous phishing analysis.")
         except Exception as e: # Catch potential errors if sio or its background task mechanism fails.
             logger.error(f"Error submitting HTTP data for asynchronous analysis: {e}", exc_info=True)
 
@@ -696,7 +696,7 @@ class PhishingBlocker:
         source_ip = http_data.get("source_ip", "N/A") 
 
         if not host:
-            logger.debug("process_http_activity: Host missing in http_data. Cannot analyze.")
+            # PROD_CLEANUP: logger.debug("process_http_activity: Host missing in http_data. Cannot analyze.")
             return None 
 
         # Normalize URL scheme. The detector also normalizes, but being consistent here is good.
@@ -734,7 +734,7 @@ class PhishingBlocker:
                                 'application/pdf', 'application/octet-stream']
         if any(non_html_type in content_type_header for non_html_type in known_non_html_types):
             is_likely_html_page = False
-            logger.debug(f"Skipping HTML fetch for URL '{url[:100]}' due to explicit non-HTML Content-Type: {content_type_header}")
+            # PROD_CLEANUP: logger.debug(f"Skipping HTML fetch for URL '{url[:100]}' due to explicit non-HTML Content-Type: {content_type_header}")
 
         if is_likely_html_page and self.http_session: # Proceed only if it seems like an HTML page and session is available.
             try:
@@ -744,9 +744,10 @@ class PhishingBlocker:
                     if response.status == 200 and \
                        ("text/html" in response.headers.get("Content-Type", "").lower()):
                         html_content = await response.text(encoding='utf-8', errors='ignore') # Specify encoding and handle potential errors.
-                        logger.info(f"Fetched HTML content for URL '{url[:100]}' ({len(html_content)} bytes)")
+                        # PROD_CLEANUP: logger.info(f"Fetched HTML content for URL '{url[:100]}' ({len(html_content)} bytes)")
                     else:
-                        logger.debug(f"Did not fetch HTML for URL '{url[:100]}'. Status: {response.status}, Content-Type: {response.headers.get('Content-Type')}")
+                        pass
+                        # PROD_CLEANUP: logger.debug(f"Did not fetch HTML for URL '{url[:100]}'. Status: {response.status}, Content-Type: {response.headers.get('Content-Type')}")
             except asyncio.TimeoutError: # Specifically catch timeout errors.
                 logger.warning(f"Timeout fetching HTML content for URL '{url[:100]}'")
             except aiohttp.ClientError as e: # Catch other aiohttp client-side errors (DNS resolution, connection errors, etc.).
@@ -786,7 +787,8 @@ class PhishingBlocker:
                  logger.info(f"Suspicious URL (not blocked): '{result.url}', Risk: {result.risk_score}, Reasons: {'; '.join(result.reasons)}")
                  # Optionally, send a different kind of alert for "suspicious but not blocked" activity if required.
             else:
-                 logger.debug(f"Analyzed benign URL: '{result.url}', Risk: {result.risk_score}")
+                pass
+                 # PROD_CLEANUP: logger.debug(f"Analyzed benign URL: '{result.url}', Risk: {result.risk_score}")
 
         return {"action": "allowed", "url": url, "details": result_dict_from_obj(result)}
 
@@ -867,7 +869,7 @@ class PhishingBlocker:
                   the domain was added to the blocklist as a result of this manual check.
         """
         await self._initialize_http_session() # Ensure aiohttp session is ready for potential HTML fetch.
-        logger.info(f"Initiating manual check for URL: {url}")
+        # PROD_CLEANUP: logger.info(f"Initiating manual check for URL: {url}")
         self.urls_scanned_since_last_update += 1
 
         html_content_manual: Optional[str] = None
@@ -876,9 +878,10 @@ class PhishingBlocker:
                 async with self.http_session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status == 200 and ("text/html" in response.headers.get("Content-Type", "").lower()):
                         html_content_manual = await response.text(encoding='utf-8', errors='ignore')
-                        logger.info(f"Fetched HTML ({len(html_content_manual)} bytes) for manual check of URL: {url[:100]}")
+                        # PROD_CLEANUP: logger.info(f"Fetched HTML ({len(html_content_manual)} bytes) for manual check of URL: {url[:100]}")
                     else:
-                        logger.debug(f"HTML content not fetched for manual check (Status: {response.status}, Content-Type: {response.headers.get('Content-Type')}) for URL: {url}")
+                        pass
+                        # PROD_CLEANUP: logger.debug(f"HTML content not fetched for manual check (Status: {response.status}, Content-Type: {response.headers.get('Content-Type')}) for URL: {url}")
             except asyncio.TimeoutError:
                 logger.warning(f"Timeout fetching HTML for manual check of URL: {url}")
             except aiohttp.ClientError as e: # Catch client-side HTTP errors.
@@ -892,7 +895,7 @@ class PhishingBlocker:
         result_dict = result_dict_from_obj(result_obj) # Use helper for consistent dictionary structure.
         result_dict["event_type"] = "manual_check_result" # Add event_type for SIEM/logging consistency.
 
-        logger.info(f"Manual check result for URL '{result_dict['url']}': Risk={result_dict['risk_score']}, Phishing={result_dict['is_phishing']}. Reasons: {'; '.join(result_dict['reasons'])}")
+        # PROD_CLEANUP: logger.info(f"Manual check result for URL '{result_dict['url']}': Risk={result_dict['risk_score']}, Phishing={result_dict['is_phishing']}. Reasons: {'; '.join(result_dict['reasons'])}")
 
         if result_obj.is_phishing:
             self.phishing_detected_since_last_update +=1

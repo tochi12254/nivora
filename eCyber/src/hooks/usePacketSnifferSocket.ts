@@ -4,7 +4,6 @@ import { io, Socket } from 'socket.io-client';
 import { throttle } from 'lodash';
 import { useDispatch } from 'react-redux';
 import {
-  addSystemTelemetry,
   addHttpActivity,
   addTcpActivity,
   addUdpActivity,
@@ -26,6 +25,7 @@ import {
   addPhishingDetection,
   addThreatResponse,
   addQuarantinedFile,
+  addNetworkVolume,
 } from '@/app/slices/realtimeDataSlice';
 // Make sure all types used in dispatch are imported if not already defined in this file
 import {
@@ -315,8 +315,8 @@ export interface SshConnection { ip: string; user?: string; timestamp: string; i
 export interface Rule { id: string; name: string; description: string; } // Seems fine
 export interface SystemStatus { online: boolean; services: string[]; timestamp: string; id: string;} // Added id, timestamp
 export interface CriticalAlert extends Alert {} // Inherits from Alert, which is now refined
-export interface SystemTelemetry { id: string; timestamp: string; cpu: number; memory: number; processes: ProcessInfo[]; } // Added id, timestamp
 export interface ThreatResponse { id: string; timestamp: string; action: string; target: string; success: boolean; } // Added id, timestamp
+export interface NetworkTrafficVolume { networkVolume: number }
 export interface ProcessInspection {id: string; timestamp: string; pid: number; name: string; suspicious: boolean; } // Added id, timestamp
 export interface ConnectionAnalysis {id: string; timestamp: string; protocol: string; count: number; riskScore: number; } // Added id, timestamp
 export interface FileQuarantined {id: string; timestamp: string; path: string; hash: string; reason: string; } // Added id, timestamp
@@ -351,6 +351,7 @@ export type SocketEvent =
   | { type: 'firewall_blocked'; data: FirewallActivityData } // Uses refined FirewallActivityData
   | { type: 'firewall_unblocked'; data: FirewallActivityData } // For unblock events
   | { type: 'url_classification_result'; data: UrlClassification }
+  | { type: 'packet_bytes'; data:NetworkTrafficVolume}
   | { type: 'service_status'; data: ServiceStatus }
   | { type: 'user_alert'; data: Alert } // Uses refined Alert
   | { type: 'security_alert'; data: Alert } // Uses refined Alert
@@ -373,7 +374,6 @@ export type SocketEvent =
   | { type: 'system_status'; data: SystemStatus } 
   | { type: 'ipv6_activity'; data: IPv6Activity } // Uses refined IPv6Activity
   | { type: 'critical_alert'; data: Alert } // Uses refined Alert
-  | { type: 'system_telemetry'; data: SystemTelemetry } 
   | { type: 'threat_response'; data: ThreatResponse } 
   | { type: 'process_inspection'; data: ProcessInspection } 
   | { type: 'connection_analysis'; data: ConnectionAnalysis } 
@@ -427,7 +427,6 @@ export type SocketEvent =
   | { type: 'system_status'; data: SystemStatus }
   | { type: 'ipv6_activity'; data: IPv6Activity }
   | { type: 'critical_alert'; data: CriticalAlert }
-  | { type: 'system_telemetry'; data: SystemTelemetry }
   | { type: 'threat_response'; data: ThreatResponse }
   | { type: 'process_inspection'; data: ProcessInspection }
   | { type: 'connection_analysis'; data: ConnectionAnalysis }
@@ -467,9 +466,9 @@ const ALL_SOCKET_EVENTS: SocketEvent['type'][] = [
   'service_status', 'user_alert', 'ml_alert','security_alert', 'http_activity', 'tcp_activity', 'icmp_activity',
   'udp_activity','arp_activity','behavior_analysis',
   'dns_activity', 'database_error', 'ssh_connection', 'firewall_event','payload_analysis',
-  'detection_error', 'rules_updated', 'get_rules', 'system_stats',
+  'detection_error', 'rules_updated', 'get_rules', 'system_stats','packet_bytes',
   'system_error', 'system_status', 'ipv6_activity', 'critical_alert',
-  'system_telemetry', 'threat_response', 'process_inspection',
+ 'threat_response', 'process_inspection',
   'connection_analysis', 'file_quarantined', 'system_snapshot', 'packet_data'
 ];
 
@@ -481,58 +480,61 @@ export default function usePacketSniffer(): UseSocketReturn {
   const EVENT_HANDLERS_CONFIG = {
     // High-priority security events & RealtimeDataSlice dispatches
     'threat_detected': (data: Alert) => { // Assuming ThreatData is compatible with Alert or needs mapping
-      console.warn('⚠️ Threat Detected:', data);
+      // console.warn('⚠️ Threat Detected:', data);
       dispatch(addThreatDetection(data as Alert));
       // Optionally, if all threat_detected events are also general security alerts:
       dispatch(addSecurityAlert(data as Alert));
     },
     'critical_alert': (data: Alert) => { // Assuming CriticalAlert is compatible with Alert
-      console.error('🔥 Critical Alert:', data);
+      // console.error('🔥 Critical Alert:', data);
       dispatch(addSecurityAlert(data as Alert));
       // Optionally, if critical alerts should also go to threat detections:
       // dispatch(addThreatDetection(data as Alert));
     },
     'security_alert': (data: Alert) => {
-        console.info('🛡️ Security Alert:', data);
+        // console.info('🛡️ Security Alert:', data);
         dispatch(addSecurityAlert(data as Alert));
     },
     'user_alert': (data: Alert) => { // Assuming UserAlert is compatible with Alert
-        console.info('👤 User Alert:', data);
+        // console.info('👤 User Alert:', data);
         dispatch(addSecurityAlert(data as Alert));
     },
-    'unauthorized_access': (data: AccessData) => console.warn('🚨 Unauthorized Access:', data), // No specific slice for this yet, handled by socketSlice
+    'packet_bytes': (data: NetworkTrafficVolume) =>{
+      dispatch(addNetworkVolume(data))
+    },
+    // 'unauthorized_access': (data: AccessData) => console.warn('🚨 Unauthorized Access:', data), // No specific slice for this yet, handled by socketSlice
     'phishing_link_detected': (data: PhishingData) => {
-      console.warn('🎣 Phishing Link:', data);
+      // console.warn('🎣 Phishing Link:', data);
       dispatch(addPhishingDetection(data as PhishingData));
     },
     
     // System monitoring events & RealtimeDataSlice dispatches
     'system_error': (data: ErrorData) => console.error('❌ System Error:', data), // No specific slice for this yet, handled by socketSlice
     'system_status': (data: SystemStatus) => {
-      console.info('🖥️ System Status:', data);
+      // console.info('🖥️ System Status:', data);
       dispatch(updateSystemStatus(data as SystemStatus));
     },
     'service_status': (data: ServiceStatus) => {
-        console.info('🛠️ Service Status:', data);
+        // console.info('🛠️ Service Status:', data);
         // Potential: dispatch(updateSystemStatus(transformServiceStatusToSystemStatus(data)));
         // For now, just logging as per instructions, or if SystemStatus can take it directly:
         // dispatch(updateSystemStatus({ online: true, services: [data.name] } as SystemStatus)); // Example: adapt as needed
     },
     'system_stats': (data: SystemStats) => {
-      console.debug('📈 System Stats:', data);
+      // console.debug('📈 System Stats:', data);
       dispatch(updateSystemStats(data as SystemStats));
     },
-    'analysis_error': (data: AnalysisError) => console.log("Analysis Error", data),
+    // 'analysis_error': (data: AnalysisError) => console.log("Analysis Error", data),
     
     // Network events & RealtimeDataSlice/socketSlice dispatches
-    'network_anomaly': throttle((data: NetworkAnomaly) =>
-      console.log('🌐 Network Anomaly:', data), 1000), // No specific slice for this yet, handled by socketSlice
+    // 'network_anomaly': throttle((data: NetworkAnomaly) =>
+      // console.log('🌐 Network Anomaly:', data), 1000), // No specific slice for this yet, handled by socketSlice
     'firewall_event': (data: FirewallEvent) => {
-      console.info('🔥 Firewall Event (realtime):', data);
+      // console.info('🔥 Firewall Event (realtime):', data);
       dispatch(addRealtimeFirewallEvent(data as FirewallEvent));
     },
     'firewall_blocked': (data: FirewallData) => { // This is from socketSlice.ts originally
-        console.info('🧱 Firewall Blocked (socketSlice):', data);
+        // console.info('🧱 Firewall Blocked (socketSlice):', data);
         // Assuming FirewallData might be different from FirewallEvent.
         // If it should also go to the realtimeDataSlice's firewallEvents:
         // dispatch(addRealtimeFirewallEvent(data as FirewallEvent)); // Requires FirewallData to be compatible/mapped to FirewallEvent
@@ -546,11 +548,11 @@ export default function usePacketSniffer(): UseSocketReturn {
       dispatch(addPacketEntry(data as PacketMetadata));
     },
     'dns_activity': (data: DnsQuery) => {
-        console.log('DNS Activity:', data);
+        // console.log('DNS Activity:', data);
         dispatch(addDnsActivity(data as DnsQuery));
     },
     'ipv6_activity': (data: IPv6Activity) => {
-        console.log('IPv6 Activity:', data);
+        // console.log('IPv6 Activity:', data);
         dispatch(addIPv6Activity(data as IPv6Activity));
     },
   
@@ -558,67 +560,60 @@ export default function usePacketSniffer(): UseSocketReturn {
     'training_progress': (data: TrainingProgress) => console.info('🏋️ Training Progress:', data),
     'training_completed': () => console.info('✅ Training Completed'),
     
-    // Telemetry events (throttled)
-    'system_telemetry': throttle((data: SystemTelemetry[]) => { // Assuming SystemTelemetry is an array
-      console.log('📊 System Telemetry:', data);
-      // The existing import was addSystemTelemetry, so data should be SystemTelemetry, not SystemTelemetry[]
-      // dispatch(addSystemTelemetry(data as SystemTelemetry)); // If it's a single object
-      // If it's an array and the slice expects an array:
-      // dispatch(addSystemTelemetry(data)); // This was the original import, let's stick to it.
-      // However, the slice `addSystemTelemetry` takes `SystemTelemetry[]` but is assigned to `state.systemTelemetry = action.payload`
-      // which makes `state.systemTelemetry` an array. This seems fine.
-       dispatch(addSystemTelemetry(data as SystemTelemetry[]));
-
-
-    }, 500),
-    
     // HTTP and other protocol activities from socketSlice
     'http_activity': (data: HttpActivity[]) => { // Assuming array based on previous code
       dispatch(addHttpActivity(data as HttpActivity[]));
-      console.log('🌐 HTTP Activity:', data);
+      // console.log('🌐 HTTP Activity:', data);
     },
     'tcp_activity': (data: TcpActivityData[]) => {
-      console.log('🌐 TCP Activity:', data);
+      // console.log('🌐 TCP Activity:', data);
       dispatch(addTcpActivity(data as TcpActivityData[]));
     },
     'udp_activity': (data: UdpActivityData[]) => {
-      console.log('🌐 UDP Activity:', data);
+      // console.log('🌐 UDP Activity:', data);
       dispatch(addUdpActivity(data as UdpActivityData[]));
     },
     'icmp_activity': (data: IcmpActivityData[]) => {
-      console.log('🌐 ICMP Activity:', data);
+      // console.log('🌐 ICMP Activity:', data);
       dispatch(addIcmpActivity(data as IcmpActivityData[]));
     },
     'arp_activity': (data: ArpActivityData[]) => {
-      console.log('🌐 ARP Activity:', data);
+      // console.log('🌐 ARP Activity:', data);
       dispatch(addArpActivity(data as ArpActivityData[]));
     },
     'payload_analysis': (data: PayloadAnalysisData[]) => {
-      console.log('🔍 Payload Analysis:', data);
+      // console.log('🔍 Payload Analysis:', data);
       dispatch(addPayloadAnalysisEvent(data as PayloadAnalysisData[]));
     },
     'behavior_analysis': (data: BehaviorAnalysisData[]) => {
-      console.log('🧠 Behavior Analysis:', data);
+      // console.log('🧠 Behavior Analysis:', data);
       dispatch(addBehaviorAnalysisEvent(data as BehaviorAnalysisData[]));
     },
     'threat_response': (data: ThreatResponse) => {
-      console.log('🛡️ Threat Response:', data);
+      // console.log('🛡️ Threat Response:', data);
       dispatch(addThreatResponse(data as ThreatResponse));
     },
     'file_quarantined': (data: FileQuarantined) => {
-      console.log('📦 File Quarantined:', data);
+      // console.log('📦 File Quarantined:', data);
       dispatch(addQuarantinedFile(data as FileQuarantined));
     },
     
     // Default handler for unconfigured events
-    'default': (type: string, data: any) => console.log(`ℹ️ Event: ${type}`, data)
+    'default': () => null
   };
 
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const initialized = useRef(false);
+  const initialized = useRef(false); // To prevent multiple initial connections
   const handlers = useRef(new Map<SocketEvent['type'], Set<Function>>());
+
+  // State for custom reconnection logic
+  const [retryAttempts, setRetryAttempts] = useState(0);
+  const retryTimerIdRef = useRef<NodeJS.Timeout | null>(null);
+  const MAX_RETRY_ATTEMPTS = 5;
+  const RETRY_INTERVAL_MS = 30000; // 30 seconds
+  const userManuallyDisconnected = useRef(false); // Flag to prevent retries on manual disconnect
 
   // ==================== Event Handler ====================
   const handleEvent = useCallback((event: SocketEvent) => {
@@ -633,54 +628,124 @@ export default function usePacketSniffer(): UseSocketReturn {
   }, []);
 
   // ==================== Connection Management ====================
-  const connect = useCallback(() => {
-    if (socketRef.current?.connected || initialized.current) return;
+  const connect = useCallback((isRetry: boolean = false) => {
+    if (socketRef.current?.connected) return;
+    // Prevent multiple initial connection attempts if already trying or initialized by effect
+    if (!isRetry && initialized.current && !socketRef.current) { 
+      console.log("Connect called, but already initialized or attempting. current socket:", socketRef.current);
+      //return; // Allow retries to proceed
+    }
+
+
+    // If it's a new connection attempt (not a retry from the timer), clear any existing retry timer.
+    if (!isRetry && retryTimerIdRef.current) {
+      clearTimeout(retryTimerIdRef.current);
+      retryTimerIdRef.current = null;
+    }
+    
+    userManuallyDisconnected.current = false; // Reset manual disconnect flag on new connect attempt
 
     const newSocket = io('http://127.0.0.1:8000/packet_sniffer', {
-      path: '/socket.io',             // Matches your FastAPI mount
+      path: '/socket.io',
       transports: ['websocket'],
-      reconnectionAttempts: 5,
-      reconnectionDelay: 3000,
+      reconnection: false, // Disable built-in reconnection
       autoConnect: false,
       upgrade: false,
+      // Consider adding timeout for connection attempts
+      // timeout: 10000, // 10 seconds
     });
 
+    newSocket.on('connect', () => {
+      setIsConnected(true);
+      setConnectionError(null);
+      setRetryAttempts(0); // Reset retries on successful connection
+      if (retryTimerIdRef.current) {
+        clearTimeout(retryTimerIdRef.current);
+        retryTimerIdRef.current = null;
+      }
+      console.log("✅ Socket connected to:", newSocket.nsp);
+      if (!initialized.current) initialized.current = true; // Mark as initialized on first successful connect
+      socketRef.current = newSocket; // Assign socketRef here after successful connect
+    });
+
+    newSocket.on('connect_error', (err) => {
+      console.error('❌ Connection Error:', err.message);
+      setConnectionError(`Connection failed: ${err.message}`);
+      setIsConnected(false); // Ensure isConnected is false
+      socketRef.current = null; // Clear socketRef on connection error
+      initialized.current = false; // Allow re-initialization by useEffect or manual call
+
+      if (!userManuallyDisconnected.current && retryAttempts < MAX_RETRY_ATTEMPTS) {
+        setRetryAttempts(prev => prev + 1);
+        const nextRetryIn = RETRY_INTERVAL_MS / 1000;
+        setConnectionError(`Connection failed. Attempting retry ${retryAttempts + 1}/${MAX_RETRY_ATTEMPTS} in ${nextRetryIn}s. Error: ${err.message}`);
+        console.log(`Retrying connection, attempt ${retryAttempts + 1}`);
+        if (retryTimerIdRef.current) clearTimeout(retryTimerIdRef.current); // Clear previous timer if any
+        retryTimerIdRef.current = setTimeout(() => connect(true), RETRY_INTERVAL_MS);
+      } else if (!userManuallyDisconnected.current) {
+        setConnectionError(`Connection failed after ${MAX_RETRY_ATTEMPTS} attempts. Please check the server or network. Error: ${err.message}`);
+        console.error(`Failed to connect after ${MAX_RETRY_ATTEMPTS} attempts.`);
+      }
+    });
+
+    newSocket.on('disconnect', (reason) => {
+      setIsConnected(false);
+      const wasConnected = socketRef.current === newSocket; // Check if this was the active socket
+      socketRef.current = null; // Clear socketRef on disconnect
+      initialized.current = false; // Allow re-initialization
+
+      console.warn(`⚠️ Socket Disconnected. Reason: ${reason}`);
+      if (userManuallyDisconnected.current) {
+        setConnectionError("Disconnected by user.");
+        console.log("Disconnected manually, no retry.");
+        return;
+      }
+
+      if (wasConnected && reason !== 'io client disconnect' && retryAttempts < MAX_RETRY_ATTEMPTS) {
+        setRetryAttempts(prev => prev + 1);
+        const nextRetryIn = RETRY_INTERVAL_MS / 1000;
+        setConnectionError(`Disconnected. Attempting retry ${retryAttempts + 1}/${MAX_RETRY_ATTEMPTS} in ${nextRetryIn}s. Reason: ${reason}`);
+        console.log(`Retrying connection due to disconnect, attempt ${retryAttempts + 1}`);
+        if (retryTimerIdRef.current) clearTimeout(retryTimerIdRef.current);
+        retryTimerIdRef.current = setTimeout(() => connect(true), RETRY_INTERVAL_MS);
+      } else if (wasConnected && reason !== 'io client disconnect') {
+        setConnectionError(`Disconnected. Max retries (${MAX_RETRY_ATTEMPTS}) reached. Reason: ${reason}`);
+        console.error(`Disconnected. Max retries reached.`);
+      }
+    });
+
+    // Register all event listeners only once per socket instance
+    ALL_SOCKET_EVENTS.forEach(eventType => {
+      newSocket.on(eventType, (data: any) => handleEvent({ type: eventType, data } as SocketEvent));
+    });
     
-
-    // Connection lifecycle handlers
-    newSocket
-      .on('connect', () => {
-        setIsConnected(true);
-        setConnectionError(null);
-        console.log("✅ Socket connected to:", newSocket.nsp);
-      })
-      .on('connect_error', (err) => {
-        setConnectionError(err.message);
-        console.error('❌ Connection Error:', err);
-      })
-      .on('disconnect', () => {
-        setIsConnected(false);
-        console.warn('⚠️ Socket Disconnected');
-      });
-
-    // Register all event listeners
-    ALL_SOCKET_EVENTS.forEach(event => {
-      newSocket.on(event, (data: any) => handleEvent({ type: event, data } as SocketEvent));
-    });
-
+    console.log("Attempting to connect socket...");
     newSocket.connect();
-    socketRef.current = newSocket;
-    initialized.current = true;
-  }, [handleEvent]);
+    // Do not set socketRef.current here immediately for new sockets, wait for 'connect' event
+    // For retries where newSocket is the same as socketRef.current, it's fine.
+    if (!socketRef.current) { // Only if there's no existing socket trying to connect
+       // This might lead to issues if connect() is called rapidly.
+       // socketRef.current = newSocket; // This was problematic. Assign on 'connect'
+    }
+
+
+  }, [handleEvent, retryAttempts]); // Added retryAttempts as a dependency
 
   // ==================== Disconnection Handler ====================
   const disconnect = useCallback(() => {
+    userManuallyDisconnected.current = true; // Set flag for manual disconnect
+    if (retryTimerIdRef.current) {
+      clearTimeout(retryTimerIdRef.current);
+      retryTimerIdRef.current = null;
+    }
+    setRetryAttempts(0); // Reset retries on manual disconnect
+
     if (socketRef.current) {
       socketRef.current.disconnect();
-      socketRef.current = null;
-      initialized.current = false;
-      setIsConnected(false);
-      console.log('🔌 Socket Disconnected');
+      // socketRef.current = null; // Done in 'disconnect' event handler
+      // initialized.current = false; // Done in 'disconnect' event handler
+      // setIsConnected(false); // Done in 'disconnect' event handler
+      console.log('🔌 Socket Disconnection initiated by user.');
     }
   }, []);
 
@@ -707,19 +772,36 @@ export default function usePacketSniffer(): UseSocketReturn {
 
   // ==================== Lifecycle Management ====================
   useEffect(() => {
-    connect();
+    // Initial connection attempt
+    if (!initialized.current && !socketRef.current && !userManuallyDisconnected.current) {
+        console.log("Initial effect: calling connect()");
+        connect();
+        initialized.current = true; // Mark that initial attempt has been made by useEffect
+    }
+
+    // Cleanup on unmount
     return () => {
-      disconnect();
+      console.log("Cleaning up usePacketSniffer hook.");
+      if (retryTimerIdRef.current) {
+        clearTimeout(retryTimerIdRef.current);
+      }
+      if (socketRef.current) {
+        // Check if this is a user-initiated disconnect or component unmount
+        // If it's a component unmount, we might not want to set userManuallyDisconnected.current = true
+        // However, for simplicity, any disconnect via this cleanup is treated as final for this hook instance.
+        socketRef.current.disconnect();
+      }
       handlers.current.clear();
+      initialized.current = false; // Reset for potential re-mount or new instance
     };
-  }, [connect, disconnect]);
+  }, [connect]); // `connect` itself has dependencies like `retryAttempts`
 
 
   return {
     socket: socketRef.current,
     isConnected,
-    connectionError,
-    connect,
+    connectionError, // This will now include retry information
+    connect, // Allow manual reconnection attempt from UI
     disconnect,
     emitEvent,
     subscribe,

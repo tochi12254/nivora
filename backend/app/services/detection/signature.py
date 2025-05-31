@@ -420,7 +420,7 @@ class SignatureEngine:
 
             return False
         except Exception as e:
-            logger.debug(f"FTP match error: {str(e)}")
+            # PROD_CLEANUP: logger.debug(f"FTP match error: {str(e)}")
             return False
     def _match_smtp(self, packet: Packet, rule: SignatureRule) -> bool:
         """
@@ -444,7 +444,7 @@ class SignatureEngine:
 
             return False
         except Exception as e:
-            logger.debug(f"SMTP match error: {str(e)}")
+            # PROD_CLEANUP: logger.debug(f"SMTP match error: {str(e)}")
             return False
 
     def _match_http(self, packet: Packet, rule: SignatureRule) -> bool:
@@ -464,7 +464,7 @@ class SignatureEngine:
             decoded = payload.decode('utf-8', errors='replace')
             return rule.match(decoded)
         except Exception as e:
-            logger.debug(f"HTTP match error: {str(e)}")
+            # PROD_CLEANUP: logger.debug(f"HTTP match error: {str(e)}")
             return False
 
     def _match_dns(self, packet: Packet, rule: SignatureRule) -> bool:
@@ -478,7 +478,8 @@ class SignatureEngine:
                 query = dns.qd.qname.decode('utf-8', errors='replace') if dns.qd else ""
                 return rule.match(query)
         except Exception as e:
-            logger.debug(f"DNS match error: {str(e)}")
+            pass
+            # PROD_CLEANUP: logger.debug(f"DNS match error: {str(e)}")
 
         return False
 
@@ -541,7 +542,7 @@ class SignatureEngine:
                 return False
             return rule.match(decoded)
         except Exception as e:
-            logger.debug(f"Payload match error: {str(e)}")
+            # PROD_CLEANUP: logger.debug(f"Payload match error: {str(e)}")
             return False
 
     async def emit_threat(self, threat_data: Dict) -> None:
