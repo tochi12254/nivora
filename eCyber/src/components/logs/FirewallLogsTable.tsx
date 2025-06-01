@@ -3,7 +3,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Eye, Download } from "lucide-react";
-import { FirewallLog } from '@/types/logs';
+import { FirewallLog } from '@/types';
 import { exportToCSV, exportToJSON } from "@/lib/data-utils";
 
 interface FirewallLogsTableProps {
