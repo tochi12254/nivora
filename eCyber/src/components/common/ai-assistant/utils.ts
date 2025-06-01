@@ -1,5 +1,5 @@
 import jaroWinkler from 'jaro-winkler';
-import knowledgeBaseData from './knowledgeBase.json'; // Renamed for clarity
+import knowledgeBaseData from './KnowledgeBase.json'
 import { Message } from './types'; // Assuming types.ts exists and defines Message
 
 // Function to get time display format (integrated from existing utils.ts)
