@@ -2,8 +2,13 @@
   "name": "eCyber",
   "private": true,
   "version": "0.0.0",
+  "homepage": "https://echat-fieq.onrender.com",
   "main": "electron/main.mjs",
   "type": "module",
+  "author": {
+    "name": "enock",       
+    "email": "enockuwumukiza850@gmail.com" 
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -103,11 +108,12 @@
       "buildResources": "build_assets"
     },
     "extraFiles": [
-    {
-      "from": "electron/backend/",
-      "to": "backend",
-      "filter": ["ecyber_backend.exe"]  
-    }],
+      {
+        "from": "electron/backend/",
+        "to": "backend",
+        "filter": ["ecyber_backend.exe"]
+      }
+    ],
     "files": [
       "dist/**/*",
       "electron/main.mjs",
@@ -116,28 +122,19 @@
     ],
     "asar": true,
     "win": {
-      "target": [
-        "nsis",
-        "portable"
-      ],
+      "target": ["nsis", "portable"],
       "icon": "build_assets/icon.ico"
     },
     "mac": {
-      "target": [
-        "dmg",
-        "zip"
-      ],
+      "target": ["dmg", "zip"],
       "icon": "build_assets/icon.icns",
       "category": "public.app-category.security"
     },
     "linux": {
-      "target": [
-        "AppImage",
-        "deb",
-        "rpm"
-      ],
+      "target": ["AppImage", "deb", "rpm"],
       "icon": "build_assets/icon.png",
-      "category": "Security"
+      "category": "Security",
+      "maintainer": "enock" 
     },
     "nsis": {
       "oneClick": false,
