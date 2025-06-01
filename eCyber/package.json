@@ -102,10 +102,16 @@
       "output": "dist_electron",
       "buildResources": "build_assets"
     },
+    "extraFiles": [
+    {
+      "from": "electron/backend/",
+      "to": "backend",
+      "filter": ["ecyber_backend.exe"]  
+    }],
     "files": [
       "dist/**/*",
-      "electron/main.js",
-      "electron/preload.js",
+      "electron/main.mjs",
+      "electron/preload.mjs",
       "package.json"
     ],
     "asar": true,

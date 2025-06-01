@@ -152,12 +152,14 @@ const Sidebar = () => {
       <ShadcnSidebar className="bg-sidebar border-r border-sidebar-border z-20">
         <SidebarHeader className="p-0">
           <div className="flex items-center justify-between p-4 border-b border-sidebar-border">
+            <Link to={"/"}>
             <div className="flex items-center space-x-2">
               <div className="w-8 h-8 rounded-md bg-isimbi-purple flex items-center justify-center">
                 <span className="text-white font-bold">EC.</span>
               </div>
               <span className="text-lg font-semibold text-white tracking-wider">eCyber</span>
             </div>
+            </Link>
           </div>
         </SidebarHeader>
         

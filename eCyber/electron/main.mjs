@@ -1,54 +1,67 @@
-import { app, BrowserWindow, Menu, ipcMain } from 'electron'; // Use require for Node.js modules in main process
+import { app, BrowserWindow, Menu, ipcMain } from 'electron'
 import path from 'path'
-import { fileURLToPath } from 'url';
+import { fileURLToPath } from 'url'
+import { spawn } from 'child_process'
 
-// Required for __dirname in ESM
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Enable __dirname in ES modules
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
+let backendProcess = null
+
+function startBackend() {
+  const exeName = process.platform === 'win32' ? 'ecyber_backend.exe' : 'ecyber_backend'
+  const backendPath = path.join(__dirname, 'backend', exeName)
+
+  backendProcess = spawn(backendPath, [], {
+    detached: false,
+    cwd: path.dirname(backendPath)
+  })
+
+  backendProcess.stdout.on('data', data => {
+    console.log(`[BACKEND] ${data.toString().trim()}`)
+  })
+
+  backendProcess.stderr.on('data', data => {
+    console.error(`[BACKEND ERROR] ${data.toString().trim()}`)
+  })
+
+  backendProcess.on('close', code => {
+    console.log(`Backend process exited with code ${code}`)
+  })
+}
 
 function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
     webPreferences: {
-      nodeIntegration: false, // Disable Node.js integration in the renderer
-      contextIsolation: true, // Enable context isolation
-      preload: path.join(__dirname, 'preload.js'), // Specify the preload script
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.mjs')
     },
-    icon: path.join(__dirname, '../public/favicon.ico'), // Example icon path, adjust if needed
-  });
+    icon: path.join(__dirname, '../public/favicon.ico')
+  })
 
-  // Load the index.html of the app.
-  // This path assumes your built React app is in 'eCyber/dist/index.html'
-  // Adjust if your build output directory is different.
+  // Load UI from built frontend or dev server
   if (app.isPackaged) {
-    win.loadFile(path.join(__dirname, '../dist/index.html'));
+    win.loadFile(path.join(__dirname, '../dist/index.html'))
   } else {
-    // In development, load from the Vite dev server
-    win.loadURL('http://localhost:4000'); // Or your dev server URL
-    win.webContents.openDevTools(); // Open DevTools in development
+    win.loadURL('http://localhost:4000')
+    win.webContents.openDevTools()
   }
-  
-  // Create a basic application menu
-  const menuTemplate = [
+
+  // Start backend when window is ready
+  startBackend()
+
+  // Basic app menu
+  const menu = Menu.buildFromTemplate([
     {
       label: app.name,
       submenu: [
         { role: 'about' },
         { type: 'separator' },
-        { role: 'services' },
-        { type: 'separator' },
-        { role: 'hide' },
-        { role: 'hideothers' },
-        { role: 'unhide' },
-        { type: 'separator' },
         { role: 'quit' }
-      ]
-    },
-    {
-      label: 'File',
-      submenu: [
-        { role: 'close' }
       ]
     },
     {
@@ -76,61 +89,25 @@ function createWindow() {
         { type: 'separator' },
         { role: 'togglefullscreen' }
       ]
-    },
-    {
-      role: 'window',
-      submenu: [
-        { role: 'minimize' },
-        { role: 'zoom' },
-        ...(process.platform === 'darwin' ? [
-          { type: 'separator' },
-          { role: 'front' },
-          { type: 'separator' },
-          { role: 'window' }
-        ] : [
-          { role: 'close' }
-        ])
-      ]
-    },
-    {
-      role: 'help',
-      submenu: [
-        {
-          label: 'Learn More',
-          click: async () => {
-            const { shell } = require('electron');
-            await shell.openExternal('https://electronjs.org');
-          }
-        }
-      ]
     }
-  ];
-
-  const menu = Menu.buildFromTemplate(menuTemplate);
-  Menu.setApplicationMenu(menu);
+  ])
+  Menu.setApplicationMenu(menu)
 }
 
 app.whenReady().then(() => {
-  createWindow();
+  createWindow()
 
-  // Handler for get-app-version
-  ipcMain.handle('get-app-version', () => {
-    return app.getVersion();
-  });
+  ipcMain.handle('get-app-version', () => app.getVersion())
 
-  app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
-});
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
+})
 
-app.on('window-all-closed', function () {
-  // Quit when all windows are closed, except on macOS. There, it's common
-  // for applications and their menu bar to stay active until the user quits
-  // explicitly with Cmd + Q.
-  if (process.platform !== 'darwin') app.quit();
-});
+app.on('window-all-closed', () => {
+  // Cleanly stop backend process
+  if (backendProcess) backendProcess.kill()
 
-// Ensure 'require' is used for imports as this is a Node.js environment file.
-// Change import statements at the top if they were ES6 style.
+  // On macOS, apps stay active until explicitly quit
+  if (process.platform !== 'darwin') app.quit()
+})

@@ -46,7 +46,10 @@ const MODELS_CACHE_KEY = 'models_cache';
 const CACHE_FRESHNESS_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
 
 const Models = () => {
-  const [models, setModels] = useState<ModelData[]>([]);
+
+  const cachedModels = JSON.parse(localStorage.getItem('models_cache'));
+
+  const [models, setModels] = useState<ModelData[]>(cachedModels?.data || []);
   const [insights, setInsights] = useState<any[]>([]); // Placeholder for future dynamic insights
   const [activeModel, setActiveModel] = useState<ModelData | null>(null);
   const [runningModels, setRunningModels] = useState<Record<string, {progress: number, running: boolean}>>({});
@@ -89,12 +92,8 @@ const Models = () => {
         localStorage.setItem(MODELS_CACHE_KEY, JSON.stringify({ timestamp: Date.now(), data: data }));
         setModels(data);
       } catch (error:any) {
-        console.error("Failed to fetch models:", error?.toString());
-        toast({
-          title: "Error Fetching Models",
-          description: `Could not load model data from the server. ${error instanceof Error ? error.message : ''}`,
-          variant: "destructive",
-        });
+        !cachedModels.data && console.error("Failed to fetch models:", error?.toString());
+        
       } finally {
         setIsLoading(false);
       }

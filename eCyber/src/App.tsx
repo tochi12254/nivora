@@ -43,16 +43,16 @@ const App = () => {
   // const { isConnected: otherSocketConnected, ... } = useSocket(); // If using multiple sockets and need to check all
   
 
-  useEffect(() => {
-    if (!isConnected) {
-      const interval = setInterval(() => {
-        window.location.reload();
-      }, 30000); // 30 seconds
+  // useEffect(() => {
+  //   if (!isConnected) {
+  //     const interval = setInterval(() => {
+  //       window.location.reload();
+  //     }, 30000); // 30 seconds
   
-      // Clear the interval if the component unmounts or connection is established
-      return () => clearInterval(interval);
-    }
-  }, [isConnected]);
+  //     // Clear the interval if the component unmounts or connection is established
+  //     return () => clearInterval(interval);
+  //   }
+  // }, [isConnected]);
   
   // Apply theme on initial load
   useEffect(() => {
@@ -69,30 +69,30 @@ const App = () => {
     }
   }, []);
 
-  if (!isConnected) {
-    return (
-      <ThemeProvider defaultTheme="system" storageKey="theme">
-        <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground p-4">
-          <div className="text-center">
-            <Loader2 className="h-12 w-12 animate-spin text-isimbi-purple mx-auto mb-4" />
-            <h1 className="text-2xl font-semibold mb-2">Connecting to eCyber Server...</h1>
-            {connectionError ? (
-              <p className="text-sm text-red-500 dark:text-red-400 max-w-md">
-                {connectionError}
-              </p>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Please wait while we establish a connection.
-                {retryAttempts > 0 && ` (Attempt ${retryAttempts})`}
-              </p>
-            )}
-            {/* Optionally, add a manual retry button if all retries fail */}
-            {/* Or a button to go to a status page / contact support */}
-          </div>
-        </div>
-      </ThemeProvider>
-    );
-  }
+  // if (!isConnected) {
+  //   return (
+  //     <ThemeProvider defaultTheme="system" storageKey="theme">
+  //       <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground p-4">
+  //         <div className="text-center">
+  //           <Loader2 className="h-12 w-12 animate-spin text-isimbi-purple mx-auto mb-4" />
+  //           <h1 className="text-2xl font-semibold mb-2">Connecting to eCyber Server...</h1>
+  //           {connectionError ? (
+  //             <p className="text-sm text-red-500 dark:text-red-400 max-w-md">
+  //               {connectionError}
+  //             </p>
+  //           ) : (
+  //             <p className="text-sm text-muted-foreground">
+  //               Please wait while we establish a connection.
+  //               {retryAttempts > 0 && ` (Attempt ${retryAttempts})`}
+  //             </p>
+  //           )}
+  //           {/* Optionally, add a manual retry button if all retries fail */}
+  //           {/* Or a button to go to a status page / contact support */}
+  //         </div>
+  //       </div>
+  //     </ThemeProvider>
+  //   );
+  // }
 
   return (
     <QueryClientProvider client={queryClient}>

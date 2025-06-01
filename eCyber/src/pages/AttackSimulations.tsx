@@ -78,30 +78,30 @@ const AttackSimulations = () => {
             <Network size={16} />
             <span className="hidden md:inline">Network</span>
           </TabsTrigger>
-          <TabsTrigger value="scans">
+          {/* <TabsTrigger value="scans">
             <AlertTriangle size={16} />
             <span className="hidden md:inline">Scans</span>
-          </TabsTrigger>
-          <TabsTrigger value="honeypots">
+          </TabsTrigger> */}
+          {/* <TabsTrigger value="honeypots">
             <Database size={16} />
             <span className="hidden md:inline">Honeypots</span>
-          </TabsTrigger>
-          <TabsTrigger value="education">
+          </TabsTrigger> */}
+          {/* <TabsTrigger value="education">
             <User size={16} />
             <span className="hidden md:inline">Education</span>
-          </TabsTrigger>
+          </TabsTrigger> */}
           <TabsTrigger value="system">
             <Monitor size={16} />
             <span className="hidden md:inline">System</span>
           </TabsTrigger>
-          <TabsTrigger value="domain">
+          {/* <TabsTrigger value="domain">
             <Globe size={16} />
             <span className="hidden md:inline">Domains</span>
-          </TabsTrigger>
-          <TabsTrigger value="tools">
+          </TabsTrigger> */}
+          {/* <TabsTrigger value="tools">
             <Terminal size={16} />
             <span className="hidden md:inline">Tools</span>
-          </TabsTrigger>
+          </TabsTrigger> */}
         </TabsList>
         
         <TabsContent value="attack-simulations" className="space-y-6">
@@ -123,16 +123,16 @@ const AttackSimulations = () => {
           <NetworkTrafficVisualizer />
         </TabsContent>
         
-        <TabsContent value="scans">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* <TabsContent value="scans">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 ">
             <ManualScanComponent />
             <VulnerabilityScanner />
           </div>
-        </TabsContent>
-        
+        </TabsContent> */}
+{/*         
         <TabsContent value="honeypots">
           <HoneypotsInterface />
-        </TabsContent>
+        </TabsContent> */}
         
         <TabsContent value="education">
           <UserEducationCenter />
@@ -142,14 +142,14 @@ const AttackSimulations = () => {
           <SystemMonitoring />
         </TabsContent>
         
-        <TabsContent value="domain">
+        {/* <TabsContent value="domain">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <DomainMonitor />
             <URLClassifier />
           </div>
-        </TabsContent>
+        </TabsContent> */}
         
-        <TabsContent value="tools">
+        {/* <TabsContent value="tools">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Card>
               <CardHeader>
@@ -170,7 +170,7 @@ const AttackSimulations = () => {
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
+        </TabsContent> */}
       </Tabs>
     </div>
   );

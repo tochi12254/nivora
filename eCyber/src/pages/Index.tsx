@@ -27,7 +27,7 @@ const Index = () => {
   }, []);
   
   return (
-    <div className="min-h-screen bg-gradient-to-b from-isimbi-navy via-isimbi-navy to-isimbi-dark-charcoal">
+    <div className="min-h-screen bg-gradient-to-b from-isimbi-navy via-isimbi-navy to-isimbi-dark-charcoal overflow-x-hidden">
       {/* Header */}
       <header className="container mx-auto px-4 py-6">
         <div className="flex items-center justify-between">
@@ -46,11 +46,11 @@ const Index = () => {
           <div className="flex items-center space-x-4">
             <div className="relative group">
               <Button variant="ghost" className="text-gray-300 hover:text-white relative overflow-hidden">
-                <span className="relative z-10">Sign In</span>
+                <span className="relative z-10 hidden">Sign In</span>
                 <span className="absolute bottom-0 left-0 w-full h-[2px] bg-isimbi-purple scale-x-0 group-hover:scale-x-100 transition-transform origin-bottom-left"></span>
               </Button>
             </div>
-            <Button className="bg-isimbi-purple hover:bg-isimbi-purple/90 shadow-lg shadow-isimbi-purple/20">
+            <Button className="bg-isimbi-purple hover:bg-isimbi-purple/90 shadow-lg shadow-isimbi-purple/20 hidden">
               Request Demo
             </Button>
           </div>
