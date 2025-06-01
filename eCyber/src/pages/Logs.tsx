@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Header from '../components/layout/Header';
 import { useToast } from "@/hooks/use-toast";
-import { FirewallLog, NetworkEventLog, ThreatLog, SystemLog, MonitoringLog, FirewallRule, IDSRule } from '@/types/logs';
+import { FirewallLog, NetworkEventLog, ThreatLog, SystemLog, MonitoringLog, FirewallRule, IDSRule } from '../types/logs';
+import { FirewallLog }
 
 // Import our custom log table components
 import FirewallLogsTable from '@/components/logs/FirewallLogsTable';
