@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Message } from './ai-assistant/types';
 import { initialMessages } from './ai-assistant/constants';
 // import { generateAIResponse } from './ai-assistant/utils'; // Will be replaced
-import knowledgeBase from './ai-assistant/knowledgeBase.json';
+import knowledgeBase from './ai-assistant/KnowledgeBase.json'
 import MessageList from './ai-assistant/MessageList';
 import ChatInput from './ai-assistant/ChatInput';
 import SuggestedQuestions from './ai-assistant/SuggestedQuestions';
