@@ -304,7 +304,7 @@ class SystemMonitorProcess(mp.Process):
             "io": io_stats,
             "dns_cache": list(self._dns_cache.items()),
             "arp_table": self._get_arp_table(),
-            "interfaces": self._get_network_interfaces(),
+            "interfaces": self.get_network_interfaces(),
         }
 
     def _resolve_dns(self, ip: str) -> str:
@@ -325,7 +325,7 @@ class SystemMonitorProcess(mp.Process):
                 arp.append({"ip": parts[0], "mac": parts[1]})
         return arp
 
-    def _get_network_interfaces(self) -> List[Dict]:
+    def get_network_interfaces(self) -> List[Dict]:
         """Get detailed network interface information"""
         interfaces = []
         for name, addrs in psutil.net_if_addrs().items():

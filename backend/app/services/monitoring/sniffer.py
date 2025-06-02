@@ -2,10 +2,12 @@ import re
 import math
 import json
 import uuid # Added import
-
+import pandas as pd
 import gzip, joblib, json
 import time
 import logging
+from contextlib import asynccontextmanager
+from .feature_processor import EXPECTED_FEATURES # Added import
 import platform
 from operator import itemgetter
 import asyncio 
@@ -117,23 +119,114 @@ class PacketSniffer:
         
 
         ##Machine learning part
-        # Load all ML artifacts once at startup:
-        self.models = {}   # attack → (scaler, model, threshold)
-        bundle_dir = Path(__file__).parent / "ml" / "cicids_models_bundle"
-        for meta_path in bundle_dir.glob("*_meta.json"):
-            attack = meta_path.stem.replace("_meta","").replace("_"," ")
-            mdir = meta_path.parent
-            meta = json.loads(meta_path.read_text())
-            algo = meta["algorithm"]
-            thresh = meta["threshold"]
-            # Paths:
-            scaler_p = mdir / f"{meta_path.stem.replace('_meta','')}_scaler.pkl.gz"
-            model_p  = mdir / f"{meta_path.stem.replace('_meta','')}_{algo}_model.pkl.gz"
-            # Load:
-            with gzip.open(scaler_p,"rb") as f: scaler = joblib.load(f)
-            with gzip.open(model_p ,"rb") as f: model  = joblib.load(f)
-            self.models[attack] = (scaler, model, thresh)
-        
+        # Define paths for ML models
+        CLASSIFIER_MODELS_PATH = Path("ml/models/eCyber_classifier_models")
+        ANOMALY_MODEL_PATH = Path("ml/models/eCyber_anomaly_isolation")
+
+        # Load classifier models
+        self.models = {}  # Stores classifier models: attack_name -> {model, scaler, features, threshold}
+        if CLASSIFIER_MODELS_PATH.exists() and CLASSIFIER_MODELS_PATH.is_dir():
+            for attack_dir_path in CLASSIFIER_MODELS_PATH.iterdir():
+                if attack_dir_path.is_dir():
+                    attack_name = attack_dir_path.name
+                    try:
+                        model_path = attack_dir_path / "model.pkl.gz"
+                        scaler_path = attack_dir_path / "scaler.pkl.gz"
+
+                        if not model_path.exists():
+                            logger.warning(f"Model file not found for {attack_name} at {model_path}")
+                            continue
+                        if not scaler_path.exists():
+                            logger.warning(f"Scaler file not found for {attack_name} at {scaler_path}")
+                            continue
+
+                        with gzip.open(model_path, "rb") as f_model:
+                            model = joblib.load(f_model)
+                        with gzip.open(scaler_path, "rb") as f_scaler:
+                            scaler = joblib.load(f_scaler)
+
+                        # Use EXPECTED_FEATURES as the definitive list of feature names
+                        features = EXPECTED_FEATURES
+                        threshold = 0.5  # Default threshold
+
+                        # Optionally, try to load metadata to override threshold if available
+                        meta_path_training = attack_dir_path / "training.json"
+                        meta_path_metrics = attack_dir_path / "metrics.json"
+                        meta_data = None
+                        if meta_path_training.exists():
+                            with open(meta_path_training, "r") as f_meta:
+                                meta_data = json.load(f_meta)
+                        elif meta_path_metrics.exists():
+                             with open(meta_path_metrics, "r") as f_meta:
+                                meta_data = json.load(f_meta)
+
+                        if meta_data and "threshold" in meta_data:
+                            threshold = meta_data["threshold"]
+                            logger.info(f"Loaded threshold {threshold} for {attack_name} from metadata.")
+                        else:
+                            logger.info(f"Using default threshold {threshold} for {attack_name}.")
+
+                        self.models[attack_name] = {
+                            "model": model,
+                            "scaler": scaler,
+                            "features": features,
+                            "threshold": threshold
+                        }
+                        logger.info(f"Successfully loaded classifier model for {attack_name}")
+
+                    except FileNotFoundError as e:
+                        logger.error(f"File not found during model loading for {attack_name}: {e}")
+                    except Exception as e:
+                        logger.error(f"Error loading model for {attack_name} from {attack_dir_path}: {e}", exc_info=True)
+        else:
+            logger.warning(f"Classifier models path not found or is not a directory: {CLASSIFIER_MODELS_PATH}")
+
+        # Load anomaly model
+        self.anomaly_model = None
+        self.anomaly_scaler = None
+        self.anomaly_threshold_value = None
+        self.anomaly_features = EXPECTED_FEATURES # Default to EXPECTED_FEATURES
+
+        if ANOMALY_MODEL_PATH.exists() and ANOMALY_MODEL_PATH.is_dir():
+            try:
+                anomaly_model_path = ANOMALY_MODEL_PATH / "anomaly_model.pkl.gz"
+                anomaly_scaler_path = ANOMALY_MODEL_PATH / "anomaly_scaler.pkl.gz"
+                anomaly_threshold_path = ANOMALY_MODEL_PATH / "anomaly_threshold.pkl.gz"
+                anomaly_meta_path = ANOMALY_MODEL_PATH / "anomaly_meta.json"
+
+                if not anomaly_model_path.exists():
+                    logger.warning(f"Anomaly model file not found at {anomaly_model_path}")
+                elif not anomaly_scaler_path.exists():
+                    logger.warning(f"Anomaly scaler file not found at {anomaly_scaler_path}")
+                elif not anomaly_threshold_path.exists():
+                    logger.warning(f"Anomaly threshold file not found at {anomaly_threshold_path}")
+                else:
+                    with gzip.open(anomaly_model_path, "rb") as f_model:
+                        self.anomaly_model = joblib.load(f_model)
+                    with gzip.open(anomaly_scaler_path, "rb") as f_scaler:
+                        self.anomaly_scaler = joblib.load(f_scaler)
+                    with gzip.open(anomaly_threshold_path, "rb") as f_thresh:
+                        self.anomaly_threshold_value = joblib.load(f_thresh)
+
+                    logger.info("Successfully loaded anomaly model, scaler, and threshold.")
+
+                    if anomaly_meta_path.exists():
+                        with open(anomaly_meta_path, "r") as f_meta:
+                            meta_data = json.load(f_meta)
+                        if "features" in meta_data and isinstance(meta_data["features"], list):
+                            self.anomaly_features = meta_data["features"]
+                            logger.info(f"Loaded anomaly features from metadata: {self.anomaly_features}")
+                        else:
+                            logger.info("Anomaly metadata does not contain 'features' list, using EXPECTED_FEATURES.")
+                    else:
+                        logger.info(f"Anomaly metadata file not found at {anomaly_meta_path}, using EXPECTED_FEATURES.")
+
+            except FileNotFoundError as e:
+                logger.error(f"File not found during anomaly model loading: {e}")
+            except Exception as e:
+                logger.error(f"Error loading anomaly model from {ANOMALY_MODEL_PATH}: {e}", exc_info=True)
+        else:
+            logger.warning(f"Anomaly model path not found or is not a directory: {ANOMALY_MODEL_PATH}")
         
 
         self.feature_extractor = AdvancedFeatureExtractor(
@@ -835,26 +928,41 @@ class PacketSniffer:
 
                 # Step 2: Prepare ML-ready vector
                 feature_vector = self.packet_processor.prepare_feature_vector(features)
+                if len(feature_vector) != len(EXPECTED_FEATURES):
+                    logger.warning(f"Feature vector size mismatch: got {len(feature_vector)}, expected {len(EXPECTED_FEATURES)}")
+
 
                 # Optional: Save for offline debugging
-                if len(features) > 1:
-                    save_feature_vectors_to_json(feature_vector)
-                    save_features_to_json(features)
+                # if len(features) > 1:
+                #     save_feature_vectors_to_json(feature_vector)
+                #     save_features_to_json(features)
 
                 # ── ML SCORING ──
                 # For each attack-specific model, scale & predict
-                for attack, (scaler, model, thresh) in self.models.items():
-                    Xs = scaler.transform(feature_vector)            # shape (1,40)
+                for attack_name, model_data in self.models.items():
+                    scaler = model_data["scaler"]
+                    model = model_data["model"]
+                    thresh = model_data["threshold"]
+                    # features_list = model_data["features"] # Available if needed for specific vector transformation
+
+                    # Ensure feature_vector is in the correct order/format if features_list is used
+                    # For now, assuming feature_vector from packet_processor is already aligned with EXPECTED_FEATURES
+
+                   
+
+                    Xs = pd.DataFrame(feature_vector, columns=EXPECTED_FEATURES)
+                    Xs = scaler.transform(Xs)
+                    # shape (1,N) where N is num_features
                     prob = float(model.predict_proba(Xs)[0,1])       # P(attack)
                     if prob >= thresh:
-                        alert_id = f"ml_{attack.replace(' ', '_')}_{str(uuid.uuid4())[:8]}"
+                        alert_id = f"ml_{attack_name.replace(' ', '_')}_{str(uuid.uuid4())[:8]}"
 
                         # Determine severity (example heuristic)
                         severity = "High" if prob > 0.9 else "Medium" if prob > 0.75 else "Low"
-                        if "DDoS" in attack or "Brute_Force" in attack: # Example: elevate severity for certain attack types
+                        if "DDoS" in attack_name or "Brute_Force" in attack_name: # Example: elevate severity for certain attack types
                             severity = "Critical" if prob > 0.8 else "High"
                         
-                        description = f"Machine learning model detected {attack.replace('_', ' ')} with {prob*100:.2f}% confidence."
+                        description = f"Machine learning model detected {attack_name.replace('_', ' ')} with {prob*100:.2f}% confidence."
                         
                         source_ip_val = features.get('Src IP', packet_info.get('src_ip', 'N/A'))
                         destination_ip_val = features.get('Dst IP', packet_info.get('dst_ip', 'N/A'))
@@ -878,19 +986,67 @@ class PacketSniffer:
                             "destination_port": int(destination_port_val) if isinstance(destination_port_val, (str, float)) and str(destination_port_val).isdigit() else destination_port_val if isinstance(destination_port_val, int) else 0,
                             "protocol": protocol_str,
                             "description": description,
-                            "threat_type": attack.replace('_', ' '), 
-                            "rule_id": f"ml_model_{attack.replace(' ', '_')}", 
+                            "threat_type": attack_name.replace('_', ' '),
+                            "rule_id": f"ml_model_{attack_name.replace(' ', '_')}",
                             "metadata": {
                                 "probability": round(prob, 4),
-                                "model_name": attack, # Original attack name from model iteration
+                                "model_name": attack_name, # Original attack name from model iteration
                                 "features_contributing": {k: v for k, v in features.items() if v != 0}, # Send non-zero features
-                                # "model_algorithm": self.models[attack][1].__class__.__name__ # Example if model object has algo info
+                                # "model_algorithm": model.__class__.__name__ # Example if model object has algo info
                             }
                         }
+
+                        # NEW: Dynamic event name
+                        socket_event_name = f"{attack_name.upper().replace(' ', '_')}_ALERT"
+
                         try:
-                            self.sio_queue.put_nowait(("ml_alert", alert))
+                            self.sio_queue.put_nowait((socket_event_name, alert)) # USE NEW EVENT NAME
                         except Full:
-                            logger.warning("ML alert queue full, dropping: %s", alert_id)
+                            logger.warning(f"{socket_event_name} queue full, dropping: {alert_id}")
+
+                # ── Anomaly Detection ──
+                if self.anomaly_model and self.anomaly_scaler and self.anomaly_threshold_value is not None:
+                    # feature_vector is already prepared based on EXPECTED_FEATURES by self.packet_processor
+                    # self.anomaly_features should also align with EXPECTED_FEATURES (which is the default)
+                    # The scaler expects a 2D array, hence [feature_vector]
+                    try:
+                        anomaly_feature_df = pd.DataFrame([feature_vector], columns=self.anomaly_features)
+                        anomaly_scaled = self.anomaly_scaler.transform(anomaly_feature_df)
+
+                        score = self.anomaly_model.decision_function(anomaly_scaled)[0]
+                        # For IsolationForest, lower scores are more anomalous.
+                        # The threshold is typically a negative value for anomalies.
+                        is_anomaly = int(score < self.anomaly_threshold_value)
+
+                        anomaly_result = {
+                            "id": f"anomaly_{str(uuid.uuid4())[:8]}",
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                            "source_ip": features.get('Src IP', packet_info.get('src_ip', 'N/A')),
+                            "destination_ip": features.get('Dst IP', packet_info.get('dst_ip', 'N/A')),
+                            # Ensure destination_port is an int
+                            "destination_port": int(features.get('Dst Port', packet_info.get('dst_port', 0))),
+                            "protocol": packet_info.get('protocol', 'N/A'),
+                            "anomaly_score": round(score, 4),
+                            "threshold": self.anomaly_threshold_value,
+                            "is_anomaly": is_anomaly,
+                            "description": f"Anomaly detected with score {score:.4f} (threshold: {self.anomaly_threshold_value}).",
+                            "threat_type": "Anomaly", # General type for anomaly
+                            "severity": "Medium" if is_anomaly else "Info", # Example severity
+                            "metadata": {
+                                "model_name": "eCyber_anomaly_isolation",
+                                "features_contributing": {k: v for k, v in features.items() if v != 0 and isinstance(v, (int, float))}, # Send non-zero numeric features
+                            }
+                        }
+
+                        if is_anomaly: # Only send alert if it's an anomaly
+                            self.sio_queue.put_nowait(("anomaly_alert", anomaly_result))
+                            logger.info(f"Anomaly detected: {anomaly_result['description']} from {anomaly_result['source_ip']}")
+
+                    except Exception as anomaly_e:
+                        logger.error(f"Error during anomaly detection: {anomaly_e}", exc_info=True)
+
+                else:
+                    logger.warning("Anomaly model, scaler, or threshold not loaded. Skipping anomaly detection.")
                 
                 # Step 3: Update flow state & export on flow end
                 self.packet_processor.process_packet(packet)
@@ -1078,8 +1234,8 @@ class PacketSniffer:
 
         # Update top talkers
         with self.data_lock:
-            self.stats["top_talkers"][src_ip] += 1
-            self.stats["top_talkers"][dst_ip] += 1
+            self.stats["top_talkers"][src_ip] = self.stats["top_talkers"].get(src_ip, 0) + 1
+            self.stats["top_talkers"][dst_ip] = self.stats["top_talkers"].get(dst_ip, 0) + 1
 
         # Rate limiting
         if self.rate_limiter.check_rate_limit(src_ip):
@@ -2821,7 +2977,10 @@ class PacketSniffer:
         # Update stats
         with self.data_lock:
             self.stats["alerts"].append(alert)
-            self.stats["threat_types"][alert_type] += 1
+            if alert_type not in self.stats["threat_types"]:
+                self.stats["threat_types"][alert_type] = 0
+                self.stats["threat_types"][alert_type] += 1
+
 
         # Emit via Socket.IO
         try:
@@ -2830,25 +2989,60 @@ class PacketSniffer:
             logger.warning("sio_queue is full. Dropping event: security_alert (%s)", alert_type)
 
         # Log to database
-        self._log_threat_to_db(alert)
+        # Assuming you're inside a regular sync method
+        self.run_async_coroutine(self._log_threat_to_db(alert))
 
-    def _log_threat_to_db(self, alert: Dict):
+
+    def run_async_coroutine(self,coroutine):
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        if loop.is_running():
+            # If already inside a running loop (e.g., in FastAPI or thread), run in background
+            asyncio.run_coroutine_threadsafe(coroutine, loop)
+        else:
+            loop.run_until_complete(coroutine)
+
+
+    async def _log_threat_to_db(self, alert: Dict):
         """Log threat to database"""
         try:
-            db = get_db()
-            db.add(
-                ThreatLog(
-                    id=alert["id"],
-                    rule_id=alert.get("rule_id", "heuristic"),
-                    source_ip=alert["source_ip"],
-                    threat_type=alert["type"],
-                    severity=alert["severity"],
-                    description=alert["description"],
-                    raw_data=str(alert["metadata"]),
-                    timestamp=datetime.fromisoformat(alert["timestamp"]),
+            async with get_db() as db:
+                threat_log = ThreatLog(
+                    id=alert["id"],  # int
+                    rule_id=alert.get("rule_id", "heuristic"),  # str
+                    source_ip=alert["source_ip"],  # str
+                    source_mac=alert.get("source_mac", ""),  # str (optional)
+                    destination_ip=alert.get("destination_ip", ""),  # str (optional)
+                    destination_port=alert.get("destination_port", 0),  # int
+                    protocol=alert.get("protocol", "TCP"),  # str
+                    threat_type=alert["type"],  # str
+                    category=alert.get("category", "network"),  # str
+                    severity=alert["severity"],  # str
+                    confidence=alert.get("confidence", 1.0),  # float
+                    description=alert["description"],  # str
+                    raw_packet=alert.get("raw_packet", ""),  # str (optional)
+                    raw_data=str(alert.get("metadata", {})),  # str
+                    action_taken=alert.get("action_taken", "alerted"),  # str
+                    mitigation_status=alert.get("mitigation_status", "pending"),  # str
+                    analyst_notes=alert.get("analyst_notes", ""),  # str
+                    false_positive=alert.get("false_positive", False),  # bool
+                    whitelisted=alert.get("whitelisted", False),  # bool
+                    sensor_id=alert.get("sensor_id", "sensor-1"),  # str
+                    enrichment_data=alert.get("enrichment_data", {}),  # dict
+                    related_events=alert.get("related_events", []),  # list or dict
+                    workflow_status=alert.get("workflow_status", "new"),  # str
+                    closed_at=None,  # or parse from alert if present
+                    closed_by=None,  # or get from alert if present
+                    user_id=None,  # or from context
+                    timestamp=datetime.fromisoformat(alert["timestamp"]),  # datetime
                 )
-            )
-            db.commit()
+
+                db.add(threat_log)
+                await db.commit()
         except Exception as e:
             logger.error("Failed to log threat: %s", str(e))
             try:
@@ -2859,6 +3053,26 @@ class PacketSniffer:
                         }))
             except Full:
                 logger.warning("sio_queue is full. Dropping event: database_error (threat_logging)")
+
+    def _create_firewall_block_event_data(self, ip_address: str, reason: str, duration: int, packet_info: Optional[Dict] = None) -> Dict:
+        """
+        Creates a standardized dictionary for firewall block events.
+        """
+        event_id = f"fw_block_{str(uuid.uuid4())[:8]}" # Shortened UUID for readability
+        timestamp = datetime.utcnow().isoformat() + "Z"
+
+        data = {
+            "id": event_id,
+            "timestamp": timestamp,
+            "ip_address": ip_address,
+            "reason": reason,
+            "duration_seconds": duration,
+            "source_component": "packet_sniffer_firewall_integration", # More specific source
+            "packet_info": packet_info if packet_info else {}, # Ensure it's always a dict
+            "action_taken": "block_ip" # Explicitly state the action
+        }
+        # logger.info(f"Firewall block event created: ID {event_id} for IP {ip_address} due to {reason}") # Optional: for server log
+        return data
 
     async def _log_packet_to_db(self, packet_data: dict):
         try:

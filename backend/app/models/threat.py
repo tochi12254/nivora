@@ -19,7 +19,8 @@ class ThreatLog(Base):
     severity = Column(String(20))  # critical, high, medium, low
     confidence = Column(Float)  # 0.0 to 1.0
     description = Column(Text)
-    raw_packet = Column(Text)  # Hex dump or summary
+    raw_packet = Column(Text) 
+    raw_data = Column(Text)# Hex dump or summary
     action_taken = Column(String(50))  # blocked, alerted, quarantined
     mitigation_status = Column(String(20))  # pending, completed, failed
     analyst_notes = Column(Text)

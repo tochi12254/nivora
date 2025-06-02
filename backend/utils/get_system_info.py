@@ -1,6 +1,6 @@
 import psutil
 import shutil
-
+from typing import Dict, List
 
 def get_system_info():
     # CPU
@@ -51,3 +51,16 @@ def get_system_info():
             "partitions": disk_partition_info,
         },
     }
+def get_network_interfaces():
+    """Get detailed network interface information"""
+    interfaces = []
+    for name, addrs in psutil.net_if_addrs().items():
+        stats = psutil.net_if_stats().get(name)
+        interfaces.append(
+            {
+                "name": name,
+                "is_up": stats.isup if stats else False,
+                "speed": stats.speed if stats else 0,
+            }
+        )
+    return interfaces

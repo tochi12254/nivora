@@ -1,5 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+
+import axios from 'axios';
+import { useTelemetrySocket } from "@/components/live-system/lib/socket"
+import { getNetworkInterfaces } from "@/app/slices/realtimeDataSlice";
+import { RootState } from "@/app/store";
+
+import { useSelector, useDispatch } from 'react-redux';
+
 import { 
   Network, AlertTriangle, ExternalLink, Shield, Filter, FileJson, 
   Download, Play, StopCircle, FileText, Eye, Search, CircleCheck, CircleX
@@ -286,10 +294,18 @@ const exportData = (data: string, fileType: string, fileName: string) => {
 };
 
 const NetworkTrafficVisualizer = () => {
+
+  const dispatch = useDispatch();
+
+  const networkInterfaces = useSelector((state: RootState) => state.networkInterfaces?.networkInterfaces);
+
+  const { getSocket } = useTelemetrySocket();
+
   const { toast } = useToast();
   const [packets, setPackets] = useState<PacketData[]>([]);
   const [connectionHistory, setConnectionHistory] = useState<PacketData[]>([]);
   const [filter, setFilter] = useState('all');
+  const [sniffingInterface, setSniffingInterface] = useState<string>("Wi-Fi");
   const [searchTerm, setSearchTerm] = useState('');
   const [trafficMetrics, setTrafficMetrics] = useState(generateTrafficMetrics());
   const [activeTab, setActiveTab] = useState('live-traffic');
@@ -303,6 +319,23 @@ const NetworkTrafficVisualizer = () => {
   const [exportType, setExportType] = useState<'json' | 'csv'>('json');
   
   const snifferIntervalRef = useRef<number | null>(null);
+  const socket = getSocket();
+
+  useEffect(() => {
+      (
+        async () => {
+          try {
+            const info = await axios.get("http://127.0.0.1:8000/api/system/interfaces");
+            if (info.data) {
+              dispatch(getNetworkInterfaces(info.data))
+      
+            }
+          } catch (error: any) {
+            console.error("Error getting Interfaces: ", error)
+          }
+        }
+      )();
+    }, []);
 
   // Simulate receiving packets when sniffing is active
   useEffect(() => {
@@ -465,21 +498,25 @@ const NetworkTrafficVisualizer = () => {
 
   // Toggle sniffing
   const toggleSniffing = () => {
-    if (isSniffing) {
-      setIsSniffing(false);
-      toast({
-        title: "Network Sniffing Stopped",
-        description: "Packet capture has been paused",
-        variant: "default"
-      });
-    } else {
-      setIsSniffing(true);
-      toast({
-        title: "Network Sniffing Started",
-        description: "Packet capture is now active",
-        variant: "default"
-      });
-    }
+    if(socket){
+      if (isSniffing) {
+        setIsSniffing(false);
+        socket?.emit("stop_sniffing");
+        toast({
+          title: "Network Sniffing Stopped",
+          description: "Packet capture has been paused",
+          variant: "default"
+        });
+      } else {
+        setIsSniffing(true);
+        socket?.emit("start_sniffing", { sniffingInterface: sniffingInterface})
+        toast({
+          title: "Network Sniffing Started",
+          description: "Packet capture is now active",
+          variant: "default"
+        });
+      }
+  }
   };
 
   // Handle export dialog
@@ -560,6 +597,21 @@ const NetworkTrafficVisualizer = () => {
               </div>
               
               <div className="flex gap-2 flex-wrap">
+              <Select value={sniffingInterface} onValueChange={setSniffingInterface}>
+                  <SelectTrigger className="w-[150px] h-8">
+                    <SelectValue placeholder="Interface" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Wi-Fi">Interfaces</SelectItem>
+                    {
+                      Array.isArray(networkInterfaces) && networkInterfaces?.map((ifc, idx) =>(
+                        <SelectItem key={idx} value={ifc?.name}>
+                          {ifc?.name}
+                        </SelectItem>
+                      ))
+                    }
+                  </SelectContent>
+                </Select>
                 <Button 
                   variant={isSniffing ? "destructive" : "default"} 
                   size="sm"

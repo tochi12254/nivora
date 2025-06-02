@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from app.services.monitoring.sniffer import PacketSniffer
 from app.core.dependencies import get_packet_sniffer
-from utils.get_system_info import get_system_info
+from utils.get_system_info import get_system_info,get_network_interfaces
 
 router = APIRouter()
 
@@ -16,3 +16,6 @@ async def get_system_stats(sniffer: PacketSniffer = Depends(get_packet_sniffer))
 @router.get("/system_info")
 def system_status():
     return get_system_info()
+@router.get("/interfaces")
+def get_interfaces():
+    return get_network_interfaces()

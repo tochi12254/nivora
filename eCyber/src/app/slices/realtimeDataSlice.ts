@@ -236,9 +236,27 @@ const networkVolume = createSlice({
   }
 });
 
+const initialInterfaces = JSON.parse(localStorage.getItem('interfaces')) || [];
+
+const networkInterfaces = createSlice({
+  name: 'networkInterfaces',
+  initialState: {
+    networkInterfaces: initialInterfaces
+  },
+  reducers: {
+    getNetworkInterfaces: (state, action) => {
+      state.networkInterfaces = action.payload;
+      localStorage.setItem('networkInterfaces', JSON.stringify(state.networkInterfaces));
+    }
+  }
+});
+
+
 
 export const { addNetworkVolume } = networkVolume.actions
 export const networkVolumeReducer = networkVolume.reducer
+export const { getNetworkInterfaces } = networkInterfaces.actions
+export const networkInterfaceReducer = networkInterfaces.reducer
 export const { addThreatResponse } = threatResponsesSlice.actions;
 export const threatResponsesReducer = threatResponsesSlice.reducer;
 

@@ -28,7 +28,26 @@ async def disconnect(sid):
     """Handle socket.io disconnections"""
     logger.info(f"Client disconnected: {sid}")
 
-
+@sio.on("start_sniffing")
+async def _on_start_sniffing(sid, data):
+    logger.info(f"User started sniffing on {data.get('sniffingInterface')}")
+    # try:
+    #     await sniffer.start(interface)
+    #     await sniffer_service.start()
+    #     await sio.emit("sniffing_started", {"interface": interface}, to=sid)
+    # except Exception as e:
+    #     logger.error(f"Error starting sniffer: {str(e)}")
+    #     await sio.emit("sniffing_error", {"error": str(e)}, to=sid)
+@sio.on("stop_sniffing")
+async def _on_stop_sniffing(sid):
+    logger.info("User stopped sniffing")
+    # try:
+    #     sniffer.stop()
+    #     await sniffer_service.stop()
+    #     await sio.emit("sniffing_stopped", {}, to=sid)
+    # except Exception as e:
+    #     logger.error(f"Error stopping sniffer: {str(e)}")
+    #     await sio.emit("sniffing_error", {"error": str(e)}, to=sid)
 
 def get_socket_app(fastapi_app):
     """Create ASGI app combining FastAPI and Socket.IO"""

@@ -20,6 +20,24 @@ import {
   Area
 } from 'recharts';
 
+// Shared AlertData interface (can be moved to a shared types file)
+interface AlertData {
+  id: string;
+  timestamp: string;
+  severity: string;
+  source_ip: string;
+  destination_ip: string;
+  destination_port: number;
+  protocol: string;
+  description: string;
+  threat_type: string;
+  rule_id?: string;
+  metadata?: any;
+  anomaly_score?: number;
+  threshold?: number;
+  is_anomaly?: number;
+}
+
 // Types for system metrics
 interface SystemMetric {
   timestamp: Date;
@@ -53,7 +71,11 @@ interface ProcessInfo {
   suspicious: boolean;
 }
 
-const SystemMonitoring = () => {
+interface SystemMonitoringProps {
+  anomalyAlerts?: AlertData[]; // Optional, as it might not always be passed
+}
+
+const SystemMonitoring: React.FC<SystemMonitoringProps> = ({ anomalyAlerts = [] }) => {
   const { toast } = useToast();
   const [metrics, setMetrics] = useState<SystemMetric[]>([]);
   const [events, setEvents] = useState<SystemEvent[]>([]);
@@ -564,6 +586,47 @@ const SystemMonitoring = () => {
                     </ScrollArea>
                   </div>
                 </div>
+
+                {/* Anomaly Alerts Display */}
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-sm font-medium">Anomaly Alerts</h3>
+                    {/* Optional: Add a button or filter if needed */}
+                  </div>
+                  <div className="border rounded-md overflow-hidden">
+                    <ScrollArea className="h-[150px]"> {/* Adjusted height */}
+                      {anomalyAlerts && anomalyAlerts.length > 0 ? (
+                        <div className="divide-y">
+                          {anomalyAlerts.map((alert) => (
+                            <div key={alert.id} className="p-3 hover:bg-muted/50 text-xs">
+                              <div className="flex items-center justify-between">
+                                <div className="font-medium">
+                                  {alert.description}
+                                </div>
+                                <Badge variant={alert.severity.toLowerCase() === 'critical' ? 'destructive' : alert.severity.toLowerCase() === 'high' ? 'destructive' : alert.severity.toLowerCase() === 'medium' ? 'warning' : 'default'} className="text-xs">
+                                  {alert.severity}
+                                </Badge>
+                              </div>
+                              <div className="text-muted-foreground mt-1">
+                                {new Date(alert.timestamp).toLocaleString()} | Src: {alert.source_ip}
+                              </div>
+                              {alert.anomaly_score !== undefined && alert.threshold !== undefined && (
+                                <div className="text-muted-foreground">
+                                  Score: {alert.anomaly_score.toFixed(4)} (Threshold: {alert.threshold.toFixed(4)})
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="p-8 text-center text-sm text-muted-foreground">
+                          No recent anomaly alerts.
+                        </div>
+                      )}
+                    </ScrollArea>
+                  </div>
+                </div>
+
               </div>
             </TabsContent>
             
