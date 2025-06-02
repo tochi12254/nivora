@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-import {RootState} from '@app/store'
+import { RootState } from '../app/store'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -28,12 +28,11 @@ import ActivityStream from '../components/dashboard/ActivityStream';
 import AIAssistant from '../components/common/AIAssistant';
 import { useTelemetrySocket } from '@/components/live-system/lib/socket';
 import { useSelector } from 'react-redux';
-import { RootState } from '@/store/store'; // Assuming your store is configured and RootState is exported
 import { Alert as StoreAlert } from '@/hooks/usePacketSnifferSocket'; // Renaming to avoid conflict with local types if any
 import { HttpActivity as StoreHttpActivity } from '@/hooks/usePacketSnifferSocket';
 import { DnsActivityData as StoreDnsActivityData } from '@/hooks/usePacketSnifferSocket';
 import  ActivityItemProps  from '../components/dashboard/ActivityStream'; // Import the prop type
-
+import { useDeepCompareEffect } from 'use-deep-compare';
 // Mock data for activity stream - REMOVED
 
 // Simulated emerging threat data - To be replaced
@@ -84,6 +83,9 @@ const routeToTabMap = {
 const Dashboard = () => {
   const location = useLocation();
   const navigate = useNavigate();
+
+  
+
 
   const networkVolume = useSelector((state:RootState) => state.networkVolume.networkVolume);
 
@@ -162,30 +164,43 @@ const Dashboard = () => {
   };
   
   // Calculate Threat Metrics from Redux state
-  useEffect(() => {
+  
+
+  useDeepCompareEffect(() => {
     const safeSecurityAlerts = Array.isArray(securityAlerts) ? securityAlerts : [];
     const safeThreatDetections = Array.isArray(threatDetections) ? threatDetections : [];
     const safeFirewallEvents = Array.isArray(firewallEvents) ? firewallEvents : [];
-  
-    const critical = safeSecurityAlerts.filter(a => a.severity === "Critical").length +
-                     safeThreatDetections.filter(td => td.severity === "Critical").length;
-  
-    const warning = safeSecurityAlerts.filter(a => a.severity === "High" || a.severity === "Medium").length +
-                    safeThreatDetections.filter(td => td.severity === "High" || td.severity === "Medium").length;
-  
-    const info = safeSecurityAlerts.filter(a => a.severity === "Low" || a.severity === "Info").length +
-                 safeThreatDetections.filter(td => td.severity === "Low" || td.severity === "Info").length;
-  
-    const blocked = safeFirewallEvents.filter(fe => fe.action === "Blocked").length;
-  
-    setCurrentThreatMetrics({ critical, warning, info, blocked });
-  
-    if (safeSecurityAlerts.length > 0 || safeThreatDetections.length > 0 || safeFirewallEvents.length > 0) {
-      setLastUpdated(new Date());
-    }
-  }, [securityAlerts, threatDetections, firewallEvents]);
-  
 
+    const critical =
+      safeSecurityAlerts.filter(a => a.severity === "Critical").length +
+      safeThreatDetections.filter(td => td.severity === "Critical").length;
+
+    const warning =
+      safeSecurityAlerts.filter(a => a.severity === "High" || a.severity === "Medium").length +
+      safeThreatDetections.filter(td => td.severity === "High" || td.severity === "Medium").length;
+
+    const info =
+      safeSecurityAlerts.filter(a => a.severity === "Low" || a.severity === "Info").length +
+      safeThreatDetections.filter(td => td.severity === "Low" || td.severity === "Info").length;
+
+    const blocked = safeFirewallEvents.filter(fe => fe.action === "Blocked").length;
+
+    const newMetrics = { critical, warning, info, blocked };
+
+    setCurrentThreatMetrics(prev => {
+      const same =
+        prev.critical === newMetrics.critical &&
+        prev.warning === newMetrics.warning &&
+        prev.info === newMetrics.info &&
+        prev.blocked === newMetrics.blocked;
+
+      return same ? prev : newMetrics;
+    });
+
+    setLastUpdated(new Date());
+  }, [securityAlerts, threatDetections, firewallEvents]);
+
+  
   useEffect(() => {
     const safeSecurityAlerts = Array.isArray(securityAlerts) ? securityAlerts : [];
   

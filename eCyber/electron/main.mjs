@@ -1,113 +1,188 @@
-import { app, BrowserWindow, Menu, ipcMain } from 'electron'
-import path from 'path'
-import { fileURLToPath } from 'url'
-import { spawn } from 'child_process'
+// import { app, BrowserWindow, Menu } from 'electron'
+// import path from 'path'
+// import { fileURLToPath } from 'url'
+// import { spawn } from 'child_process'
+// import fs from 'fs'
 
-// Enable __dirname in ES modules
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
+// const isDev = !app.isPackaged
 
-let backendProcess = null
+// // Enable __dirname in ES modules
+// const __filename = fileURLToPath(import.meta.url)
+// const __dirname = path.dirname(__filename)
 
-function startBackend() {
-  const exeName = process.platform === 'win32' ? 'ecyber_backend.exe' : 'ecyber_backend'
-  const backendPath = path.join(__dirname, 'backend', exeName)
+// let backendProcess = null
 
-  backendProcess = spawn(backendPath, [], {
-    detached: false,
-    cwd: path.dirname(backendPath)
-  })
+// function startBackend() {
+//   const exeName = process.platform === 'win32' ? 'ecyber_backend.exe' : 'ecyber_backend'
 
-  backendProcess.stdout.on('data', data => {
-    console.log(`[BACKEND] ${data.toString().trim()}`)
-  })
+//   const backendPath = isDev
+//     ? path.join(__dirname, 'backend', '_internal', exeName)
+//     : path.join(process.resourcesPath, 'backend', exeName)
 
-  backendProcess.stderr.on('data', data => {
-    console.error(`[BACKEND ERROR] ${data.toString().trim()}`)
-  })
+//   console.log(`[MAIN] Trying to start backend from: ${backendPath}`)
 
-  backendProcess.on('close', code => {
-    console.log(`Backend process exited with code ${code}`)
-  })
-}
+//   if (!fs.existsSync(backendPath)) {
+//     console.error(`[ERROR] Backend executable not found at: ${backendPath}`)
+//     return
+//   }
 
-function createWindow() {
-  const win = new BrowserWindow({
-    width: 1200,
+//   backendProcess = spawn(backendPath, [], {
+//     detached: false,
+//     cwd: path.dirname(backendPath),
+//     stdio: 'pipe'
+//   })
+
+//   backendProcess.stdout.on('data', data => {
+//     console.log(`[BACKEND] ${data.toString().trim()}`)
+//   })
+
+//   backendProcess.stderr.on('data', data => {
+//     console.error(`[BACKEND ERROR] ${data.toString().trim()}`)
+//   })
+
+//   backendProcess.on('close', code => {
+//     console.log(`[MAIN] Backend process exited with code ${code}`)
+//   })
+// }
+
+// function createWindow() {
+//   const win = new BrowserWindow({
+//     width: 1200,
+//     height: 800,
+//     webPreferences: {
+//       nodeIntegration: false,
+//       contextIsolation: true,
+//       devTools: isDev,
+//       preload: path.join(__dirname, 'preload.mjs')
+//     },
+//     icon: path.join(__dirname, '../public/favicon.ico')
+//   })
+
+//   // Load UI from built frontend or dev server
+//   if (app.isPackaged) {
+//     win.loadFile(path.join(__dirname, '../dist/index.html'))
+//   } else {
+//     win.loadURL('http://localhost:4000')
+//     win.webContents.openDevTools()
+//   }
+
+//   startBackend()
+
+//   const menu = Menu.buildFromTemplate([
+//     {
+//       label: app.name,
+//       submenu: [
+//         { role: 'about' },
+//         { type: 'separator' },
+//         { role: 'quit' }
+//       ]
+//     },
+//     {
+//       label: 'Edit',
+//       submenu: [
+//         { role: 'undo' },
+//         { role: 'redo' },
+//         { type: 'separator' },
+//         { role: 'cut' },
+//         { role: 'copy' },
+//         { role: 'paste' },
+//         { role: 'selectAll' }
+//       ]
+//     },
+//     {
+//       label: 'View',
+//       submenu: [
+//         { role: 'reload' },
+//         { role: 'forceReload' },
+//         { role: 'toggleDevTools' },
+//         { type: 'separator' },
+//         { role: 'resetZoom' },
+//         { role: 'zoomIn' },
+//         { role: 'zoomOut' },
+//         { type: 'separator' },
+//         { role: 'togglefullscreen' }
+//       ]
+//     }
+//   ])
+//   Menu.setApplicationMenu(menu)
+// }
+
+// app.whenReady().then(() => {
+//   createWindow()
+
+//   app.on('activate', () => {
+//     if (BrowserWindow.getAllWindows().length === 0) createWindow()
+//   })
+// })
+
+// app.on('window-all-closed', () => {
+//   if (backendProcess) backendProcess.kill()
+//   if (process.platform !== 'darwin') app.quit()
+// })
+// app.on('quit', () => {
+//   if (backendProcess) {
+//     backendProcess.kill()
+//     console.log('[MAIN] Backend process killed on app quit.')
+//   }
+// })
+
+
+import { app, BrowserWindow } from 'electron';
+import { spawn } from 'child_process';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const pythonPath = path.join(__dirname, '../../backend/venv/Scripts/python.exe');
+
+
+
+let mainWindow;
+let backendProcess;
+
+const createWindow = () => {
+  mainWindow = new BrowserWindow({
+    width: 1280,
     height: 800,
+    icon: path.join(__dirname, '../public/eCyber.ico'),
     webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload.mjs')
+      preload: path.join(__dirname, 'preload.js'),
     },
-    icon: path.join(__dirname, '../public/favicon.ico')
-  })
+  });
 
-  // Load UI from built frontend or dev server
-  if (app.isPackaged) {
-    win.loadFile(path.join(__dirname, '../dist/index.html'))
-  } else {
-    win.loadURL('http://localhost:4000')
-    win.webContents.openDevTools()
+  if(!app.isPackaged) {
+    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+  else {
+    mainWindow.loadURL('http://localhost:4000');
+    mainWindow.webContents.openDevTools();
+  }
+};
 
-  // Start backend when window is ready
-  startBackend()
+const startBackend = () => {
+  const script = path.join(__dirname, '../../backend/main.py');
+  backendProcess = spawn(pythonPath, [script]);
 
-  // Basic app menu
-  const menu = Menu.buildFromTemplate([
-    {
-      label: app.name,
-      submenu: [
-        { role: 'about' },
-        { type: 'separator' },
-        { role: 'quit' }
-      ]
-    },
-    {
-      label: 'Edit',
-      submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
-        { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' }
-      ]
-    },
-    {
-      label: 'View',
-      submenu: [
-        { role: 'reload' },
-        { role: 'forceReload' },
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' }
-      ]
-    }
-  ])
-  Menu.setApplicationMenu(menu)
-}
+  backendProcess.stdout.on('data', (data) => {
+    console.log(`[FastAPI]: ${data}`);
+  });
+
+  backendProcess.stderr.on('data', (data) => {
+    console.error(`[FastAPI error]: ${data}`);
+  });
+};
 
 app.whenReady().then(() => {
-  createWindow()
-
-  ipcMain.handle('get-app-version', () => app.getVersion())
+  createWindow();
+  startBackend();
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
-})
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
 
 app.on('window-all-closed', () => {
-  // Cleanly stop backend process
-  if (backendProcess) backendProcess.kill()
-
-  // On macOS, apps stay active until explicitly quit
-  if (process.platform !== 'darwin') app.quit()
-})
+  if (process.platform !== 'darwin') app.quit();
+  backendProcess?.kill();
+});

@@ -1,12 +1,11 @@
-
-import React, { useEffect, useRef } from 'react';
-import { 
-  Area, 
-  AreaChart, 
-  ResponsiveContainer, 
-  Tooltip, 
-  XAxis, 
-  YAxis 
+import React, { useEffect, useRef, useMemo } from 'react';
+import {
+  Area,
+  AreaChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis
 } from 'recharts';
 import { Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -16,12 +15,12 @@ import { Alert } from '@/hooks/usePacketSnifferSocket'; // Import Alert type
 // Define interfaces for props and state
 interface ThreatLocation {
   id: string;
-  latitude?: number; 
+  latitude?: number;
   longitude?: number;
   country?: string; // Or source_ip
   severity: 'critical' | 'warning' | 'info' | 'blocked' | string;
   count: number;
-  name?: string; 
+  name?: string;
 }
 
 interface ThreatActivityDataPoint {
@@ -41,97 +40,98 @@ const mockCanvasLocations: ThreatLocation[] = [
   { id: "canvas-3", latitude: 35.6762, longitude: 139.6503, name: "Tokyo", severity: "info", count: 2 },
 ];
 
-
 const ThreatMap: React.FC<ThreatMapProps> = ({ className, threatsData }) => {
-  const [chartData, setChartData] = React.useState<ThreatActivityDataPoint[]>([]);
-  const [processedThreatLocations, setProcessedThreatLocations] = React.useState<ThreatLocation[]>([]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  
-  useEffect(() => {
-    if (threatsData) {
-      // Process for Threat Activity Chart
-      const now = new Date();
-      const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      const hourlyThreats: { [key: string]: number } = {};
 
-      for (let i = 0; i < 24; i++) {
-        const d = new Date(twentyFourHoursAgo.getTime() + i * 60 * 60 * 1000);
-        hourlyThreats[`${d.getHours()}:00`] = 0;
-      }
+  // Process data for Threat Activity Chart using useMemo
+  const chartData = useMemo(() => {
+    if (!threatsData) return [];
 
-      threatsData.forEach(threat => {
-        const threatTime = new Date(threat.timestamp);
-        if (threatTime >= twentyFourHoursAgo) {
-          const hourKey = `${threatTime.getHours()}:00`;
-          if (hourlyThreats[hourKey] !== undefined) {
-            hourlyThreats[hourKey]++;
-          }
-        }
-      });
+    const now = new Date();
+    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const hourlyThreats: { [key: string]: number } = {};
 
-      const newChartData = Object.entries(hourlyThreats)
-        .map(([time, threats]) => ({ time, threats }))
-        .sort((a, b) => parseInt(a.time.split(':')[0]) - parseInt(b.time.split(':')[0])); // Ensure correct time order
-      setChartData(newChartData);
-
-      // Process for Top Threat Locations List
-      const locationsMap: { [key: string]: ThreatLocation } = {};
-      threatsData.forEach(threat => {
-        const key = threat.source_ip || 'Unknown'; // Group by source_ip
-        if (!locationsMap[key]) {
-          locationsMap[key] = {
-            id: key,
-            name: key, // Use IP as name
-            country: key, // Use IP as country placeholder
-            count: 0,
-            severity: threat.severity?.toLowerCase() || 'info', // Default to info
-          };
-        }
-        locationsMap[key].count++;
-        // Update severity if a more critical one is found for the same source
-        const severityOrder = { critical: 3, warning: 2, blocked: 1, info: 0 };
-        const currentSeverity = locationsMap[key].severity.toLowerCase();
-        const newSeverity = threat.severity?.toLowerCase() || 'info';
-        if (severityOrder[newSeverity] > severityOrder[currentSeverity]) {
-          locationsMap[key].severity = newSeverity;
-        }
-      });
-      
-      const newLocations = Object.values(locationsMap)
-        .sort((a, b) => b.count - a.count) // Sort by count
-        .slice(0, 5); // Take top 5
-      setProcessedThreatLocations(newLocations);
+    // Initialize hourly buckets
+    for (let i = 0; i < 24; i++) {
+      const d = new Date(twentyFourHoursAgo.getTime() + i * 60 * 60 * 1000);
+      hourlyThreats[`${d.getHours()}:00`] = 0;
     }
+
+    // Count threats per hour
+    threatsData.forEach(threat => {
+      const threatTime = new Date(threat.timestamp);
+      if (threatTime >= twentyFourHoursAgo) {
+        const hourKey = `${threatTime.getHours()}:00`;
+        if (hourlyThreats[hourKey] !== undefined) {
+          hourlyThreats[hourKey]++;
+        }
+      }
+    });
+
+    return Object.entries(hourlyThreats)
+      .map(([time, threats]) => ({ time, threats }))
+      .sort((a, b) => parseInt(a.time.split(':')[0]) - parseInt(b.time.split(':')[0]));
   }, [threatsData]);
 
+  // Process data for Top Threat Locations using useMemo
+  const processedThreatLocations = useMemo(() => {
+    if (!threatsData) return [];
+
+    const locationsMap: { [key: string]: ThreatLocation } = {};
+    const severityOrder = { critical: 3, warning: 2, blocked: 1, info: 0 };
+
+    threatsData.forEach(threat => {
+      const key = threat.source_ip || 'Unknown';
+      if (!locationsMap[key]) {
+        locationsMap[key] = {
+          id: key,
+          name: key,
+          country: key,
+          count: 0,
+          severity: threat.severity?.toLowerCase() || 'info',
+        };
+      }
+      locationsMap[key].count++;
+      
+      const currentSeverity = locationsMap[key].severity.toLowerCase();
+      const newSeverity = threat.severity?.toLowerCase() || 'info';
+      if (severityOrder[newSeverity] > severityOrder[currentSeverity]) {
+        locationsMap[key].severity = newSeverity;
+      }
+    });
+
+    return Object.values(locationsMap)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+  }, [threatsData]);
 
   // Redraw canvas when component mounts - uses MOCK data for points
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    
+   
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    
+   
     // Set canvas dimensions
     canvas.width = canvas.offsetWidth;
     canvas.height = canvas.offsetHeight;
-    
+   
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
+   
     // Draw world map outline (simplified for this example)
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
     ctx.beginPath();
     ctx.arc(canvas.width / 2, canvas.height / 2, canvas.height / 3, 0, Math.PI * 2);
     ctx.stroke();
-    
+   
     // Draw grid lines
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
     for (let i = 0; i < 360; i += 20) {
       const angle = (i * Math.PI) / 180;
       const radius = canvas.height / 3;
-      
+     
       ctx.beginPath();
       ctx.moveTo(canvas.width / 2, canvas.height / 2);
       ctx.lineTo(
@@ -140,14 +140,14 @@ const ThreatMap: React.FC<ThreatMapProps> = ({ className, threatsData }) => {
       );
       ctx.stroke();
     }
-    
+   
     // Draw animated pulse circles using MOCK canvas locations
     const drawPulses = () => {
-      if (!canvasRef.current) return; // Ensure canvas is still there
+      if (!canvasRef.current) return;
       const currentCtx = canvasRef.current.getContext('2d');
       if (!currentCtx) return;
 
-      currentCtx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height); // Clear for redraw
+      currentCtx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
       // Redraw map outline and grid
       currentCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
       currentCtx.beginPath();
@@ -166,45 +166,39 @@ const ThreatMap: React.FC<ThreatMapProps> = ({ className, threatsData }) => {
         currentCtx.stroke();
       }
 
-
       mockCanvasLocations.forEach((threat) => {
         if (!threat.latitude || !threat.longitude || !canvasRef.current) return;
-        // Convert lat/long to x,y (simplified)
+        
         const x = canvasRef.current.width / 2 + (threat.longitude / 180) * (canvasRef.current.width / 3);
         const y = canvasRef.current.height / 2 - (threat.latitude / 90) * (canvasRef.current.height / 4);
-        
+       
         let color = 'rgba(14, 165, 233, 0.8)'; // info blue
         if (threat.severity === 'warning') color = 'rgba(245, 158, 11, 0.8)';
         if (threat.severity === 'critical') color = 'rgba(239, 68, 68, 0.8)';
         if (threat.severity === 'blocked') color = 'rgba(16, 185, 129, 0.8)';
-        
+       
         currentCtx.fillStyle = color;
         currentCtx.beginPath();
         currentCtx.arc(x, y, 4, 0, Math.PI * 2);
         currentCtx.fill();
-        
+       
         const time = Date.now() / 1000;
         const idSegment = parseInt(threat.id.split('-')[1]) || 0;
         const pulseSize = 8 + (Math.sin(time * 2 + idSegment) + 1) * 8;
-
-        
+       
         currentCtx.strokeStyle = color.replace('0.8', '0.3');
         currentCtx.beginPath();
         currentCtx.arc(x, y, pulseSize, 0, Math.PI * 2);
         currentCtx.stroke();
       });
-      
-      
     };
-    let animationFrameId= requestAnimationFrame(drawPulses);
     
+    let animationFrameId = requestAnimationFrame(drawPulses);
     drawPulses();
-
     
     return () => cancelAnimationFrame(animationFrameId);
-    
-  }, []); // Empty dependency array means this runs once on mount and keeps canvas animation running with mock data.
-  
+  }, []);
+
   return (
     <Card className={`${className} shadow-lg border-border relative overflow-hidden`}>
       <CardHeader className="flex flex-row items-center justify-between pb-2 z-10 relative bg-card/50 backdrop-blur-sm">
@@ -216,10 +210,10 @@ const ThreatMap: React.FC<ThreatMapProps> = ({ className, threatsData }) => {
       <CardContent>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Threat map visualization */}
-          <div className="glass-card p-0 lg:col-span-2 relative rounded-lg overflow-hidden"> {/* Added rounded-lg and overflow-hidden */}
+          <div className="glass-card p-0 lg:col-span-2 relative rounded-lg overflow-hidden">
             <div className="aspect-[16/9] relative">
-              <canvas 
-                ref={canvasRef} 
+              <canvas
+                ref={canvasRef}
                 className="absolute inset-0 w-full h-full"
               ></canvas>
             </div>
@@ -245,7 +239,7 @@ const ThreatMap: React.FC<ThreatMapProps> = ({ className, threatsData }) => {
               <span>Map Illustrative</span>
             </div>
           </div>
-          
+         
           {/* Threat metrics */}
           <div className="space-y-4">
             <div className="glass-card p-4">
@@ -254,23 +248,23 @@ const ThreatMap: React.FC<ThreatMapProps> = ({ className, threatsData }) => {
                 <AreaChart data={chartData}>
                   <defs>
                     <linearGradient id="threatGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} /> {/* Red for threats */}
+                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
                       <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis 
+                  <XAxis
                     dataKey="time"
                     tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
                     tickLine={false}
                     axisLine={false}
-                    interval="preserveStartEnd" // Show start and end ticks
-                    minTickGap={30} // Adjust for space
+                    interval="preserveStartEnd"
+                    minTickGap={30}
                   />
-                  <YAxis 
+                  <YAxis
                     hide={true}
-                    domain={['auto', 'auto']} // Ensure y-axis scales
+                    domain={['auto', 'auto']}
                   />
-                  <Tooltip 
+                  <Tooltip
                     contentStyle={{
                       backgroundColor: 'hsl(var(--background-tooltip))',
                       border: '1px solid hsl(var(--border))',
@@ -281,18 +275,18 @@ const ThreatMap: React.FC<ThreatMapProps> = ({ className, threatsData }) => {
                     formatter={(value: number) => [`${value} threats`, 'Detected']}
                     labelFormatter={(label: string) => `Time: ${label}`}
                   />
-                  <Area 
-                    type="monotone" 
-                    dataKey="threats" 
-                    stroke="hsl(var(--destructive))" 
-                    fill="url(#threatGradient)" 
+                  <Area
+                    type="monotone"
+                    dataKey="threats"
+                    stroke="hsl(var(--destructive))"
+                    fill="url(#threatGradient)"
                     strokeWidth={2}
                     dot={false}
                   />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
-            
+           
             <div className="glass-card p-4">
               <h3 className="text-xs font-medium text-muted-foreground mb-3">Top Threat Sources (by IP)</h3>
               {processedThreatLocations.length > 0 ? (
@@ -300,10 +294,10 @@ const ThreatMap: React.FC<ThreatMapProps> = ({ className, threatsData }) => {
                   {processedThreatLocations.map((location) => (
                     <li key={location.id} className="flex items-center justify-between">
                       <div className="flex items-center">
-                        <div 
+                        <div
                           className={`w-2 h-2 rounded-full mr-2 ${
-                            location.severity === 'critical' ? 'bg-red-500' : 
-                            location.severity === 'warning' ? 'bg-amber-500' : 
+                            location.severity === 'critical' ? 'bg-red-500' :
+                            location.severity === 'warning' ? 'bg-amber-500' :
                             location.severity === 'blocked' ? 'bg-green-500' :
                             'bg-blue-500'
                           }`}

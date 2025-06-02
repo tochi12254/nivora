@@ -837,9 +837,9 @@ class PacketSniffer:
                 feature_vector = self.packet_processor.prepare_feature_vector(features)
 
                 # Optional: Save for offline debugging
-                # if len(features) > 1:
-                #     save_feature_vectors_to_json(feature_vector)
-                #     save_features_to_json(features)
+                if len(features) > 1:
+                    save_feature_vectors_to_json(feature_vector)
+                    save_features_to_json(features)
 
                 # ── ML SCORING ──
                 # For each attack-specific model, scale & predict

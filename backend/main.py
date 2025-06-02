@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 import asyncio
 import logging
+import os
 from scapy.all import get_if_list
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from fastapi import FastAPI
@@ -15,10 +16,10 @@ import psutil
 
 # Configuration
 from app.core.config import settings
-from app.middleware.blocker_middleware import BlocklistMiddleware
+# from app.middleware.blocker_middleware import BlocklistMiddleware
 from app.api.v1.api import api_v1_router
 # from app.api.v1.endpoints.threats import router as threat_router_v1
-from app.services.prevention.app_blocker import ApplicationBlocker
+# from app.services.prevention.app_blocker import ApplicationBlocker
 from app.core.logger import setup_logger
 from socket_events import get_socket_app
 from app.services.system.monitor import SystemMonitor
@@ -120,7 +121,7 @@ async def create_app() -> FastAPI:
         firewall = FirewallManager(sio)
         signature_engine = SignatureEngine(sio)
         # ids_signature_engine = IdsSignatureEngine(sio)
-        blocker = ApplicationBlocker(sio)
+        # blocker = ApplicationBlocker(sio)
 
         # Initialize packet components INDEPENDENTLY
         manager = Manager()
@@ -137,8 +138,9 @@ async def create_app() -> FastAPI:
         intel = ThreatIntel()
         await intel.load_from_cache()
         asyncio.create_task(intel.fetch_and_cache_feeds())
+        rules_path = os.path.join(os.path.dirname(__file__), 'rules.json')
         ips = EnterpriseIPS(
-            "rules.json",
+            rules_path,
             sio,
             intel,
             multiprocessing.cpu_count(),
@@ -177,7 +179,7 @@ async def create_app() -> FastAPI:
         # app.state.ips_adapter = ips_adapter
         app.state.db = AsyncSessionLocal
         # app.state.autofill_task = autofill_task
-        app.state.blocker = blocker
+        # app.state.blocker = blocker
 
         # emitter_task = asyncio.create_task(start_event_emitter())  # Pass the factory
         # app.state.emitter_task = emitter_task
@@ -252,6 +254,7 @@ async def create_app() -> FastAPI:
             "http://127.0.0.1:3000",
             "http://localhost:4000",
             "http://127.0.0.1:4000",
+            
         ],
         allow_credentials=True,
         allow_methods=["*"],
@@ -326,8 +329,9 @@ if __name__ == "__main__":
     from hypercorn.config import Config
 
     config = Config()
-    config.bind = ["127.0.0.1:8000"]
-    config.use_reloader = True
+    config.bind = ["0.0.0.0:8000"]
+
+    # config.use_reloader = True
 
     async def run():
         app = await create_app()  # Properly await the app creation

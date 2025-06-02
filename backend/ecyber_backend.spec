@@ -41,6 +41,9 @@ a = Analysis(
         'aioredis',
         'psutil',
         'passlib',
+        'aiosqlite',
+        'passlib.handlers.bcrypt',
+        'passlib.handlers',
         'jose',
         'bcrypt', # backend by passlib
         'dotenv', # for python-dotenv
