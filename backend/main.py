@@ -84,6 +84,9 @@ logging.basicConfig(
 setup_logger("main", "INFO")
 logger = logging.getLogger(__name__)
 
+sniffer = None
+sniffer_service = None
+
 ###VULNERABILITY
 # scanner = VulnerabilityScanner(sio)
 # val_blocker = ThreatBlocker(sio)
@@ -124,6 +127,7 @@ async def create_app() -> FastAPI:
         # blocker = ApplicationBlocker(sio)
 
         # Initialize packet components INDEPENDENTLY
+        global sniffer, sniffer_service
         manager = Manager()
         sio_queue = manager.Queue(maxsize=10000)
         output_queue = Queue()
@@ -187,9 +191,8 @@ async def create_app() -> FastAPI:
         try:
             # loop = asyncio.get_running_loop()
             # await loop.run_in_executor(None, sniffer.start, "Wi-Fi"
-                    
-            await sniffer_service.start()
-            await sniffer.start("Wi-Fi")
+
+
             await monitor.start()
             await ips.start()
             logger.info("System monitoring started")
@@ -228,22 +231,14 @@ async def create_app() -> FastAPI:
 
             if monitor:
                 await monitor.stop()
-            if sniffer:  # sniffer.stop() is synchronous
-                # To avoid blocking, it should ideally be run in an executor if it's long,
-                # or made async. For now, calling it as is.
-                logger.info("Stopping PacketSniffer...")
-                sniffer.stop()
-                logger.info("PacketSniffer stopped.")
-            if sniffer_service:  # sniffer_service.stop() is async
-                await sniffer_service.stop()
+
 
             # await ips_adapter.stop()
             # autofill_task.cancel()
             await engine.dispose()  # Dispose DB engine
             if ips:  # ips.stop() is async
                 await ips.stop()
-            
-           
+
     # Set the lifespan after app creation
     app.router.lifespan_context = lifespan
 
@@ -289,8 +284,6 @@ async def create_app() -> FastAPI:
     app.include_router(nac_router, prefix="/nac")
     app.include_router(dns_router, prefix="/dns")
     # Include the ML Models API router
-    
-    
 
     # Health check endpoint
     @app.get("/api/health", include_in_schema=False)
@@ -313,15 +306,36 @@ async def connect(sid, environ):
     # PROD_CLEANUP: logger.info(f"Client connected: {sid[:8]}...")
 
 
-# @sio.on("get_interfaces")
-# async def get_interfaces(sid):
-#     interfaces = get_if_list()
-#     await sio.emit("interfaces", interfaces, to=sid)
+@sio.on("start_sniffing")
+async def _on_start_sniffing(sid, data):
+    logger.info(f"User started sniffing on {data.get('sniffingInterface')}")
+    global sniffer, sniffer_service
+    try:
+        interface = data.get("sniffingInterface", "Wi-Fi")
+        await sniffer_service.start()
+        await sniffer.start(interface)
+        await sio.emit("sniffing_started", {"interface": interface}, to=sid)
+    except Exception as e:
+        logger.error(f"Error starting sniffer: {str(e)}")
+        await sio.emit("sniffing_error", {"error": str(e)}, to=sid)
 
 
-# @sio.event
-# async def disconnect(sid):
-#     # PROD_CLEANUP: logger.info(f"Client disconnected: {sid[:8]}...")
+@sio.on("stop_sniffing")
+async def _on_stop_sniffing(sid):
+    logger.info("User stopped sniffing")
+    global sniffer, sniffer_service
+    try:
+        if sniffer:
+            logger.info("Stopping PacketSniffer...")
+            sniffer.stop()
+            
+            logger.info("PacketSniffer stopped.")
+        if sniffer_service: 
+            await sniffer_service.stop()
+        await sio.emit("sniffing_stopped",to=sid)
+    except Exception as e:
+        logger.error(f"Error stopping sniffer: {str(e)}")
+        await sio.emit("sniffing_error", {"error": str(e)}, to=sid)
 
 
 # Hypercorn entry point

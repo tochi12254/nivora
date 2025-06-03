@@ -321,6 +321,40 @@ const NetworkTrafficVisualizer = () => {
   const snifferIntervalRef = useRef<number | null>(null);
   const socket = getSocket();
 
+
+  useEffect(() => {
+    if(socket){
+      socket?.on("sniffing_started", () => {
+        if(!isSniffing){
+          setIsSniffing(true)
+        }
+      });
+      socket?.on("sniffing_stopped",() =>{
+        if (isSniffing) {
+          setIsSniffing(false);
+        }
+      })
+
+      return () =>{
+        socket?.off("sniffing_started");
+        socket?.off("sniffing_stoped")
+      }
+    }
+  },[socket, isSniffing]);
+
+  useEffect(() => {
+    const navEntries = performance.getEntriesByType("navigation") as PerformanceNavigationTiming[];
+    const isReload = navEntries[0]?.type === "reload";
+
+    if (isReload) {
+      socket?.emit("stop_sniffing");
+    }
+
+    return () => {
+      socket.disconnect(); 
+    };
+  }, []);
+
   useEffect(() => {
       (
         async () => {

@@ -18,8 +18,11 @@ import {
   Zap,
   Network,
   Terminal,
-  Database
+  Database,
+  Brain // Added Brain icon
 } from 'lucide-react';
+// If Brain icon wasn't available, I would use BarChartBig as an alternative:
+// import { BarChartBig } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -115,6 +118,14 @@ const attackSimulations = [
     icon: AlertOctagon,
     path: '/attack-simulations',
     description: 'Social engineering attacks'
+  },
+  {
+    id: 5,
+    name: 'Threat Analysis',
+    status: 'available',
+    icon: Brain, // Using Brain icon. If not available, BarChartBig would be the alternative.
+    path: '/attacks/threat-analysis',
+    description: 'Analyze threat patterns and history'
   }
 ];
 

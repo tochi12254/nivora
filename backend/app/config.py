@@ -14,7 +14,7 @@ load_dotenv()
 
 class Settings(BaseSettings):
     # Application Configuration
-    PROJECT_NAME: str = "CyberWatch"
+    PROJECT_NAME: str = "eCyber"
     VERSION: str = "1.0.0"
     DESCRIPTION: str = "Comprehensive Network Security Monitoring System"
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")

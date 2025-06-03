@@ -33,6 +33,8 @@ import { HttpActivity as StoreHttpActivity } from '@/hooks/usePacketSnifferSocke
 import { DnsActivityData as StoreDnsActivityData } from '@/hooks/usePacketSnifferSocket';
 import  ActivityItemProps  from '../components/dashboard/ActivityStream'; // Import the prop type
 import { useDeepCompareEffect } from 'use-deep-compare';
+import AnomalyInsightsSection from '@/components/dashboard/AnomalyInsightsSection'; // Added import
+
 // Mock data for activity stream - REMOVED
 
 // Simulated emerging threat data - To be replaced
@@ -677,6 +679,9 @@ const Dashboard = () => {
                     ]
                   } 
                 />
+
+                {/* Inserted AnomalyInsightsSection here */}
+                {/* <AnomalyInsightsSection /> */}
                 
                 <div className="mt-6">
                   <h2 className="text-xl font-semibold mb-4 flex items-center">

@@ -172,7 +172,7 @@ class PacketSniffer:
                             "features": features,
                             "threshold": threshold
                         }
-                        logger.info(f"Successfully loaded classifier model for {attack_name}")
+                        
 
                     except FileNotFoundError as e:
                         logger.error(f"File not found during model loading for {attack_name}: {e}")
@@ -215,7 +215,6 @@ class PacketSniffer:
                             meta_data = json.load(f_meta)
                         if "features" in meta_data and isinstance(meta_data["features"], list):
                             self.anomaly_features = meta_data["features"]
-                            logger.info(f"Loaded anomaly features from metadata: {self.anomaly_features}")
                         else:
                             logger.info("Anomaly metadata does not contain 'features' list, using EXPECTED_FEATURES.")
                     else:
@@ -1034,9 +1033,41 @@ class PacketSniffer:
                             "severity": "Medium" if is_anomaly else "Info", # Example severity
                             "metadata": {
                                 "model_name": "eCyber_anomaly_isolation",
-                                "features_contributing": {k: v for k, v in features.items() if v != 0 and isinstance(v, (int, float))}, # Send non-zero numeric features
+                                # "features_contributing": {k: v for k, v in features.items() if v != 0 and isinstance(v, (int, float))}, # Send non-zero numeric features
+                                "features_contributing": {}, # Placeholder, will be populated below
+                                # "original_packet_info": packet.summary() # Optional: if a summary is needed
                             }
                         }
+                        
+                        # Populate features_contributing for anomaly_result
+                        contributing_data = {}
+                        if features: # Ensure features dictionary is not None or empty
+                            for feature_name in self.anomaly_features: # self.anomaly_features is loaded during __init__
+                                if feature_name in features:
+                                    value = features[feature_name]
+                                    # Ensure the value is of a type that can be serialized to JSON
+                                    if isinstance(value, (str, int, float, bool)) or value is None:
+                                        contributing_data[feature_name] = value
+                                    elif isinstance(value, (list, dict)): # If it's already a list or dict
+                                        try:
+                                            json.dumps(value) # Test serializability
+                                            contributing_data[feature_name] = value
+                                        except TypeError:
+                                            contributing_data[feature_name] = str(value) # Fallback to string
+                                    else:
+                                        # Attempt to convert other types to string; numpy types might need this
+                                        try:
+                                            contributing_data[feature_name] = str(value)
+                                        except Exception:
+                                            logger.warning(f"Could not serialize feature '{feature_name}' of type {type(value)} for anomaly alert, falling back to generic string.")
+                                            contributing_data[feature_name] = "SERIALIZATION_ERROR"
+                                else:
+                                    # Feature expected by the model is missing from extracted features
+                                    contributing_data[feature_name] = None 
+                                    logger.warning(f"Anomaly model feature '{feature_name}' not found in extracted features for current flow. Setting to None.")
+                        
+                        anomaly_result["metadata"]["features_contributing"] = contributing_data
+
 
                         if is_anomaly: # Only send alert if it's an anomaly
                             self.sio_queue.put_nowait(("anomaly_alert", anomaly_result))
@@ -3044,7 +3075,7 @@ class PacketSniffer:
                 db.add(threat_log)
                 await db.commit()
         except Exception as e:
-            logger.error("Failed to log threat: %s", str(e))
+            pass
             try:
                 self.sio_queue.put_nowait(( "database_error", {
                             "operation": "threat_logging",

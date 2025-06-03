@@ -100,6 +100,9 @@ class SystemMonitorProcess(mp.Process):
 
     def _calculate_file_hash(self, file_path: str) -> Optional[Dict[str, str]]:
         """Safe file hashing with large file support and error handling"""
+        if os.path.isdir(file_path):
+            logger.warning(f"Skipping directory: {file_path}")
+            return None
         if not os.path.exists(file_path):
             logger.warning(f"File not found: {file_path}")
             return None
@@ -304,7 +307,7 @@ class SystemMonitorProcess(mp.Process):
             "io": io_stats,
             "dns_cache": list(self._dns_cache.items()),
             "arp_table": self._get_arp_table(),
-            "interfaces": self.get_network_interfaces(),
+            "interfaces": self._get_network_interfaces(),
         }
 
     def _resolve_dns(self, ip: str) -> str:
@@ -325,7 +328,7 @@ class SystemMonitorProcess(mp.Process):
                 arp.append({"ip": parts[0], "mac": parts[1]})
         return arp
 
-    def get_network_interfaces(self) -> List[Dict]:
+    def _get_network_interfaces(self) -> List[Dict]:
         """Get detailed network interface information"""
         interfaces = []
         for name, addrs in psutil.net_if_addrs().items():
@@ -643,6 +646,7 @@ class SystemMonitor(mp.Process):
         super().__init__()
         self.sio = sio
         self.data_queue = mp.Queue()
+        self._connection_sizes = {}
         self.control_queue = mp.Queue()
         self.threat_log: List[Dict] = [] 
 
@@ -859,15 +863,6 @@ class SystemMonitor(mp.Process):
             logger.error(f"Connection analysis failed: {e}")
             return None
 
-    def _calculate_file_hash(self, file_path: str) -> str:
-        """Calculate multiple hash types for file identification"""
-        hashes = {}
-        with open(file_path, "rb") as f:
-            data = f.read()
-            hashes["sha256"] = hashlib.sha256(data).hexdigest()
-            hashes["md5"] = hashlib.md5(data).hexdigest()
-        return hashes
-
     async def quarantine_file(self, file_path: str, reason: str):
         """Move file to quarantine with forensic metadata"""
         try:
@@ -878,7 +873,7 @@ class SystemMonitor(mp.Process):
             )
             os.makedirs(quarantine_dir, exist_ok=True)
 
-            file_hash = self._calculate_file_hash(file_path)
+            file_hash = self.monitor_process._calculate_file_hash(file_path)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             new_name = f"{timestamp}_{os.path.basename(file_path)}.quarantined"
             dest_path = os.path.join(quarantine_dir, new_name)
@@ -1461,11 +1456,10 @@ class SystemMonitor(mp.Process):
 
     def _update_connection_size(self, ip: str, size: int):
         """Track connection payload sizes for analysis"""
-        if not hasattr(self, "_connection_sizes"):
-            self._connection_sizes = {}
-        if ip not in self._connection_sizes:
-            self._connection_sizes[ip] = deque(maxlen=20)
-        self._connection_sizes[ip].append(size)
+        if not hasattr(self, "_connection_sizes"): 
+            if ip not in self._connection_sizes:
+                self._connection_sizes[ip] = deque(maxlen=20)
+            self._connection_sizes[ip].append(size)
 
     def _update_dns_cache(self, ip: str, domain: str):
         """Maintain DNS resolution cache"""
