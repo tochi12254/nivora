@@ -1,0 +1,100 @@
+{
+    "threatfox_meta": {
+        "is_subscribed": true,
+        "name": "ThreatFox IOCs",
+        "id": "threatfox"
+    },
+    "cve_circl_meta": {
+        "is_subscribed": true,
+        "name": "CIRCL CVEs",
+        "id": "cve_circl"
+    },
+    "cve_feed": {
+        "data": [
+            {
+                "id": null,
+                "summary": null,
+                "published": null,
+                "modified": null,
+                "cvss": null,
+                "references": []
+            },
+            {
+                "id": null,
+                "summary": null,
+                "published": null,
+                "modified": null,
+                "cvss": null,
+                "references": []
+            },
+            {
+                "id": null,
+                "summary": null,
+                "published": null,
+                "modified": null,
+                "cvss": null,
+                "references": []
+            },
+            {
+                "id": null,
+                "summary": null,
+                "published": null,
+                "modified": null,
+                "cvss": null,
+                "references": []
+            },
+            {
+                "id": null,
+                "summary": null,
+                "published": null,
+                "modified": null,
+                "cvss": null,
+                "references": []
+            },
+            {
+                "id": null,
+                "summary": null,
+                "published": null,
+                "modified": null,
+                "cvss": null,
+                "references": []
+            },
+            {
+                "id": null,
+                "summary": null,
+                "published": null,
+                "modified": null,
+                "cvss": null,
+                "references": []
+            },
+            {
+                "id": null,
+                "summary": null,
+                "published": null,
+                "modified": null,
+                "cvss": null,
+                "references": []
+            },
+            {
+                "id": null,
+                "summary": null,
+                "published": null,
+                "modified": null,
+                "cvss": null,
+                "references": []
+            },
+            {
+                "id": null,
+                "summary": null,
+                "published": null,
+                "modified": null,
+                "cvss": null,
+                "references": []
+            }
+        ],
+        "last_updated": "2025-06-04T14:01:03.690108",
+        "source_url": "https://cve.circl.lu/api/last/10",
+        "name": "CIRCL CVEs",
+        "id": "cve_circl"
+    }
+}

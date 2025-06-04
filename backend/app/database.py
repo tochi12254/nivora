@@ -50,20 +50,6 @@ SyncSessionLocal = sessionmaker(
 
 
 
-
-@contextmanager
-def get_sync_db():
-    db = SyncSessionLocal()
-    try:
-        yield db
-        db.commit()
-    except:
-        db.rollback()
-        raise
-    finally:
-        db.close()
-
-
 async def init_db():
     """Initialize database tables in correct order"""
     async with engine.begin() as conn:
@@ -89,12 +75,15 @@ async def init_db():
     logger.info("Database tables created in proper order")
 
 
-@asynccontextmanager
+# Replace this:
+# @asynccontextmanager
+# async def get_db():
+
+# With this:
 async def get_db():
     async with AsyncSessionLocal() as session:
         try:
             yield session
-            await session.commit()
         except IntegrityError as e:
             await session.rollback()
             logger.error(f"Database integrity error: {str(e)}")
@@ -112,6 +101,7 @@ async def get_db():
             raise
         finally:
             await session.close()
+
 
 
 @event.listens_for(engine.sync_engine, "connect")

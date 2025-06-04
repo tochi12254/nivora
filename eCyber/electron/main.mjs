@@ -151,7 +151,7 @@ const createWindow = () => {
     },
   });
 
-  if(!app.isPackaged) {
+  if(app.isPackaged) {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
   else {
@@ -175,7 +175,7 @@ const startBackend = () => {
 
 app.whenReady().then(() => {
   createWindow();
-  startBackend();
+  // startBackend();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

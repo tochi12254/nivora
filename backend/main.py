@@ -16,13 +16,16 @@ import psutil
 
 # Configuration
 from app.core.config import settings
+
 # from app.middleware.blocker_middleware import BlocklistMiddleware
 from app.api.v1.api import api_v1_router
+
 # from app.api.v1.endpoints.threats import router as threat_router_v1
 # from app.services.prevention.app_blocker import ApplicationBlocker
 from app.core.logger import setup_logger
 from socket_events import get_socket_app
 from app.services.system.monitor import SystemMonitor
+
 # from app.services.detection.phishing_blocker import PhishingBlocker
 
 # from app.services.system.malware_detection import activate_cyber_defense
@@ -42,14 +45,13 @@ from app.api import (
     models as ml_models_router,
     system as system_router,
     admin as admin_router,
-
 )
 from app.api.v1.endpoints.threats import router as ml_threats
 from api.firewall_api import router as firewall_router
 from api.threat_intel_api import router as intel_router
 from api.nac_api import router as nac_router
 from api.dns_api import router as dns_router
-from api.ml_models_api import router as ml_models_api_router # Added for ML models API
+from api.ml_models_api import router as ml_models_api_router  # Added for ML models API
 from app.utils.report import (
     get_24h_network_traffic,
     get_daily_threat_summary,
@@ -61,6 +63,7 @@ from app.utils.report import (
 # Services
 from app.services.monitoring.sniffer import PacketSniffer
 from app.services.detection.signature import SignatureEngine
+
 # from app.services.detection.ids_signature import IdsSignatureEngine
 from app.services.ips.engine import EnterpriseIPS, ThreatIntel
 
@@ -73,7 +76,7 @@ from app.services.prevention.firewall import FirewallManager
 from sio_instance import sio
 from packet_sniffer_service import PacketSnifferService
 from packet_sniffer_events import PacketSnifferNamespace
-from malware_events_namespace import MalwareEventsNamespace # Add this
+from malware_events_namespace import MalwareEventsNamespace  # Add this
 
 # from socket_events import start_event_emitter
 
@@ -142,7 +145,7 @@ async def create_app() -> FastAPI:
         intel = ThreatIntel()
         await intel.load_from_cache()
         asyncio.create_task(intel.fetch_and_cache_feeds())
-        rules_path = os.path.join(os.path.dirname(__file__), 'rules.json')
+        rules_path = os.path.join(os.path.dirname(__file__), "rules.json")
         ips = EnterpriseIPS(
             rules_path,
             sio,
@@ -192,7 +195,6 @@ async def create_app() -> FastAPI:
             # loop = asyncio.get_running_loop()
             # await loop.run_in_executor(None, sniffer.start, "Wi-Fi"
 
-
             await monitor.start()
             await ips.start()
             logger.info("System monitoring started")
@@ -232,7 +234,6 @@ async def create_app() -> FastAPI:
             if monitor:
                 await monitor.stop()
 
-
             # await ips_adapter.stop()
             # autofill_task.cancel()
             await engine.dispose()  # Dispose DB engine
@@ -250,7 +251,6 @@ async def create_app() -> FastAPI:
             "http://127.0.0.1:3000",
             "http://localhost:4000",
             "http://127.0.0.1:4000",
-            
         ],
         allow_credentials=True,
         allow_methods=["*"],
@@ -276,8 +276,10 @@ async def create_app() -> FastAPI:
     app.include_router(threat_router.router, prefix="/api/threats", tags=["Threats"])
     app.include_router(system_router.router, prefix="/api/system", tags=["System"])
     app.include_router(admin_router.router, prefix="/api/admin", tags=["Admin"])
-    app.include_router(api_v1_router, tags=["APIv1"])
-    app.include_router(ml_models_router.router, prefix="/api/v1/models", tags=["models"]) # Added for ML models
+    app.include_router(api_v1_router, prefix="/api/v1", tags=["APIv1"])
+    app.include_router(
+        ml_models_router.router, prefix="/api/v1/models", tags=["models"]
+    )  # Added for ML models
     # app.include_router(ids_router.router, prefix="/api/ids", tags=["IDS"])
     app.include_router(firewall_router, prefix="/firewall")
     app.include_router(intel_router, prefix="/intel")
@@ -328,11 +330,11 @@ async def _on_stop_sniffing(sid):
         if sniffer:
             logger.info("Stopping PacketSniffer...")
             sniffer.stop()
-            
+
             logger.info("PacketSniffer stopped.")
-        if sniffer_service: 
+        if sniffer_service:
             await sniffer_service.stop()
-        await sio.emit("sniffing_stopped",to=sid)
+        await sio.emit("sniffing_stopped", to=sid)
     except Exception as e:
         logger.error(f"Error stopping sniffer: {str(e)}")
         await sio.emit("sniffing_error", {"error": str(e)}, to=sid)
