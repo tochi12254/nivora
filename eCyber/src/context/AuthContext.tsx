@@ -32,7 +32,7 @@ const getCurrentUserProfile = async (): Promise<{ success: boolean; user?: User;
   if (!token) return { success: false, message: "No token found." };
 
   try {
-    const response = await apiClient.get<User>('/auth/users/me');
+    const response = await apiClient.get<User>('/auth/me');
     return { success: true, user: response.data };
   } catch (error: any) {
     const message = error.response?.data?.detail || error.message || "Failed to fetch profile.";

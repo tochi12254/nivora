@@ -21,6 +21,8 @@ const Index = () => {
   const [alerts, setAlerts] = useState([]);
   const [scanProgress, setScanProgress] = useState(0);
   const canvasRef = useRef(null);
+
+
   
   const fullText = 'Quantum-encrypted neural threat analysis engine initialized... Scanning 847,291 endpoints across 195 countries... Advanced AI threat detection ACTIVE... Zero-day exploit prevention ENABLED... Real-time cyber warfare countermeasures DEPLOYED...';
 
@@ -773,33 +775,7 @@ const Index = () => {
         </div>
       </motion.footer>
 
-      {/* Custom Styles */}
-      <style jsx>{`
-        .bg-grid-pattern {
-          background-image: 
-            linear-gradient(rgba(34,211,238,0.2) 2px, transparent 2px),
-            linear-gradient(90deg, rgba(34,211,238,0.2) 2px, transparent 2px);
-          background-size: 60px 60px;
-        }
-        
-        .bg-circuit-pattern {
-          background-image: 
-            radial-gradient(circle at 25px 25px, rgba(34,211,238,0.3) 2px, transparent 2px),
-            radial-gradient(circle at 75px 75px, rgba(239,68,68,0.3) 2px, transparent 2px);
-          background-size: 100px 100px;
-        }
-        
-        @keyframes dataStream {
-          0% { transform: translateY(-100vh); opacity: 0; }
-          10% { opacity: 1; }
-          90% { opacity: 1; }
-          100% { transform: translateY(100vh); opacity: 0; }
-        }
-        
-        .animate-dataStream {
-          animation: dataStream 3s linear infinite;
-        }
-      `}</style>
+     
       </div>
       <AuthModal/>
       </>

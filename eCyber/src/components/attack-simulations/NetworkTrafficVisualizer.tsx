@@ -305,7 +305,7 @@ const NetworkTrafficVisualizer = () => {
   const { socket: snifferSocket }  = usePacketSnifferSocket()
 
   
-  const initialSniffingState = Boolean(localStorage.getItem("sniffingState")) || false;
+  const initialSniffingState = localStorage.getItem("sniffingState") === "true";
 
   const { toast } = useToast();
   const [packets, setPackets] = useState<PacketData[]>([]);

@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 # Updated to include the new users endpoint. Assuming the existing `from .. import users` is different.
-from .endpoints import models, threat_intelligence, ml_models, settings, auth, users as users_v1_endpoint 
+from .endpoints import models, threat_intelligence, ml_models, settings, auth,users as users_v1_endpoint 
 from .. import users as old_users_router  # users.py is in backend/app/api/ - aliasing to avoid name collision
 
 # This is the main router for all v1 endpoints

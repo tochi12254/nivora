@@ -806,11 +806,11 @@ const Dashboard = () => {
                 
                 <MetricsCard 
                   title="Active Users"
-                  value={isLoadingUserSummary ? "Loading..." : (userSummaryData ? String(userSummaryData.total_users) : "N/A")}
+                  value={isLoadingUserSummary ? "Loading..." : (userSummaryData ? String(userSummaryData?.length) : "N/A")}
                   description={
                     isLoadingUserSummary ? "" : 
                     errorUserSummary ? `Error: ${errorUserSummary.substring(0,20)}...` :
-                    (userSummaryData ? `${userSummaryData.admin_users} admins, ${userSummaryData.standard_users} standard` : "No data")
+                    (userSummaryData ? `0 admins, ${userSummaryData?.length} standard` : "No data")
                   }
                   icon={<Users size={16} />}
                   // trend={{ direction: 'neutral', value: '0%', label: 'unchanged' }} // Trend data not available

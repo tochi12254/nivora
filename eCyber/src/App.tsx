@@ -76,7 +76,8 @@ const App = () => {
           // setProgress(100);
           // setIsReady(true);
           // setStartupTime(startup_time.toFixed(2));
-          window.location.reload();
+          // window.location.reload(); // Commented out: This can cause post-login redirection issues.
+          console.log("Server is ready, startup time:", startup_time); // Log instead of reload
         });
     }
   },[socket]);
@@ -131,10 +132,10 @@ const App = () => {
       {/* <Suspense fallback={<LoadingSpinner />}> */}
         <Routes>
         {/* Public route without sidebar */}
-          <Route path="/" element={<Index />} /> {/* Consider if Index should also be protected by isConnected */}
+          <Route path="/" element={<Index />} /> {/* Index page, handles showing AuthModal via button clicks */}
           <Route path="/loading" element={<CyberLoader />} />
-          <Route path="/login" element={<AuthModal/>} />
-          {/* Routes with sidebar */}
+          {/* Removed top-level /login route that pointed to AuthModal */}
+          {/* Routes with sidebar, potentially protected by MainLayout */}
           <Route element={<MainLayout />}>
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/system" element={<System/>} />
@@ -143,8 +144,7 @@ const App = () => {
             <Route path="/network" element={<Network />} />
             <Route path="/logs" element={<Logs />} />
             <Route path="/models" element={<Models />} />
-            <Route path="/login" element={<LoginPage/>} />
-            <Route path="/register" element={<RegisterPage />} />
+            {/* Removed /login and /register routes that pointed to LoginPage and RegisterPage */}
             <Route path="/users" element={<Users />} />
             <Route path="/threats/cve" element={<ThreatCve />} />
             <Route path="/threats/intel" element={<ThreatIntel />} />
@@ -158,6 +158,7 @@ const App = () => {
           {/* 404 Page */}
           <Route path="*" element={<NotFound />} />
         </Routes>
+        <AuthModal /> {/* Ensure AuthModal is rendered globally */}
         {/* </Suspense> */}
      </>
   );

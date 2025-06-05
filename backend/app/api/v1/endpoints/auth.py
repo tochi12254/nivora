@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Body
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, Optional
+from datetime import timedelta
 
 from ....core import security
 from ....core.config import settings
@@ -24,6 +25,9 @@ from ....services import user as user_service  # Renamed to avoid conflict
 from ....models.user import User as UserModel  # UserModel for dependency injection
 from ....database import get_db
 import pyotp  # For generating QR code URI
+from ....schemas.user import (
+    UserInDB,
+)
 
 router = APIRouter()
 
@@ -37,14 +41,15 @@ def generate_qr_code_uri(
     )
 
 
-@router.post("/login/token", response_model=Token)
+@router.post("/login", response_model=Token)
 async def login_for_access_token(
     db: AsyncSession = Depends(get_db), form_data: OAuth2PasswordRequestForm = Depends()
 ):
     user = await security.authenticate_user(
+        db=db,
         username=form_data.username,
-        password=form_data.password,
-        db_session=db,  # Pass db_session to authenticate_user
+        password=form_data.password
+          # Pass db_session to authenticate_user
     )
     if not user:
         raise HTTPException(
@@ -244,3 +249,14 @@ async def disable_2fa_endpoint(
             detail="Could not disable 2FA.",
         )
     return {"message": "2FA disabled successfully."}
+
+
+@router.get(
+    "/me", response_model=UserInDB
+)  # Keeping UserInDB for now, but should be User
+async def read_users_me(
+    current_user: UserInDB = Depends(
+        get_current_active_user
+    ),  # This should use a User model that reflects DB structure
+):
+    return current_user

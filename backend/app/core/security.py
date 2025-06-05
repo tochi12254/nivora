@@ -50,7 +50,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
+        expire = datetime.utcnow() + timedelta(
+            minutes=ACCESS_TOKEN_EXPIRE_MINUTES
+        )  # Use constant
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -108,13 +110,48 @@ async def get_current_active_user(
 
 
 async def authenticate_user(
-    username: str, password: str, db_session: AsyncSession  # Add db_session parameter
-) -> Optional[User]:  # Return User model
-    # Use the passed db_session directly
-    result = await db_session.execute(select(User).where(User.username == username))
+    db: AsyncSession, username: str, password: str
+) -> Optional[User]:  # Changed db_session to db
+    # Use the passed db session directly
+    result = await db.execute(
+        select(User).where(User.username == username)
+    )  # Changed db_session to db
     user = result.scalars().first()
     if not user:
         return None
     if not verify_password(password, user.hashed_password):
         return None
     return user  # Return the User model
+
+
+async def get_current_user_for_2fa(
+    token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)
+) -> User:  # Return User model
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials for 2FA",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: Optional[str] = payload.get("sub")
+        scope: Optional[str] = payload.get("scope")
+        user_id: Optional[int] = payload.get("user_id")
+
+        if username is None or scope != "2fa_required" or user_id is None:
+            raise credentials_exception
+
+        # TokenData schema might not include user_id by default.
+        # We are not using TokenData here for constructing user object, but for validation if needed.
+        # For this function, direct use of payload fields is fine.
+        # token_data = TokenData(username=username, scope=scope)
+
+    except JWTError:
+        raise credentials_exception
+
+    user = await db.get(User, user_id)  # Fetch user by user_id from token
+    if user is None or user.username != username:  # Verify username matches
+        raise credentials_exception
+
+    # Do not check for user.is_active here, as this token is only for 2FA step
+    return user
