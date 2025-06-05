@@ -63,8 +63,9 @@ const AuthModal = () => {
         } else {
           await contextLogin(response.access_token, response.user);
         //   setOpen(false);
-        dispatch(setAuthModalState(false));
           navigate('/dashboard');
+          dispatch(setAuthModalState(false));
+          
         }
       } else {
         const response = await registerUser({ username, email, password });
@@ -86,9 +87,10 @@ const AuthModal = () => {
     try {
       const response = await verifyTwoFactor({ code: twoFactorCode, userId: userIdFor2FA! });
       await contextLogin(response.access_token, response.user);
-    //   setOpen(false);
-    dispatch(setAuthModalState(false))
+      //   setOpen(false);
       navigate('/dashboard');
+      dispatch(setAuthModalState(false))
+      
     } catch (error: any) {
       const detail = error.response?.data?.detail || error.message || "2FA verification failed.";
       toast({ title: "2FA Error", description: detail });

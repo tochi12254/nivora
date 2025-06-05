@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     VERSION: str = "1.0.0"
     DESCRIPTION: str = "Real-time network threat detection API"
     SQLALCHEMY_DATABASE_URL: str = "sqlite+aiosqlite:///./security.db"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     # For PostgreSQL use:
     # DATABASE_URL: PostgresDsn = "postgresql+asyncpg://user:password@localhost/dbname"
 

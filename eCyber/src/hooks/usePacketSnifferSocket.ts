@@ -3,6 +3,7 @@ import { useEffect, useCallback, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { throttle } from 'lodash';
 import { useDispatch } from 'react-redux';
+import { setIsBackendUp } from "@/app/slices/displaySlice";
 import {
   addHttpActivity,
   addTcpActivity,
@@ -663,6 +664,7 @@ export default function usePacketSniffer(): UseSocketReturn {
         clearTimeout(retryTimerIdRef.current);
         retryTimerIdRef.current = null;
       }
+      dispatch(setIsBackendUp(true))
       console.log("✅ Socket connected to:", newSocket.nsp);
       if (!initialized.current) initialized.current = true; // Mark as initialized on first successful connect
       socketRef.current = newSocket; // Assign socketRef here after successful connect

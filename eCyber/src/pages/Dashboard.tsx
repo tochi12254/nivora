@@ -311,12 +311,13 @@ const Dashboard = () => {
       setIsLoadingUserSummary(true);
       setErrorUserSummary(null);
       try {
-        const response = await fetch('/api/v1/users/summary');
+        const response = await fetch('http://127.0.0.1:8000/api/v1/users');
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
         const data: UserSummaryData = await response.json();
         setUserSummaryData(data);
+        console.log("Users: ", data)
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'An unknown error occurred';
         setErrorUserSummary(msg);

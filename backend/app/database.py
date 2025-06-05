@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 from .core.config import settings
 import logging
-from contextlib import asynccontextmanager,contextmanager
+from contextlib import asynccontextmanager, contextmanager
 
 from .models.user import User
 from .models.log import Log
@@ -49,35 +49,44 @@ SyncSessionLocal = sessionmaker(
 )
 
 
-
 async def init_db():
     """Initialize database tables in correct order"""
     async with engine.begin() as conn:
+        # Drop all tables first (optional, for development)
+        await conn.run_sync(Base.metadata.drop_all, checkfirst=True)  # Add this line
+
         # First pass: Create tables without foreign key dependencies
-        await conn.run_sync(Base.metadata.create_all, tables=[
-            User.__table__,
-            AppConfig.__table__,
-            SystemLog.__table__,
-            IDSRule.__table__,
-            FirewallRule.__table__,
-        ])
+        await conn.run_sync(
+            Base.metadata.create_all,
+            tables=[
+                User.__table__,
+                AppConfig.__table__,
+                SystemLog.__table__,
+                IDSRule.__table__,
+                FirewallRule.__table__,
+            ],
+        )
 
         # Second pass: Create tables with foreign keys
-        await conn.run_sync(Base.metadata.create_all, tables=[
-            Log.__table__,
-            ThreatLog.__table__,
-            NetworkEvent.__table__,
-            Packets.__table__,
-            FirewallLog.__table__,
-            IPSEvent.__table__,
-            IPSRule.__table__,
-        ])
+        await conn.run_sync(
+            Base.metadata.create_all,
+            tables=[
+                Log.__table__,
+                ThreatLog.__table__,
+                NetworkEvent.__table__,
+                Packets.__table__,
+                FirewallLog.__table__,
+                IPSEvent.__table__,
+                IPSRule.__table__,
+            ],
+        )
     logger.info("Database tables created in proper order")
 
 
 # Replace this:
 # @asynccontextmanager
 # async def get_db():
+
 
 # With this:
 async def get_db():
@@ -101,7 +110,6 @@ async def get_db():
             raise
         finally:
             await session.close()
-
 
 
 @event.listens_for(engine.sync_engine, "connect")

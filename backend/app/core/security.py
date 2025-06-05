@@ -68,10 +68,25 @@ async def get_current_user(
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: Optional[str] = payload.get("sub")
-        scope: Optional[str] = payload.get("scope")  # Get scope for 2FA temp token
+        scope: Optional[str] = payload.get("scope")  # Get scope
+
         if username is None:
             raise credentials_exception
-        token_data = TokenData(username=username, scope=scope)  # Pass scope
+
+        # Add this check:
+        if scope == "2fa_required":
+            # This specific exception might need to be caught by a different handler
+            # or the client needs to know not to use this token for general API access.
+            # For now, a generic 401 is okay, but a more specific error could be 403 Forbidden.
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,  # Or status.HTTP_403_FORBIDDEN
+                detail="Token valid only for 2FA verification step. Full authentication required.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        token_data = TokenData(
+            username=username, scope=scope
+        )  # scope can still be passed to TokenData if needed elsewhere
     except JWTError:
         raise credentials_exception
 
