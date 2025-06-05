@@ -108,6 +108,7 @@ class PacketSniffer:
         self.stop_event = mp.Event()
         # self.recorder = PacketRecorder()
         self._running = False
+        self.packet_risk_score = 0
         self.firewall_lock = mp.Lock()
         self.start_time = time.time()
         self.end_time = time.time()
@@ -396,6 +397,7 @@ class PacketSniffer:
         self._dns_counter = {}
         self._protocol_counter = {}
         self.stop_sniffing_event = mp.Event()
+        self.firewall = FirewallManager(self.sio_queue)
 
 
     def _init_ip_databases(self):
@@ -750,6 +752,40 @@ class PacketSniffer:
                 "window_ratio": tcp.window / (len(packet) if len(packet) > 0 else 1),
             },
         }
+        
+    def _emit_packet_summary(self,packet, packet_info: dict, risk_score: int = 0, blocked: bool = False):
+        http_layer = None
+        if packet.haslayer(HTTPRequest):
+            http_layer = packet[HTTPRequest]
+        elif packet.haslayer(HTTPResponse):
+            http_layer = packet[HTTPResponse]
+
+        
+        try:
+            user_agent = self._safe_extract(http_layer, "User_Agent")
+            
+            summary = {
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "source_ip": packet_info.get("src_ip"),
+                "destination_ip": packet_info.get("dst_ip"),
+                "host": packet_info.get("host") or f"{packet_info.get('dst_ip')}:{packet_info.get('dst_port')}",
+                "path": packet_info.get("path") or f"{packet_info.get('dst_ip')}:{packet_info.get('dst_port')}",
+                "method": packet_info.get("method") or "N/A",
+                "user_agent": user_agent or packet_info.get("user_agent") or "Unknown",
+                "protocol": packet_info.get("protocol"),
+                "bytes_transferred": packet_info.get("size", 0),
+                "risk_score": risk_score,
+                "blocked": blocked
+            }
+
+            self.sio_queue.put_nowait(("packet_summary", summary))
+
+        except Full:
+            logger.warning("Queue full — packet summary dropped.")
+        except Exception as e:
+            logger.error(f"Failed to emit packet summary: {str(e)}")
+
+
     def _packet_handler(self, packet: Packet):
         """Main packet processing method with enhanced analysis"""
         
@@ -1100,19 +1136,13 @@ class PacketSniffer:
             except Exception as e:
                 logger.debug("Threat detection failed: %s", e)
 
-            # ── ML-Based Threat Prediction (optional) ──
-            # Uncomment if ML model is enabled
-            # try:
-            #     if self.enhanced_processor.prediction_model:
-            #         ml_out = self.enhanced_processor.process_packet(packet)
-            #         ml_result = ml_out.get("ml_prediction")
-            #         if ml_result is not None:
-            #             try:
-            #                 self.sio_queue.put_nowait(("ml_alert", ml_out))
-            #             except Full:
-            #                 logger.warning("sio_queue is full. Dropping event: ml_alert")
-            # except Exception as e:
-            #     logger.debug("ML prediction failed: %s", e)
+            # ── Emit Packet Summary ──
+            
+            was_blocked = packet_info["src_ip"] in self.firewall.blocked_ips
+            # Call summary emitter
+            self._emit_packet_summary(packet,packet_info, risk_score=self.packet_risk_score, blocked=was_blocked)
+
+
         except Exception as e:
             logger.error("Packet processing error: %s [Summary: %s]",
                         str(e), packet.summary()[:100])
@@ -1703,6 +1733,8 @@ class PacketSniffer:
                     # response_time_ms is complex to capture accurately at sniffer level and is omitted.
                 }
                 # save_http_data_to_json(frontend_http_payload) # Optionally save the emitted payload for debugging
+                
+                self.packet_riks_score = http_data.get("threat_analysis", {}).get("threat_score", 0)
 
                 try:
                     self.sio_queue.put_nowait(("http_activity", frontend_http_payload))

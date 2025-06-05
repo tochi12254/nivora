@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 import asyncio
 import logging
+import time
 import os
 from scapy.all import get_if_list
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
@@ -89,7 +90,8 @@ logger = logging.getLogger(__name__)
 
 sniffer = None
 sniffer_service = None
-
+startup_start_time = time.time()
+server_ready_emitted = False
 ###VULNERABILITY
 # scanner = VulnerabilityScanner(sio)
 # val_blocker = ThreatBlocker(sio)
@@ -340,6 +342,21 @@ async def _on_stop_sniffing(sid):
         await sio.emit("sniffing_error", {"error": str(e)}, to=sid)
 
 
+async def emit_progress():
+    while not server_ready_emitted:
+        elapsed = time.time() - startup_start_time
+        await sio.emit("startup_progress", {"elapsed_time": elapsed})
+        await asyncio.sleep(0.5)
+
+
+# Call this AFTER ALL services have started
+async def mark_server_ready():
+    global server_ready_emitted
+    total_time = time.time() - startup_start_time
+    await sio.emit("server_ready", {"startup_time": total_time})
+    server_ready_emitted = True
+
+
 # Hypercorn entry point
 if __name__ == "__main__":
     import hypercorn.asyncio
@@ -353,6 +370,8 @@ if __name__ == "__main__":
     async def run():
         app = await create_app()  # Properly await the app creation
         await hypercorn.asyncio.serve(app, config)
+        asyncio.create_task(emit_progress())
+        await mark_server_ready()
 
     try:
 

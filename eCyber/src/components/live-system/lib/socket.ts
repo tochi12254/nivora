@@ -194,9 +194,9 @@ export const useTelemetrySocket = () => {
       socket.disconnect();
       socket = null;
     }
-    toast.info("Switched to offline mode", {
-      description: "Using enhanced threat detection with mock data"
-    });
+    // toast.info("Switched to offline mode", {
+    //   description: "Using enhanced threat detection with mock data"
+    // });
   }
 
   /**
@@ -255,24 +255,24 @@ export const useTelemetrySocket = () => {
         });
       });
 
-      socket.on('connect_error', (err) => {
-        connectionAttempts++;
+      // socket.on('connect_error', (err) => {
+      //   connectionAttempts++;
         
-        if (connectionAttempts >= MAX_RECONNECTION_ATTEMPTS) {
-          toast.error(`Connection failed after ${MAX_RECONNECTION_ATTEMPTS} attempts. Switching to offline mode.`, {
-            id: 'socket-error',
-            duration: 5000,
-          });
-          enableOfflineMode();
-        } else {
-          // Only show error for last attempt
-          if (connectionAttempts === MAX_RECONNECTION_ATTEMPTS - 1) {
-            toast.error(`Connection error: ${err.message}. Retrying...`, {
-              id: 'socket-error',
-            });
-          }
-        }
-      });
+      //   if (connectionAttempts >= MAX_RECONNECTION_ATTEMPTS) {
+      //     toast.error(`Connection failed after ${MAX_RECONNECTION_ATTEMPTS} attempts. Switching to offline mode.`, {
+      //       id: 'socket-error',
+      //       duration: 5000,
+      //     });
+      //     enableOfflineMode();
+      //   } else {
+      //     // Only show error for last attempt
+      //     if (connectionAttempts === MAX_RECONNECTION_ATTEMPTS - 1) {
+      //       toast.error(`Connection error: ${err.message}. Retrying...`, {
+      //         id: 'socket-error',
+      //       });
+      //     }
+      //   }
+      // });
 
       socket.on('disconnect', (reason) => {
         if (!useOfflineMode) {

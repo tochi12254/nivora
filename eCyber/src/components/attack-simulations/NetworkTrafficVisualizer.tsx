@@ -3,6 +3,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 
 import axios from 'axios';
 import { useTelemetrySocket } from "@/components/live-system/lib/socket"
+import usePacketSnifferSocket from "@/hooks/usePacketSnifferSocket";
+
 import { getNetworkInterfaces } from "@/app/slices/realtimeDataSlice";
 import { RootState } from "@/app/store";
 
@@ -300,6 +302,10 @@ const NetworkTrafficVisualizer = () => {
   const networkInterfaces = useSelector((state: RootState) => state.networkInterfaces?.networkInterfaces);
 
   const { getSocket } = useTelemetrySocket();
+  const { socket: snifferSocket }  = usePacketSnifferSocket()
+
+  
+  const initialSniffingState = Boolean(localStorage.getItem("sniffingState")) || false;
 
   const { toast } = useToast();
   const [packets, setPackets] = useState<PacketData[]>([]);
@@ -309,7 +315,7 @@ const NetworkTrafficVisualizer = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [trafficMetrics, setTrafficMetrics] = useState(generateTrafficMetrics());
   const [activeTab, setActiveTab] = useState('live-traffic');
-  const [isSniffing, setIsSniffing] = useState(false);
+  const [isSniffing, setIsSniffing] = useState(initialSniffingState);
   const [selectedPacket, setSelectedPacket] = useState<PacketData | null>(null);
   const [packetDetails, setPacketDetails] = useState<ThreatDetails | null>(null);
   const [showDetails, setShowDetails] = useState(false);
@@ -327,11 +333,13 @@ const NetworkTrafficVisualizer = () => {
       socket?.on("sniffing_started", () => {
         if(!isSniffing){
           setIsSniffing(true)
+          localStorage.setItem("sniffingState", JSON.stringify(true))
         }
       });
       socket?.on("sniffing_stopped",() =>{
         if (isSniffing) {
           setIsSniffing(false);
+          localStorage.setItem("sniffingState",JSON.stringify(false));
         }
       })
 
@@ -342,18 +350,29 @@ const NetworkTrafficVisualizer = () => {
     }
   },[socket, isSniffing]);
 
-  useEffect(() => {
-    const navEntries = performance.getEntriesByType("navigation") as PerformanceNavigationTiming[];
-    const isReload = navEntries[0]?.type === "reload";
+  useEffect(() =>{
 
-    if (isReload) {
-      socket?.emit("stop_sniffing");
+    if(snifferSocket){
+      snifferSocket?.on("packet_summary", (data: any) => {
+        setPackets(prev => [...prev, data])
+        console.log("Packet summary: ", data)
+      })
     }
 
-    return () => {
-      socket.disconnect(); 
-    };
-  }, []);
+  },[snifferSocket]);
+
+  // useEffect(() => {
+  //   const navEntries = performance.getEntriesByType("navigation") as PerformanceNavigationTiming[];
+  //   const isReload = navEntries[0]?.type === "reload";
+
+  //   if (isReload) {
+  //     socket?.emit("stop_sniffing");
+  //   }
+
+  //   return () => {
+  //     socket.disconnect(); 
+  //   };
+  // }, []);
 
   useEffect(() => {
       (
@@ -372,83 +391,83 @@ const NetworkTrafficVisualizer = () => {
     }, []);
 
   // Simulate receiving packets when sniffing is active
-  useEffect(() => {
-    if (isSniffing) {
-      // Clear any existing interval
-      if (snifferIntervalRef.current) {
-        clearInterval(snifferIntervalRef.current);
-      }
+  // useEffect(() => {
+  //   if (isSniffing) {
+  //     // Clear any existing interval
+  //     if (snifferIntervalRef.current) {
+  //       clearInterval(snifferIntervalRef.current);
+  //     }
       
-      // Set new interval to generate packets
-      const interval = window.setInterval(() => {
-        const newPacket = generateMockPacketData();
+  //     // Set new interval to generate packets
+  //     const interval = window.setInterval(() => {
+  //       const newPacket = generateMockPacketData();
         
-        // Auto-block critical risk packets
-        if (newPacket.risk_score && newPacket.risk_score >= 80) {
-          newPacket.blocked = true;
-          setBlockedIPs(prev => {
-            if (!prev.includes(newPacket.source_ip)) {
-              toast({
-                title: "Critical Risk IP Automatically Blocked",
-                description: `${newPacket.source_ip} was blocked due to high risk score (${newPacket.risk_score})`,
-                variant: "destructive"
-              });
-              return [...prev, newPacket.source_ip];
-            }
-            return prev;
-          });
-        } else if (blockedIPs.includes(newPacket.source_ip)) {
-          // Mark packets from already blocked IPs
-          newPacket.blocked = true;
-        }
+  //       // Auto-block critical risk packets
+  //       if (newPacket.risk_score && newPacket.risk_score >= 80) {
+  //         newPacket.blocked = true;
+  //         setBlockedIPs(prev => {
+  //           if (!prev.includes(newPacket.source_ip)) {
+  //             toast({
+  //               title: "Critical Risk IP Automatically Blocked",
+  //               description: `${newPacket.source_ip} was blocked due to high risk score (${newPacket.risk_score})`,
+  //               variant: "destructive"
+  //             });
+  //             return [...prev, newPacket.source_ip];
+  //           }
+  //           return prev;
+  //         });
+  //       } else if (blockedIPs.includes(newPacket.source_ip)) {
+  //         // Mark packets from already blocked IPs
+  //         newPacket.blocked = true;
+  //       }
         
-        // Update packets list
-        setPackets(prev => {
-          // Keep the last 100 packets
-          const updatedPackets = [newPacket, ...prev].slice(0, 100);
-          return updatedPackets;
-        });
+  //       // Update packets list
+  //       setPackets(prev => {
+  //         // Keep the last 100 packets
+  //         const updatedPackets = [newPacket, ...prev].slice(0, 100);
+  //         return updatedPackets;
+  //       });
         
-        // Add to connection history
-        setConnectionHistory(prev => {
-          // Keep the last 500 packets in history
-          const updatedHistory = [newPacket, ...prev].slice(0, 500);
-          return updatedHistory;
-        });
+  //       // Add to connection history
+  //       setConnectionHistory(prev => {
+  //         // Keep the last 500 packets in history
+  //         const updatedHistory = [newPacket, ...prev].slice(0, 500);
+  //         return updatedHistory;
+  //       });
         
-        // Show toast for suspicious traffic with high risk
-        if (newPacket.suspicious_headers && newPacket.risk_score && newPacket.risk_score > 50) {
-          toast({
-            title: `${getRiskLevel(newPacket.risk_score).toUpperCase()} Risk Traffic Detected`,
-            description: `Connection to ${newPacket.host} from ${newPacket.source_ip} (Risk: ${newPacket.risk_score})`,
-            variant: "destructive"
-          });
-        }
+  //       // Show toast for suspicious traffic with high risk
+  //       if (newPacket.suspicious_headers && newPacket.risk_score && newPacket.risk_score > 50) {
+  //         toast({
+  //           title: `${getRiskLevel(newPacket.risk_score).toUpperCase()} Risk Traffic Detected`,
+  //           description: `Connection to ${newPacket.host} from ${newPacket.source_ip} (Risk: ${newPacket.risk_score})`,
+  //           variant: "destructive"
+  //         });
+  //       }
         
-        // Update traffic metrics every 10 packets
-        if (packets.length % 10 === 0) {
-          setTrafficMetrics(prev => {
-            const newMetrics = [...prev.slice(1), {
-              time: "now",
-              connections: Math.floor(Math.random() * 40) + 10,
-              bandwidth: Math.floor(Math.random() * 500) + 100,
-              packets: Math.floor(Math.random() * 200) + 50,
-              anomalyScore: Math.random() > 0.8 ? (Math.random() * 80) + 20 : (Math.random() * 20)
-            }];
-            return newMetrics;
-          });
-        }
-      }, 3000);
+  //       // Update traffic metrics every 10 packets
+  //       if (packets.length % 10 === 0) {
+  //         setTrafficMetrics(prev => {
+  //           const newMetrics = [...prev.slice(1), {
+  //             time: "now",
+  //             connections: Math.floor(Math.random() * 40) + 10,
+  //             bandwidth: Math.floor(Math.random() * 500) + 100,
+  //             packets: Math.floor(Math.random() * 200) + 50,
+  //             anomalyScore: Math.random() > 0.8 ? (Math.random() * 80) + 20 : (Math.random() * 20)
+  //           }];
+  //           return newMetrics;
+  //         });
+  //       }
+  //     }, 3000);
       
-      snifferIntervalRef.current = interval;
+  //     snifferIntervalRef.current = interval;
       
-      return () => {
-        if (snifferIntervalRef.current) {
-          clearInterval(snifferIntervalRef.current);
-        }
-      };
-    }
-  }, [isSniffing, blockedIPs, packets.length, toast]);
+  //     return () => {
+  //       if (snifferIntervalRef.current) {
+  //         clearInterval(snifferIntervalRef.current);
+  //       }
+  //     };
+  //   }
+  // }, [isSniffing, blockedIPs, packets.length, toast]);
 
   // Filter and search packets
   const filteredPackets = packets
@@ -536,6 +555,7 @@ const NetworkTrafficVisualizer = () => {
       if (isSniffing) {
         setIsSniffing(false);
         socket?.emit("stop_sniffing");
+        localStorage.setItem("sniffingState", JSON.stringify(false));
         toast({
           title: "Network Sniffing Stopped",
           description: "Packet capture has been paused",
@@ -543,7 +563,8 @@ const NetworkTrafficVisualizer = () => {
         });
       } else {
         setIsSniffing(true);
-        socket?.emit("start_sniffing", { sniffingInterface: sniffingInterface})
+        socket?.emit("start_sniffing", { sniffingInterface: sniffingInterface });
+        localStorage.setItem("sniffingState", JSON.stringify(true));
         toast({
           title: "Network Sniffing Started",
           description: "Packet capture is now active",

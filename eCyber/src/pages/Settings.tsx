@@ -1,19 +1,62 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react'; // Import useState, useEffect
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+// Other imports like Shield, Lock, RefreshCw are already there
 import { Settings as SettingsIcon, Bell, Database, Shield, Lock, RefreshCw } from 'lucide-react';
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
+// Label is already imported
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Header from '../components/layout/Header';
 import ThemeSwitcher from '../components/settings/ThemeSwitcher';
 import SystemUpdater from '../components/settings/SystemUpdater';
 import { useToast } from "@/hooks/use-toast";
+import { TwoFactorAuthSetupDialog } from '../components/settings/TwoFactorAuthSetupDialog';
+import { ChangePasswordDialog } from '../components/settings/ChangePasswordDialog'; // Import new dialog
+import { useAuth } from '@/context/AuthContext';
+import { disable2FA } from '@/services/api';
+
 
 const Settings = () => {
   const { toast } = useToast();
+  const { user, fetchUserProfile, updateUser2FAStatus, isLoading: isAuthLoading } = useAuth();
+  const [isTwoFactorAuthDialogOpen, setIsTwoFactorAuthDialogOpen] = useState(false);
+  // Remove local isTwoFactorEnabled, use user.is_two_factor_enabled from context
+  const [isUpdating2FA, setIsUpdating2FA] = useState(false);
+  const [isChangePasswordDialogOpen, setIsChangePasswordDialogOpen] = useState(false);
+
+  // useEffect to fetch initial 2FA status is no longer needed here if AuthProvider handles initial user load.
+  // The `user` object from `useAuth()` will have the latest `is_two_factor_enabled`.
+
+  const handleTwoFactorSwitchChange = async (checked: boolean) => {
+    if (checked) {
+      // User wants to enable 2FA
+      setIsTwoFactorAuthDialogOpen(true);
+    } else {
+      // User wants to disable 2FA
+      setIsUpdating2FA(true);
+      try {
+        await disable2FA(); // Actual API call
+        toast({ title: "Success", description: "2FA disabled successfully." });
+        updateUser2FAStatus(false); // Update context state
+        await fetchUserProfile(); // Refresh user profile
+      } catch (error: any) {
+        const detail = error.response?.data?.detail || error.message || "Could not disable 2FA.";
+        toast({ title: "Error", description: detail, variant: "destructive" });
+      } finally {
+        setIsUpdating2FA(false);
+      }
+    }
+  };
+
+  const handle2FASuccess = async () => { // Modified to be async
+    // No need to call updateUser2FAStatus here, dialog does it.
+    // fetchUserProfile is also called by dialog.
+    // Just ensure UI consistency if needed, though context should drive it.
+    // If further actions were needed on this page after dialog success, they'd go here.
+  };
   
   const handleSaveChanges = () => {
     toast({
@@ -43,7 +86,7 @@ const Settings = () => {
             </div>
             
             {/* Settings tabs */}
-            <Tabs defaultValue="general">
+            <Tabs defaultValue="security"> {/* Default to security tab for easier testing */}
               <TabsList className="mb-6">
                 <TabsTrigger value="general">General</TabsTrigger>
                 <TabsTrigger value="notifications">Notifications</TabsTrigger>
@@ -170,9 +213,25 @@ const Settings = () => {
                     <div className="flex items-center justify-between">
                       <div>
                         <h4 className="font-medium">Two-Factor Authentication</h4>
-                        <p className="text-sm text-muted-foreground">Require 2FA for all admin accounts</p>
+                        <p className="text-sm text-muted-foreground">
+                          {user?.is_two_factor_enabled 
+                            ? "2FA is currently enabled for your account." 
+                            : "Add an extra layer of security to your account."}
+                        </p>
                       </div>
-                      <Switch defaultChecked />
+                      <Switch 
+                        checked={user?.is_two_factor_enabled || false} 
+                        onCheckedChange={handleTwoFactorSwitchChange}
+                        disabled={isUpdating2FA || isAuthLoading}
+                      />
+                    </div>
+
+                    {/* Change Password Button */}
+                    <div className="pt-2">
+                       <Button variant="outline" onClick={() => setIsChangePasswordDialogOpen(true)}>
+                         <Lock className="mr-2 h-4 w-4" />
+                         Change Password
+                       </Button>
                     </div>
                     
                     <div className="flex items-center justify-between">
@@ -379,6 +438,18 @@ const Settings = () => {
               </TabsContent>
             </Tabs>
           </div>
+          {/* Render the 2FA Setup Dialog */}
+          <TwoFactorAuthSetupDialog 
+            isOpen={isTwoFactorAuthDialogOpen}
+            onClose={() => setIsTwoFactorAuthDialogOpen(false)}
+            onSuccess={handle2FASuccess}
+          />
+
+          {/* Render the Change Password Dialog */}
+          <ChangePasswordDialog
+            isOpen={isChangePasswordDialogOpen}
+            onClose={() => setIsChangePasswordDialogOpen(false)}
+          />
         </main>
       </div>
     </div>

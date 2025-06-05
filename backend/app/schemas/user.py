@@ -37,3 +37,17 @@ class TokenData(BaseModel):
 class UserLogin(BaseModel):
     username: str
     password: str
+    
+class User(UserBase):
+    id: int
+    is_active: bool
+    is_superuser: bool
+    two_factor_secret: Optional[str] = None
+    is_two_factor_enabled: bool
+    password_reset_token: Optional[str] = None
+    password_reset_expires: Optional[datetime] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

@@ -23,3 +23,19 @@ class PasswordResetRequest(BaseModel):
 class NewPasswordRequest(BaseModel):
     token: str
     new_password: str
+
+
+
+class TwoFactorSetupResponse(BaseModel):
+    secret: str
+    qr_code_uri: str
+
+
+class TwoFactorVerify(BaseModel):
+    code: str
+
+
+
+class NewPasswordWithToken(BaseModel):
+    token: str
+    new_password: str

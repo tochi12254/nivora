@@ -1,17 +1,69 @@
-
-import React, { useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { ChevronRight, Shield, Cpu, Database, Lock, Globe, Server, AlertTriangle, Network, Activity, Monitor, ArrowRight, Check } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { motion } from 'framer-motion';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import React, { useEffect, useState, useRef } from 'react';
+import { Shield, Terminal, AlertTriangle, Activity, Zap, Eye, Lock, Cpu, Globe, Server, Wifi, Target, Crosshair, Radar, Satellite, Skull, Brain, Binary, CircuitBoard, Usb, FileX, Flame, Bug, Database, Network, Radio, Signal, Camera, Headphones } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { RootState } from "@/app/store";
+import { setAuthModalState } from "@/app/slices/displaySlice"
+import { useSelector, useDispatch } from "react-redux"
+import AuthModal from './AuthModal';
 
 const Index = () => {
-  // Animated text typing effect for the hero subtitle
-  const [text, setText] = React.useState('');
-  const fullText = "Advanced network monitoring, threat detection, and AI-powered incident response for the modern enterprise.";
+
+  const dispatch = useDispatch();
+  const isAuthModalOpen = useSelector((state: RootState) => state.display.isAuthModalOpen);
+
+  const [text, setText] = useState('');
+  const [matrixChars, setMatrixChars] = useState([]);
+  const [threatCount, setThreatCount] = useState(847291);
+  const [systemStatus, setSystemStatus] = useState('SCANNING');
+  const [activeThreats, setActiveThreats] = useState([]);
+  const [glitchText, setGlitchText] = useState('CYBER WARFARE DEFENSE');
+  const [networkNodes, setNetworkNodes] = useState([]);
+  const [alerts, setAlerts] = useState([]);
+  const [scanProgress, setScanProgress] = useState(0);
+  const canvasRef = useRef(null);
   
+  const fullText = 'Quantum-encrypted neural threat analysis engine initialized... Scanning 847,291 endpoints across 195 countries... Advanced AI threat detection ACTIVE... Zero-day exploit prevention ENABLED... Real-time cyber warfare countermeasures DEPLOYED...';
+
+  const threatTypes = [
+    'APT29 COZY BEAR', 'LAZARUS GROUP', 'EQUATION GROUP', 'CARBANAK', 'FANCY BEAR',
+    'DARK HALO', 'MAZE RANSOMWARE', 'RYUK VARIANT', 'EMOTET TROJAN', 'TRICKBOT',
+    'COBALT STRIKE', 'MIMIKATZ', 'POWERSHELL EMPIRE', 'METASPLOIT', 'BLOODHOUND'
+  ];
+
+  const countries = ['RUSSIA', 'CHINA', 'NORTH KOREA', 'IRAN', 'UKRAINE', 'USA', 'UK', 'ISRAEL', 'GERMANY', 'FRANCE'];
+
+  // Matrix rain effect - more intense
+  useEffect(() => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱﾎﾃﾏｹﾒｴｶｷﾑﾕﾗｾﾈｽﾀﾇﾍ@#$%^&*()_+-=[]{}|;:,.<>?¡™£¢∞§¶•ªº–≠œ∑´®†¥¨ˆøπ"'.split('');
+    const matrix = [];
+    for (let i = 0; i < 150; i++) {
+      matrix.push({
+        id: i,
+        x: Math.random() * 100,
+        char: chars[Math.floor(Math.random() * chars.length)],
+        delay: Math.random() * 3,
+        speed: 0.5 + Math.random() * 2
+      });
+    }
+    setMatrixChars(matrix);
+  }, []);
+
+  // Network visualization
+  useEffect(() => {
+    const nodes = [];
+    for (let i = 0; i < 30; i++) {
+      nodes.push({
+        id: i,
+        x: Math.random() * 100,
+        y: Math.random() * 100,
+        connections: Math.floor(Math.random() * 4) + 1,
+        status: Math.random() > 0.8 ? 'threat' : Math.random() > 0.9 ? 'warning' : 'secure'
+      });
+    }
+    setNetworkNodes(nodes);
+  }, []);
+
+  // Typing effect with glitch
   useEffect(() => {
     let i = 0;
     const typingInterval = setInterval(() => {
@@ -20,941 +72,737 @@ const Index = () => {
         i++;
       } else {
         clearInterval(typingInterval);
+        setSystemStatus('OPERATIONAL');
       }
-    }, 50);
-    
+    }, 30);
+
     return () => clearInterval(typingInterval);
   }, []);
-  
+
+  // Real-time threat simulation
+  useEffect(() => {
+    const threatInterval = setInterval(() => {
+      setThreatCount(prev => prev + Math.floor(Math.random() * 47) + 1);
+      
+      // Generate new threats
+      const newThreat = {
+        id: Date.now(),
+        type: threatTypes[Math.floor(Math.random() * threatTypes.length)],
+        country: countries[Math.floor(Math.random() * countries.length)],
+        severity: Math.random() > 0.7 ? 'CRITICAL' : Math.random() > 0.4 ? 'HIGH' : 'MEDIUM',
+        ip: `${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`
+      };
+      
+      setActiveThreats(prev => [newThreat, ...prev.slice(0, 4)]);
+    }, 1500);
+
+    return () => clearInterval(threatInterval);
+  }, []);
+
+  // Glitch effect for main title
+  useEffect(() => {
+    const glitchInterval = setInterval(() => {
+      const glitchChars = '!@#$%^&*()_+-=[]{}|;:,.<>?1234567890';
+      const originalText = 'CYBER WARFARE DEFENSE';
+      let glitched = originalText;
+      
+      if (Math.random() > 0.85) {
+        glitched = originalText.split('').map(char => 
+          Math.random() > 0.8 ? glitchChars[Math.floor(Math.random() * glitchChars.length)] : char
+        ).join('');
+        
+        setTimeout(() => setGlitchText(originalText), 100);
+      }
+      
+      setGlitchText(glitched);
+    }, 200);
+
+    return () => clearInterval(glitchInterval);
+  }, []);
+
+  // Scan progress simulation
+  useEffect(() => {
+    const scanInterval = setInterval(() => {
+      setScanProgress(prev => {
+        const newProgress = prev + Math.random() * 5;
+        return newProgress > 100 ? 0 : newProgress;
+      });
+    }, 100);
+
+    return () => clearInterval(scanInterval);
+  }, []);
+
+  // Alert system
+  useEffect(() => {
+    const alertInterval = setInterval(() => {
+      const alertTypes = [
+        'DDOS ATTACK DETECTED',
+        'MALWARE SIGNATURE FOUND',
+        'UNAUTHORIZED ACCESS ATTEMPT',
+        'SUSPICIOUS NETWORK TRAFFIC',
+        'PHISHING CAMPAIGN IDENTIFIED',
+        'ZERO-DAY EXPLOIT BLOCKED',
+        'RANSOMWARE VARIANT DETECTED',
+        'ADVANCED PERSISTENT THREAT'
+      ];
+      
+      const newAlert = {
+        id: Date.now(),
+        message: alertTypes[Math.floor(Math.random() * alertTypes.length)],
+        severity: Math.random() > 0.5 ? 'CRITICAL' : 'WARNING',
+        timestamp: new Date().toLocaleTimeString()
+      };
+      
+      setAlerts(prev => [newAlert, ...prev.slice(0, 2)]);
+    }, 3000);
+
+    return () => clearInterval(alertInterval);
+  }, []);
+
+  // Canvas network visualization
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width = window.innerWidth;
+    const height = canvas.height = window.innerHeight;
+    
+    let animationId;
+    
+    const animate = () => {
+      ctx.clearRect(0, 0, width, height);
+      
+      // Draw connections
+      networkNodes.forEach((node, i) => {
+        networkNodes.slice(i + 1).forEach(otherNode => {
+          const distance = Math.sqrt(
+            Math.pow((node.x - otherNode.x) * width / 100, 2) + 
+            Math.pow((node.y - otherNode.y) * height / 100, 2)
+          );
+          
+          if (distance < 200) {
+            ctx.beginPath();
+            ctx.moveTo(node.x * width / 100, node.y * height / 100);
+            ctx.lineTo(otherNode.x * width / 100, otherNode.y * height / 100);
+            ctx.strokeStyle = node.status === 'threat' || otherNode.status === 'threat' 
+              ? 'rgba(239, 68, 68, 0.3)' 
+              : 'rgba(34, 211, 238, 0.1)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          }
+        });
+      });
+      
+      animationId = requestAnimationFrame(animate);
+    };
+    
+    animate();
+    
+    return () => {
+      if (animationId) cancelAnimationFrame(animationId);
+    };
+  }, [networkNodes]);
+
+  const stats = [
+    { label: 'THREATS NEUTRALIZED', value: threatCount.toLocaleString(), icon: Shield, color: 'text-red-400' },
+    { label: 'GLOBAL ENDPOINTS', value: '847,291', icon: Globe, color: 'text-blue-400' },
+    { label: 'RESPONSE TIME', value: '0.0003s', icon: Zap, color: 'text-yellow-400' },
+    { label: 'AI ACCURACY', value: '99.97%', icon: Brain, color: 'text-purple-400' },
+    { label: 'QUANTUM ENCRYPTION', value: '2048-BIT', icon: Lock, color: 'text-green-400' },
+    { label: 'ZERO-DAY BLOCKS', value: '4,829', icon: Bug, color: 'text-orange-400' }
+  ];
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-isimbi-navy via-isimbi-navy to-isimbi-dark-charcoal overflow-x-hidden">
-      {/* Header */}
-      <header className="container mx-auto px-4 py-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center">
-            <div className="h-10 w-10 rounded-md bg-isimbi-purple flex items-center justify-center">
-              <Shield className="h-6 w-6 text-white" />
-            </div>
-            <span className="text-2xl font-bold text-white ml-2 tracking-wider">eCyber</span>
-          </div>
-          <nav className="hidden md:flex space-x-8 text-sm">
-            <a href="#features" className="text-gray-300 hover:text-white transition-colors">Features</a>
-            <a href="#about" className="text-gray-300 hover:text-white transition-colors">About</a>
-            <a href="#security" className="text-gray-300 hover:text-white transition-colors">Security</a>
-            <a href="#contact" className="text-gray-300 hover:text-white transition-colors">Contact</a>
-          </nav>
-          <div className="flex items-center space-x-4">
-            <div className="relative group">
-              <Button variant="ghost" className="text-gray-300 hover:text-white relative overflow-hidden">
-                <span className="relative z-10 hidden">Sign In</span>
-                <span className="absolute bottom-0 left-0 w-full h-[2px] bg-isimbi-purple scale-x-0 group-hover:scale-x-100 transition-transform origin-bottom-left"></span>
-              </Button>
-            </div>
-            <Button className="bg-isimbi-purple hover:bg-isimbi-purple/90 shadow-lg shadow-isimbi-purple/20 hidden">
-              Request Demo
-            </Button>
-          </div>
-        </div>
-      </header>
 
-      {/* Hero Section */}
-      <section className="container mx-auto px-4 py-20 md:py-32 flex flex-col items-center justify-center text-center">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
-          className="max-w-4xl mx-auto"
-        >
-          <div className="inline-block mb-4 hidden">
-            <Badge variant="outline" className="px-4 py-1.5 text-sm font-medium bg-isimbi-purple/10 text-isimbi-purple border-isimbi-purple/30">
-              New: Version 3.5 Released
-            </Badge>
-          </div>
-          
-          <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold text-white leading-tight mb-6 tracking-tight">
-            eCyber — <span className="bg-gradient-to-r from-isimbi-purple to-isimbi-bright-blue bg-clip-text text-transparent">Intelligent Security</span>, Built for the New Era
-          </h1>
-          
-          <p className="text-xl md:text-2xl text-gray-300 mb-10 max-w-3xl mx-auto h-16 font-light">
-            {text}<span className="animate-pulse">|</span>
-          </p>
-          
-          <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4">
-            <Link to="/dashboard">
-              <Button size="lg" className="bg-isimbi-bright-blue hover:bg-isimbi-bright-blue/90 text-white px-8 shadow-lg shadow-isimbi-bright-blue/20 text-lg group relative overflow-hidden">
-                <span className="relative z-10 flex items-center">
-                  Explore Dashboard
-                  <ChevronRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
-                </span>
-                <span className="absolute inset-0 bg-gradient-to-r from-isimbi-bright-blue to-isimbi-bright-blue/80 opacity-0 group-hover:opacity-100 transition-opacity"></span>
-              </Button>
-            </Link>
-            <Button variant="outline" size="lg" className="border-gray-600 text-white hover:bg-white/5 text-lg group relative overflow-hidden">
-              <span className="relative z-10 flex items-center">
-                Watch Demo
-                <span className="ml-2 h-5 w-5 flex items-center justify-center rounded-full bg-white/10 group-hover:bg-white/20 transition-colors">
-                  ▶
-                </span>
-              </span>
-            </Button>
-          </div>
-          
-          <div className="flex justify-center mt-8 space-x-6 text-sm text-gray-400">
-            <div className="flex items-center">
-              <Shield className="h-4 w-4 mr-1 text-isimbi-purple" />
-              <span>Enterprise-grade</span>
-            </div>
-            <div className="flex items-center">
-              <Lock className="h-4 w-4 mr-1 text-isimbi-purple" />
-              <span>ISO 27001 Certified</span>
-            </div>
-            <div className="flex items-center">
-              <Server className="h-4 w-4 mr-1 text-isimbi-purple" />
-              <span>99.9% Uptime</span>
-            </div>
-          </div>
-        </motion.div>
-
-        {/* Animated visualization */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5, duration: 1.5 }}
-          className="mt-16 relative w-full max-w-5xl h-64 sm:h-80 md:h-96"
-        >
-          {/* Enhanced 3D network visualization */}
-          <div className="absolute inset-0 flex items-center justify-center perspective-1000">
-            <div className="relative w-full h-full max-w-2xl">
-              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-40 h-40 sm:w-60 sm:h-60 rounded-full border border-isimbi-purple/30 animate-spin" style={{animationDuration: '15s'}}></div>
-              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-60 h-60 sm:w-80 sm:h-80 rounded-full border border-isimbi-bright-blue/20 rotate-45 animate-spin" style={{animationDuration: '25s'}}></div>
-              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-80 h-80 sm:w-96 sm:h-96 rounded-full border border-isimbi-bright-blue/10 -rotate-12 animate-spin" style={{animationDuration: '40s'}}></div>
-              
-              {/* Center globe */}
-              <motion.div 
-                className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-16 h-16 md:w-20 md:h-20 rounded-full bg-gradient-to-r from-isimbi-purple to-isimbi-bright-blue blur-sm animate-float"
-                animate={{ 
-                  boxShadow: ["0 0 10px rgba(155, 135, 245, 0.5)", "0 0 30px rgba(155, 135, 245, 0.8)", "0 0 10px rgba(155, 135, 245, 0.5)"] 
-                }}
-                transition={{ duration: 3, repeat: Infinity }}
-              />
-              
-              {/* Nodes */}
-              {[...Array(16)].map((_, i) => {
-                const angle = (i / 16) * Math.PI * 2;
-                const radius = 120 + (i % 3) * 40;
-                const x = Math.cos(angle) * radius;
-                const y = Math.sin(angle) * radius;
-                return (
-                  <motion.div
-                    key={i}
-                    className="absolute top-1/2 left-1/2 w-3 h-3 rounded-full bg-isimbi-bright-blue/80"
-                    style={{ 
-                      left: `calc(50% + ${x}px)`, 
-                      top: `calc(50% + ${y}px)` 
-                    }}
-                    animate={{
-                      scale: [1, 1.2, 1],
-                      opacity: [0.7, 1, 0.7]
-                    }}
-                    transition={{
-                      repeat: Infinity,
-                      duration: 2 + i * 0.1,
-                      delay: i * 0.2
-                    }}
-                  />
-                );
-              })}
-              
-              {/* Connecting lines with animation */}
-              {[...Array(6)].map((_, i) => {
-                const rotation = i * 30;
-                return (
-                  <motion.div 
-                    key={i} 
-                    className="absolute top-1/2 left-1/2 w-full h-0.5 bg-gradient-to-r from-transparent via-isimbi-bright-blue/30 to-transparent transform -translate-x-1/2 -translate-y-1/2"
-                    style={{ rotate: `${rotation}deg` }}
-                    animate={{
-                      opacity: [0.3, 0.7, 0.3],
-                    }}
-                    transition={{
-                      repeat: Infinity,
-                      duration: 3 + i,
-                      ease: "easeInOut"
-                    }}
-                  />
-                );
-              })}
-              
-              {/* Ripple effect */}
-              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-                <div className="absolute w-16 h-16 rounded-full border border-isimbi-bright-blue/30 animate-ping" style={{ animationDuration: "3s" }}></div>
-                <div className="absolute w-16 h-16 rounded-full border border-isimbi-purple/20 animate-ping" style={{ animationDuration: "4s", animationDelay: "1s" }}></div>
-              </div>
-            </div>
-          </div>
-          
-          {/* Moving particles */}
-          {[...Array(10)].map((_, i) => (
-            <motion.div
-              key={i}
-              className="absolute h-2 w-2 rounded-full bg-isimbi-bright-blue"
-              style={{ 
-                left: Math.random() * 100 + '%',
-                top: Math.random() * 100 + '%',
-                opacity: 0,
-              }}
-              animate={{ 
-                opacity: [0, 0.8, 0],
-                scale: [0, 1, 0],
-                x: Math.random() * 200 - 100,
-                y: Math.random() * 200 - 100,
-              }}
-              transition={{ 
-                repeat: Infinity, 
-                duration: 3,
-                delay: i * 0.7,
-                ease: "easeInOut" 
-              }}
-            />
-          ))}
-          
-          {/* Data breach simulation */}
+    <>
+    <div className="min-h-screen bg-black text-cyan-400 font-mono overflow-hidden relative">
+      {/* Canvas Background */}
+      <canvas 
+        ref={canvasRef}
+        className="absolute inset-0 opacity-20 pointer-events-none"
+        style={{ zIndex: 1 }}
+      />
+      
+      {/* Intense Matrix Background */}
+      <div className="absolute inset-0 opacity-15" style={{ zIndex: 2 }}>
+        {matrixChars.map((char) => (
           <motion.div
-            className="absolute h-4 w-4 rounded-full bg-red-500 right-1/3 top-1/3"
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ 
-              scale: [0, 1.5, 0],
-              opacity: [0, 1, 0]
+            key={char.id}
+            className="absolute text-green-400 text-xs font-bold"
+            style={{ left: `${char.x}%` }}
+            animate={{
+              y: ['0vh', '110vh'],
+              opacity: [0, 1, 1, 0],
+              scale: [0.5, 1, 1, 0.5]
             }}
             transition={{
+              duration: 8 / char.speed,
               repeat: Infinity,
-              duration: 4,
-              delay: 2
-            }}
-          />
-          
-          {/* Shield protection animation */}
-          <motion.div
-            className="absolute h-5 w-5 left-1/3 bottom-1/3 text-isimbi-purple"
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ 
-              scale: [0, 1, 0],
-              opacity: [0, 1, 0]
-            }}
-            transition={{
-              repeat: Infinity,
-              duration: 3,
-              delay: 1.5
+              delay: char.delay,
+              ease: 'linear'
             }}
           >
-            <Shield />
+            {char.char}
           </motion.div>
+        ))}
+      </div>
+
+      {/* Multiple Grid Overlays */}
+      <div className="absolute inset-0 opacity-10" style={{ zIndex: 3 }}>
+        <div className="w-full h-full bg-gradient-to-br from-red-500/20 via-transparent to-cyan-500/20"></div>
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(34,211,238,0.1),transparent_50%)]"></div>
+        <div className="absolute inset-0 bg-grid-pattern opacity-30"></div>
+        <div className="absolute inset-0 bg-circuit-pattern opacity-20"></div>
+      </div>
+
+      {/* Floating Alerts */}
+      <AnimatePresence>
+        {alerts.map((alert, index) => (
+          <motion.div
+            key={alert.id}
+            initial={{ x: '100vw', opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: '-100vw', opacity: 0 }}
+            className={`fixed top-20 right-4 z-50 p-4 border-l-4 backdrop-blur-md ${
+              alert.severity === 'CRITICAL' 
+                ? 'bg-red-900/50 border-red-400 text-red-100' 
+                : 'bg-yellow-900/50 border-yellow-400 text-yellow-100'
+            }`}
+            style={{ top: `${80 + index * 80}px` }}
+          >
+            <div className="flex items-center space-x-2">
+              <AlertTriangle className="animate-pulse" size={16} />
+              <span className="text-xs font-bold">{alert.severity}</span>
+            </div>
+            <div className="text-xs mt-1">{alert.message}</div>
+            <div className="text-xs opacity-60">{alert.timestamp}</div>
+          </motion.div>
+        ))}
+      </AnimatePresence>
+
+      {/* Header */}
+      <motion.header 
+        initial={{ y: -100, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.8 }}
+        className="relative z-40 flex justify-between items-center px-8 py-4 border-b border-cyan-500/50 backdrop-blur-xl bg-black/60"
+        style={{ boxShadow: '0 0 50px rgba(34,211,238,0.3)' }}
+      >
+        <motion.div 
+          className="flex items-center space-x-4"
+          whileHover={{ scale: 1.05 }}
+        >
+          <motion.div
+            animate={{ 
+              rotate: 360,
+              boxShadow: ['0 0 20px rgba(34,211,238,0.5)', '0 0 40px rgba(239,68,68,0.5)', '0 0 20px rgba(34,211,238,0.5)']
+            }}
+            transition={{ 
+              rotate: { duration: 4, repeat: Infinity, ease: 'linear' },
+              boxShadow: { duration: 2, repeat: Infinity }
+            }}
+            className="relative"
+          >
+            <Shield className="text-cyan-400 drop-shadow-[0_0_20px_rgba(34,211,238,0.8)]" size={40} />
+            <div className="absolute inset-0 border-2 border-red-500 animate-ping opacity-50"></div>
+          </motion.div>
+          <div>
+            <span className="text-3xl font-bold tracking-[0.5em] text-transparent bg-gradient-to-r from-cyan-400 via-red-500 to-purple-600 bg-clip-text">
+              eCyber
+            </span>
+            <div className="text-xs text-green-400 animate-pulse flex items-center">
+              <div className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></div>
+              [{systemStatus}] - DEFCON 2
+            </div>
+          </div>
         </motion.div>
-      </section>
 
-      {/* Trusted By Section */}
-      <section className="py-12 bg-isimbi-navy/50 backdrop-blur-md">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-8">
-            <p className="text-sm text-gray-400 uppercase tracking-wide">Trusted by industry leaders</p>
-          </div>
-          <div className="flex flex-wrap justify-center items-center gap-8 md:gap-16">
-            {/* Logos in gray/white */}
-            <div className="opacity-50 hover:opacity-80 transition-opacity">
-              <svg className="h-8 w-auto" viewBox="0 0 100 30" fill="currentColor">
-                <rect width="80" height="10" x="10" y="10" rx="2" fill="white" />
-                <circle cx="20" cy="15" r="5" fill="currentColor" />
-              </svg>
-            </div>
-            <div className="opacity-50 hover:opacity-80 transition-opacity">
-              <svg className="h-8 w-auto" viewBox="0 0 100 30" fill="currentColor">
-                <circle cx="50" cy="15" r="15" fill="white" />
-                <rect width="20" height="20" x="40" y="5" fill="currentColor" />
-              </svg>
-            </div>
-            <div className="opacity-50 hover:opacity-80 transition-opacity">
-              <svg className="h-8 w-auto" viewBox="0 0 100 30" fill="currentColor">
-                <path d="M20,5 L80,5 L50,25 Z" fill="white" />
-              </svg>
-            </div>
-            <div className="opacity-50 hover:opacity-80 transition-opacity">
-              <svg className="h-8 w-auto" viewBox="0 0 100 30" fill="currentColor">
-                <rect width="70" height="20" x="15" y="5" rx="10" fill="white" />
-              </svg>
-            </div>
-            <div className="opacity-50 hover:opacity-80 transition-opacity">
-              <svg className="h-8 w-auto" viewBox="0 0 100 30" fill="currentColor">
-                <circle cx="30" cy="15" r="10" fill="white" />
-                <circle cx="70" cy="15" r="10" fill="white" />
-              </svg>
-            </div>
-          </div>
+        <nav className="space-x-8 hidden md:flex text-sm">
+          {['THREAT-INTEL', 'NEURAL-NET', 'QUANTUM-SHIELD', 'WAR-ROOM'].map((item, i) => (
+            <motion.a
+              key={item}
+              href={`#${item.toLowerCase()}`}
+              className="relative group cursor-pointer"
+              whileHover={{ scale: 1.2, textShadow: '0 0 10px rgba(34,211,238,0.8)' }}
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.1 }}
+            >
+              <span className="text-cyan-300 hover:text-red-400 transition-colors font-bold">
+                {item}
+              </span>
+              <div className="absolute -bottom-1 left-0 w-0 h-1 bg-gradient-to-r from-cyan-400 via-red-500 to-purple-600 group-hover:w-full transition-all duration-300"></div>
+            </motion.a>
+          ))}
+        </nav>
+
+        <div className="space-x-4 flex items-center">
+          <motion.button
+            onClick={() => dispatch(setAuthModalState(!isAuthModalOpen))}
+            whileHover={{ 
+              scale: 1.1, 
+              boxShadow: '0 0 30px rgba(239,68,68,0.8)',
+              textShadow: '0 0 10px rgba(255,255,255,1)'
+            }}
+            whileTap={{ scale: 0.9 }}
+            className="px-8 py-3 border-2 border-red-500 text-red-400 hover:bg-red-500/20 transition-all duration-300 backdrop-blur-sm font-bold tracking-widest"
+          >
+            GET IN
+          </motion.button>
+          <motion.button
+            whileHover={{ 
+              scale: 1.1, 
+              boxShadow: '0 0 50px rgba(34,211,238,1)',
+              textShadow: '0 0 10px rgba(0,0,0,1)'
+            }}
+            whileTap={{ scale: 0.9 }}
+            className="px-8 py-3 bg-gradient-to-r from-cyan-500 via-blue-600 to-purple-700 text-black font-bold hover:from-cyan-400 hover:to-purple-600 transition-all duration-300 tracking-widest"
+          >
+            Get A Demo👍
+          </motion.button>
         </div>
-      </section>
+      </motion.header>
 
-      {/* Features Section */}
-      <section id="features" className="py-24 bg-gradient-to-b from-isimbi-dark-charcoal to-isimbi-navy">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-16">
-            <Badge variant="outline" className="mb-4 px-3 py-1 text-isimbi-bright-blue border-isimbi-bright-blue/30">
-              Features
-            </Badge>
-            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">Enterprise-Grade Security Features</h2>
-            <p className="text-gray-300 max-w-2xl mx-auto">
-              Our comprehensive cybersecurity platform combines AI, machine learning, and expert systems for advanced threat detection and response.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {/* Feature 1 */}
-            <Card className="glass-card relative overflow-hidden group border-isimbi-purple/10">
-              <CardHeader className="relative z-10">
-                <div className="mb-4 text-isimbi-bright-blue p-2 rounded-md bg-isimbi-bright-blue/10 w-fit">
-                  <Shield size={24} />
-                </div>
-                <CardTitle className="text-xl font-semibold text-white">Real-Time Threat Detection</CardTitle>
-              </CardHeader>
-              <CardContent className="relative z-10">
-                <p className="text-gray-300 text-sm">
-                  Advanced algorithms constantly monitor for anomalies and potential security breaches, alerting you instantly to critical issues.
-                </p>
-                <ul className="mt-4 space-y-2">
-                  <li className="flex items-center text-sm text-gray-300">
-                    <div className="mr-2 w-1.5 h-1.5 bg-isimbi-bright-blue rounded-full"></div>
-                    Machine learning anomaly detection
-                  </li>
-                  <li className="flex items-center text-sm text-gray-300">
-                    <div className="mr-2 w-1.5 h-1.5 bg-isimbi-bright-blue rounded-full"></div>
-                    Zero-day exploit protection
-                  </li>
-                </ul>
-              </CardContent>
-              <CardFooter>
-                <Button variant="ghost" className="group p-0 h-auto text-isimbi-bright-blue hover:text-isimbi-bright-blue/80">
-                  <span>Learn more</span>
-                  <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
-                </Button>
-              </CardFooter>
-              <div className="absolute -bottom-10 -right-10 w-32 h-32 bg-isimbi-purple/10 rounded-full blur-2xl transition-all group-hover:w-40 group-hover:h-40 group-hover:bg-isimbi-purple/15"></div>
-            </Card>
-
-            {/* Feature 2 */}
-            <Card className="glass-card relative overflow-hidden group border-isimbi-purple/10">
-              <CardHeader className="relative z-10">
-                <div className="mb-4 text-isimbi-bright-blue p-2 rounded-md bg-isimbi-bright-blue/10 w-fit">
-                  <Cpu size={24} />
-                </div>
-                <CardTitle className="text-xl font-semibold text-white">AI-Powered Analysis</CardTitle>
-              </CardHeader>
-              <CardContent className="relative z-10">
-                <p className="text-gray-300 text-sm">
-                  Machine learning models that adapt to your organization's network patterns and behaviors for superior detection.
-                </p>
-                <ul className="mt-4 space-y-2">
-                  <li className="flex items-center text-sm text-gray-300">
-                    <div className="mr-2 w-1.5 h-1.5 bg-isimbi-bright-blue rounded-full"></div>
-                    Behavioral analysis engine
-                  </li>
-                  <li className="flex items-center text-sm text-gray-300">
-                    <div className="mr-2 w-1.5 h-1.5 bg-isimbi-bright-blue rounded-full"></div>
-                    Predictive threat intelligence
-                  </li>
-                </ul>
-              </CardContent>
-              <CardFooter>
-                <Button variant="ghost" className="group p-0 h-auto text-isimbi-bright-blue hover:text-isimbi-bright-blue/80">
-                  <span>Learn more</span>
-                  <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
-                </Button>
-              </CardFooter>
-              <div className="absolute -bottom-10 -right-10 w-32 h-32 bg-isimbi-purple/10 rounded-full blur-2xl transition-all group-hover:w-40 group-hover:h-40 group-hover:bg-isimbi-purple/15"></div>
-            </Card>
-
-            {/* Feature 3 */}
-            <Card className="glass-card relative overflow-hidden group border-isimbi-purple/10">
-              <CardHeader className="relative z-10">
-                <div className="mb-4 text-isimbi-bright-blue p-2 rounded-md bg-isimbi-bright-blue/10 w-fit">
-                  <Database size={24} />
-                </div>
-                <CardTitle className="text-xl font-semibold text-white">Comprehensive Logging</CardTitle>
-              </CardHeader>
-              <CardContent className="relative z-10">
-                <p className="text-gray-300 text-sm">
-                  Full-spectrum data collection and storage with intelligent searching and filtering for forensic analysis.
-                </p>
-                <ul className="mt-4 space-y-2">
-                  <li className="flex items-center text-sm text-gray-300">
-                    <div className="mr-2 w-1.5 h-1.5 bg-isimbi-bright-blue rounded-full"></div>
-                    Encrypted audit trails
-                  </li>
-                  <li className="flex items-center text-sm text-gray-300">
-                    <div className="mr-2 w-1.5 h-1.5 bg-isimbi-bright-blue rounded-full"></div>
-                    Tamper-proof records
-                  </li>
-                </ul>
-              </CardContent>
-              <CardFooter>
-                <Button variant="ghost" className="group p-0 h-auto text-isimbi-bright-blue hover:text-isimbi-bright-blue/80">
-                  <span>Learn more</span>
-                  <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
-                </Button>
-              </CardFooter>
-              <div className="absolute -bottom-10 -right-10 w-32 h-32 bg-isimbi-purple/10 rounded-full blur-2xl transition-all group-hover:w-40 group-hover:h-40 group-hover:bg-isimbi-purple/15"></div>
-            </Card>
-
-            {/* Feature 4 */}
-            <Card className="glass-card relative overflow-hidden group border-isimbi-purple/10">
-              <CardHeader className="relative z-10">
-                <div className="mb-4 text-isimbi-bright-blue p-2 rounded-md bg-isimbi-bright-blue/10 w-fit">
-                  <Globe size={24} />
-                </div>
-                <CardTitle className="text-xl font-semibold text-white">Global Threat Intelligence</CardTitle>
-              </CardHeader>
-              <CardContent className="relative z-10">
-                <p className="text-gray-300 text-sm">
-                  Up-to-date information on emerging threats and attack vectors from around the world.
-                </p>
-                <ul className="mt-4 space-y-2">
-                  <li className="flex items-center text-sm text-gray-300">
-                    <div className="mr-2 w-1.5 h-1.5 bg-isimbi-bright-blue rounded-full"></div>
-                    Real-time threat feeds
-                  </li>
-                  <li className="flex items-center text-sm text-gray-300">
-                    <div className="mr-2 w-1.5 h-1.5 bg-isimbi-bright-blue rounded-full"></div>
-                    Collaborative defense network
-                  </li>
-                </ul>
-              </CardContent>
-              <CardFooter>
-                <Button variant="ghost" className="group p-0 h-auto text-isimbi-bright-blue hover:text-isimbi-bright-blue/80">
-                  <span>Learn more</span>
-                  <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
-                </Button>
-              </CardFooter>
-              <div className="absolute -bottom-10 -right-10 w-32 h-32 bg-isimbi-purple/10 rounded-full blur-2xl transition-all group-hover:w-40 group-hover:h-40 group-hover:bg-isimbi-purple/15"></div>
-            </Card>
+      {/* Hero Section */}
+      <main className="relative z-30 flex flex-col items-center justify-center text-center py-8 px-4">
+        <motion.div
+          initial={{ scale: 0.3, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 1.5, delay: 0.2 }}
+          className="mb-6"
+        >
+          <h1 className="text-4xl md:text-7xl lg:text-9xl font-bold tracking-wider mb-6 relative">
+            <motion.span 
+              className="text-transparent bg-gradient-to-r from-red-500 via-cyan-400 to-purple-600 bg-clip-text drop-shadow-[0_0_30px_rgba(34,211,238,0.8)]"
+              animate={{ 
+                textShadow: ['0 0 20px rgba(239,68,68,0.8)', '0 0 40px rgba(34,211,238,0.8)', '0 0 20px rgba(147,51,234,0.8)', '0 0 20px rgba(239,68,68,0.8)'],
+                filter: ['hue-rotate(0deg)', 'hue-rotate(360deg)']
+              }}
+              transition={{ duration: 3, repeat: Infinity }}
+            >
+              REAL-TIME
+            </motion.span>
+            <br />
+            <motion.span 
+              className="text-transparent bg-gradient-to-r from-purple-600 via-pink-500 to-red-500 bg-clip-text"
+              style={{ 
+                filter: 'drop-shadow(0 0 30px rgba(239,68,68,0.8))',
+                textShadow: '0 0 50px rgba(239,68,68,1)'
+              }}
+            >
+              {glitchText}
+            </motion.span>
+            <br />
+            <motion.span 
+              className="text-transparent bg-gradient-to-r from-green-400 via-cyan-400 to-blue-500 bg-clip-text"
+              animate={{ 
+                textShadow: ['0 0 30px rgba(34,211,238,0.8)', '0 0 60px rgba(34,211,238,1)', '0 0 30px rgba(34,211,238,0.8)']
+              }}
+              transition={{ duration: 2, repeat: Infinity }}
+            >
+              NEURAL GRID
+            </motion.span>
             
-            {/* Feature 5 */}
-            <Card className="glass-card relative overflow-hidden group border-isimbi-purple/10">
-              <CardHeader className="relative z-10">
-                <div className="mb-4 text-isimbi-bright-blue p-2 rounded-md bg-isimbi-bright-blue/10 w-fit">
-                  <Network size={24} />
-                </div>
-                <CardTitle className="text-xl font-semibold text-white">Network Traffic Analysis</CardTitle>
-              </CardHeader>
-              <CardContent className="relative z-10">
-                <p className="text-gray-300 text-sm">
-                  Deep packet inspection and traffic pattern analysis to identify suspicious network activity.
-                </p>
-                <ul className="mt-4 space-y-2">
-                  <li className="flex items-center text-sm text-gray-300">
-                    <div className="mr-2 w-1.5 h-1.5 bg-isimbi-bright-blue rounded-full"></div>
-                    Protocol anomaly detection
-                  </li>
-                  <li className="flex items-center text-sm text-gray-300">
-                    <div className="mr-2 w-1.5 h-1.5 bg-isimbi-bright-blue rounded-full"></div>
-                    Encrypted traffic analysis
-                  </li>
-                </ul>
-              </CardContent>
-              <CardFooter>
-                <Button variant="ghost" className="group p-0 h-auto text-isimbi-bright-blue hover:text-isimbi-bright-blue/80">
-                  <span>Learn more</span>
-                  <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
-                </Button>
-              </CardFooter>
-              <div className="absolute -bottom-10 -right-10 w-32 h-32 bg-isimbi-purple/10 rounded-full blur-2xl transition-all group-hover:w-40 group-hover:h-40 group-hover:bg-isimbi-purple/15"></div>
-            </Card>
-            
-            {/* Feature 6 */}
-            <Card className="glass-card relative overflow-hidden group border-isimbi-purple/10">
-              <CardHeader className="relative z-10">
-                <div className="mb-4 text-isimbi-bright-blue p-2 rounded-md bg-isimbi-bright-blue/10 w-fit">
-                  <AlertTriangle size={24} />
-                </div>
-                <CardTitle className="text-xl font-semibold text-white">Incident Response</CardTitle>
-              </CardHeader>
-              <CardContent className="relative z-10">
-                <p className="text-gray-300 text-sm">
-                  Automated and guided incident response workflows to minimize breach impact and recovery time.
-                </p>
-                <ul className="mt-4 space-y-2">
-                  <li className="flex items-center text-sm text-gray-300">
-                    <div className="mr-2 w-1.5 h-1.5 bg-isimbi-bright-blue rounded-full"></div>
-                    Automated containment
-                  </li>
-                  <li className="flex items-center text-sm text-gray-300">
-                    <div className="mr-2 w-1.5 h-1.5 bg-isimbi-bright-blue rounded-full"></div>
-                    Forensic analysis tools
-                  </li>
-                </ul>
-              </CardContent>
-              <CardFooter>
-                <Button variant="ghost" className="group p-0 h-auto text-isimbi-bright-blue hover:text-isimbi-bright-blue/80">
-                  <span>Learn more</span>
-                  <ArrowRight size={16} className="ml-2 group-hover:translate-x-1 transition-transform" />
-                </Button>
-              </CardFooter>
-              <div className="absolute -bottom-10 -right-10 w-32 h-32 bg-isimbi-purple/10 rounded-full blur-2xl transition-all group-hover:w-40 group-hover:h-40 group-hover:bg-isimbi-purple/15"></div>
-            </Card>
+            {/* Glitch overlay */}
+            <motion.div
+              className="absolute inset-0 bg-gradient-to-r from-red-500/20 to-cyan-500/20"
+              animate={{ opacity: [0, 0.3, 0] }}
+              transition={{ duration: 0.1, repeat: Infinity, repeatDelay: 2 }}
+            />
+          </h1>
+        </motion.div>
+
+        {/* Live Scan Progress */}
+        <motion.div
+          initial={{ opacity: 0, width: 0 }}
+          animate={{ opacity: 1, width: '100%' }}
+          transition={{ delay: 1 }}
+          className="w-full max-w-4xl mb-8"
+        >
+          <div className="flex justify-between text-xs mb-2">
+            <span className="text-cyan-400">GLOBAL THREAT SCAN PROGRESS</span>
+            <span className="text-green-400">{Math.floor(scanProgress)}%</span>
           </div>
-        </div>
-      </section>
-      
-      {/* About Section */}
-      <section id="about" className="py-24 bg-isimbi-navy relative overflow-hidden">
-        <div className="container mx-auto px-4 relative z-10">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            <div>
-              <Badge variant="outline" className="mb-4 px-3 py-1 text-isimbi-purple border-isimbi-purple/30">
-                About Us
-              </Badge>
-              <h2 className="text-3xl md:text-4xl font-bold text-white mb-6">Protecting Enterprises in the Digital Age</h2>
-              <p className="text-gray-300 mb-6">
-                eCyber was founded by cybersecurity experts with over 50 years of combined experience protecting critical infrastructure and Fortune 500 companies.
-              </p>
-              <p className="text-gray-300 mb-6">
-                Our mission is to make advanced cybersecurity accessible, intuitive, and effective for organizations of all sizes, combining cutting-edge AI with human expertise.
-              </p>
-              <div className="grid grid-cols-2 gap-4 mt-8">
-                <div className="glass-card p-4 text-center">
-                  <div className="text-3xl font-bold text-isimbi-bright-blue mb-1">500+</div>
-                  <div className="text-sm text-gray-300">Enterprise Clients</div>
+          <div className="w-full bg-gray-800 h-2 relative overflow-hidden">
+            <motion.div
+              className="h-full bg-gradient-to-r from-red-500 via-yellow-500 to-green-500"
+              style={{ width: `${scanProgress}%` }}
+              animate={{ 
+                boxShadow: ['0 0 10px rgba(34,211,238,0.5)', '0 0 30px rgba(239,68,68,0.8)', '0 0 10px rgba(34,211,238,0.5)']
+              }}
+              transition={{ duration: 1, repeat: Infinity }}
+            />
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse" />
+          </div>
+        </motion.div>
+
+        {/* Terminal Output */}
+        <motion.div
+          initial={{ opacity: 0, y: 50 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.8 }}
+          className="mb-8 w-full max-w-6xl"
+        >
+          <div className="text-lg text-cyan-300 h-12 flex items-center justify-center">
+            <Terminal className="mr-3 text-green-400 animate-pulse" size={24} />
+            <span className="text-center">{text}</span>
+            <span className="animate-pulse text-red-400 ml-2 text-2xl">█</span>
+          </div>
+        </motion.div>
+
+        {/* Active Threats */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 1.2 }}
+          className="mb-8 w-full max-w-6xl"
+        >
+          <div className="text-red-400 text-xl font-bold mb-4 flex items-center justify-center">
+            <AlertTriangle className="mr-2 animate-pulse" />
+            LIVE THREAT FEED
+            <AlertTriangle className="ml-2 animate-pulse" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {activeThreats.map((threat) => (
+              <motion.div
+                key={threat.id}
+                initial={{ opacity: 0, x: -100 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 100 }}
+                className={`bg-black/60 backdrop-blur-md border-l-4 p-4 ${
+                  threat.severity === 'CRITICAL' 
+                    ? 'border-red-500 bg-red-900/20' 
+                    : threat.severity === 'HIGH'
+                    ? 'border-orange-500 bg-orange-900/20'
+                    : 'border-yellow-500 bg-yellow-900/20'
+                }`}
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className={`text-sm font-bold ${
+                      threat.severity === 'CRITICAL' ? 'text-red-400' : 
+                      threat.severity === 'HIGH' ? 'text-orange-400' : 'text-yellow-400'
+                    }`}>
+                      {threat.severity} - {threat.type}
+                    </div>
+                    <div className="text-xs text-cyan-300">Origin: {threat.country}</div>
+                    <div className="text-xs text-gray-400">IP: {threat.ip}</div>
+                  </div>
+                  <Skull className={`${
+                    threat.severity === 'CRITICAL' ? 'text-red-400' : 
+                    threat.severity === 'HIGH' ? 'text-orange-400' : 'text-yellow-400'
+                  } animate-pulse`} size={20} />
                 </div>
-                <div className="glass-card p-4 text-center">
-                  <div className="text-3xl font-bold text-isimbi-bright-blue mb-1">99.9%</div>
-                  <div className="text-sm text-gray-300">Threat Detection</div>
-                </div>
-                <div className="glass-card p-4 text-center">
-                  <div className="text-3xl font-bold text-isimbi-bright-blue mb-1">24/7</div>
-                  <div className="text-sm text-gray-300">Security Operations</div>
-                </div>
-                <div className="glass-card p-4 text-center">
-                  <div className="text-3xl font-bold text-isimbi-bright-blue mb-1">15M+</div>
-                  <div className="text-sm text-gray-300">Threats Blocked</div>
-                </div>
-              </div>
-            </div>
-            <div className="relative">
-              <div className="glass-card p-8 border border-isimbi-purple/20 relative z-10">
-                <h3 className="text-xl font-semibold text-white mb-4">How eCyber Differs</h3>
-                <ul className="space-y-4">
-                  <li className="flex">
-                    <div className="mr-4 h-6 w-6 rounded-full bg-isimbi-bright-blue/20 flex items-center justify-center">
-                      <Check className="h-4 w-4 text-isimbi-bright-blue" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-white">AI-First Approach</p>
-                      <p className="text-sm text-gray-300">Our solutions are built on advanced neural networks that learn and adapt to your environment.</p>
-                    </div>
-                  </li>
-                  <li className="flex">
-                    <div className="mr-4 h-6 w-6 rounded-full bg-isimbi-bright-blue/20 flex items-center justify-center">
-                      <Check className="h-4 w-4 text-isimbi-bright-blue" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-white">Behavioral Analysis</p>
-                      <p className="text-sm text-gray-300">We analyze patterns and behaviors, not just signatures, to catch zero-day threats.</p>
-                    </div>
-                  </li>
-                  <li className="flex">
-                    <div className="mr-4 h-6 w-6 rounded-full bg-isimbi-bright-blue/20 flex items-center justify-center">
-                      <Check className="h-4 w-4 text-isimbi-bright-blue" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-white">Seamless Integration</p>
-                      <p className="text-sm text-gray-300">Works with your existing security stack without disrupting operations.</p>
-                    </div>
-                  </li>
-                  <li className="flex">
-                    <div className="mr-4 h-6 w-6 rounded-full bg-isimbi-bright-blue/20 flex items-center justify-center">
-                      <Check className="h-4 w-4 text-isimbi-bright-blue" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-white">Expert Support</p>
-                      <p className="text-sm text-gray-300">24/7 access to our security operations team for guided incident response.</p>
-                    </div>
-                  </li>
-                </ul>
-              </div>
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
+
+        {/* Stats Grid - Enhanced */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 1.4 }}
+          className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-12 w-full max-w-7xl"
+        >
+          {stats.map((stat, i) => (
+            <motion.div
+              key={stat.label}
+              initial={{ opacity: 0, y: 50 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 1.6 + i * 0.1 }}
+              whileHover={{ 
+                scale: 1.1, 
+                boxShadow: '0 0 50px rgba(34,211,238,0.5)',
+                borderColor: 'rgb(239,68,68)',
+                rotateY: 10
+              }}
+              className="bg-black/60 backdrop-blur-xl border border-cyan-500/30 p-6 text-center hover:border-red-400 transition-all duration-300 relative overflow-hidden group"
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
+              >
+                <stat.icon className={`mx-auto mb-3 ${stat.color} drop-shadow-lg`} size={28} />
+              </motion.div>
+              <div className="text-3xl font-bold text-white mb-2 relative z-10">{stat.value}</div>
+              <div className="text-xs text-cyan-300 tracking-widest relative z-10">{stat.label}</div>
               
-              {/* Decorative elements */}
-              <div className="absolute top-1/2 -right-6 transform -translate-y-1/2 w-12 h-12 bg-isimbi-purple/30 rounded-full blur-xl"></div>
-              <div className="absolute -bottom-6 left-1/3 w-16 h-16 bg-isimbi-bright-blue/20 rounded-full blur-xl"></div>
-            </div>
-          </div>
-        </div>
-        
-        {/* Background decorative elements */}
-        <div className="absolute top-20 left-0 w-72 h-72 bg-isimbi-purple/5 rounded-full blur-3xl"></div>
-        <div className="absolute bottom-20 right-0 w-80 h-80 bg-isimbi-bright-blue/5 rounded-full blur-3xl"></div>
-      </section>
+              {/* Animated border */}
+              <div className="absolute inset-0 border-2 border-transparent group-hover:border-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+            </motion.div>
+          ))}
+        </motion.div>
 
-      {/* Security Section */}
-      <section id="security" className="py-24 bg-gradient-to-b from-isimbi-navy to-isimbi-dark-charcoal">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-16">
-            <Badge variant="outline" className="mb-4 px-3 py-1 text-isimbi-bright-blue border-isimbi-bright-blue/30">
-              Security
-            </Badge>
-            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">Multi-Layered Defense Strategy</h2>
-            <p className="text-gray-300 max-w-2xl mx-auto">
-              Our platform implements defense-in-depth with multiple security layers working together to protect your assets.
-            </p>
+        {/* Action Buttons */}
+        <motion.div
+          initial={{ opacity: 0, y: 50 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 2 }}
+          className="flex flex-col sm:flex-row gap-8 mb-12"
+        >
+          <motion.div
+            whileHover={{ 
+              scale: 1.2, 
+              boxShadow: '0 0 80px rgba(239,68,68,1)',
+              rotateX: 5
+            }}
+            whileTap={{ scale: 0.9 }}
+          >
+            <button className="px-16 py-6 bg-gradient-to-r from-red-600 via-red-500 to-orange-500 text-white font-bold text-xl hover:from-red-500 hover:to-orange-400 transition-all duration-300 shadow-[0_0_50px_rgba(239,68,68,0.8)] tracking-[0.2em] relative overflow-hidden group">
+              <span className="relative z-10">INITIATE CYBER WARFARE</span>
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
+            </button>
+          </motion.div>
+          <motion.button
+            whileHover={{ 
+              scale: 1.2, 
+              boxShadow: '0 0 80px rgba(34,211,238,1)',
+              rotateX: -5
+            }}
+            whileTap={{ scale: 0.9 }}
+            className="px-16 py-6 border-4 border-cyan-400 text-cyan-400 font-bold text-xl hover:bg-cyan-400/20 transition-all duration-300 tracking-[0.2em] relative overflow-hidden group"
+          >
+            <span className="relative z-10">NEURAL NETWORK DEMO</span>
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-400/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
+          </motion.button>
+        </motion.div>
+
+        {/* Enhanced Terminal Window */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 2.5 }}
+          className="w-full max-w-7xl bg-black/90 backdrop-blur-xl border-2 border-green-500/50 shadow-[0_0_100px_rgba(34,211,238,0.5)] overflow-hidden relative"
+        >
+          {/* Enhanced Terminal Header */}
+          <div className="flex items-center justify-between px-8 py-4 bg-gradient-to-r from-gray-900 via-black to-red-900/50 border-b-2 border-green-500/30 relative">
+            <div className="flex items-center space-x-4">
+              <div className="flex space-x-3">
+                <motion.div 
+                  className="w-4 h-4 bg-red-500 rounded-full"
+                  animate={{ scale: [1, 1.5, 1], opacity: [1, 0.5, 1] }}
+                  transition={{ duration: 1, repeat: Infinity }}
+                />
+                <motion.div 
+                  className="w-4 h-4 bg-yellow-500 rounded-full"
+                  animate={{ scale: [1, 1.5, 1], opacity: [1, 0.5, 1] }}
+                  transition={{ duration: 1, repeat: Infinity, delay: 0.3 }}
+                />
+                <motion.div 
+                  className="w-4 h-4 bg-green-500 rounded-full"
+                  animate={{ scale: [1, 1.5, 1], opacity: [1, 0.5, 1] }}
+                  transition={{ duration: 1, repeat: Infinity, delay: 0.6 }}
+                />
+              </div>
+              <span className="text-green-400 font-mono text-lg font-bold tracking-wider">QUANTUM-THREAT-ANALYZER-v9.7.3</span>
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+              >
+                <Cpu className="text-cyan-400" size={20} />
+              </motion.div>
+            </div>
+            <div className="flex items-center space-x-6 text-sm">
+              <span className="text-red-400 font-bold">CPU: 98.7%</span>
+              <span className="text-yellow-400 font-bold">RAM: 47.2GB</span>
+              <span className="text-cyan-400 font-bold">NET: 10.4 Gbps</span>
+              <span className="text-purple-400 font-bold">GPU: 99.1%</span>
+              <motion.div
+                animate={{ opacity: [1, 0.3, 1] }}
+                transition={{ duration: 0.5, repeat: Infinity }}
+                className="flex items-center space-x-1"
+              >
+                <div className="w-3 h-3 bg-green-400 rounded-full"></div>
+                <span className="text-green-400 font-bold">OPERATIONAL</span>
+              </motion.div>
+            </div>
+            
+            {/* Scanning line effect */}
+            <motion.div
+              className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-cyan-400 to-red-500"
+              animate={{ width: ['0%', '100%', '0%'] }}
+              transition={{ duration: 3, repeat: Infinity }}
+            />
           </div>
           
-          <div className="relative mx-auto max-w-4xl">
-            {/* Layered security visualization */}
-            <div className="relative h-96 flex items-center justify-center">
-              {/* Outer ring */}
-              <div className="absolute w-[500px] h-[500px] border border-dashed border-isimbi-purple/20 rounded-full flex items-center justify-center animate-slow-spin">
-                <div className="absolute -top-3 transform -translate-x-1/2 bg-isimbi-dark-charcoal px-3 py-1 text-isimbi-purple text-sm">
-                  Network Perimeter
-                </div>
-                <div className="absolute top-1/4 right-0 transform translate-x-1/2 bg-isimbi-dark-charcoal px-3 py-1 text-isimbi-purple text-sm">
-                  Firewall
-                </div>
-                <div className="absolute -bottom-3 transform -translate-x-1/2 bg-isimbi-dark-charcoal px-3 py-1 text-isimbi-purple text-sm">
-                  Intrusion Prevention
-                </div>
-                <div className="absolute top-1/4 left-0 transform -translate-x-1/2 bg-isimbi-dark-charcoal px-3 py-1 text-isimbi-purple text-sm">
-                  Traffic Filtering
-                </div>
-              </div>
-              
-              {/* Middle ring */}
-              <div className="absolute w-[350px] h-[350px] border border-dashed border-isimbi-bright-blue/30 rounded-full flex items-center justify-center animate-slow-spin-reverse">
-                <div className="absolute -top-3 transform -translate-x-1/2 bg-isimbi-dark-charcoal px-3 py-1 text-isimbi-bright-blue text-sm">
-                  Network Monitoring
-                </div>
-                <div className="absolute top-1/4 right-0 transform translate-x-1/2 bg-isimbi-dark-charcoal px-3 py-1 text-isimbi-bright-blue text-sm">
-                  Behavioral Analysis
-                </div>
-                <div className="absolute -bottom-3 transform -translate-x-1/2 bg-isimbi-dark-charcoal px-3 py-1 text-isimbi-bright-blue text-sm">
-                  Threat Intelligence
-                </div>
-                <div className="absolute top-1/4 left-0 transform -translate-x-1/2 bg-isimbi-dark-charcoal px-3 py-1 text-isimbi-bright-blue text-sm">
-                  Access Control
-                </div>
-              </div>
-              
-              {/* Inner ring */}
-              <div className="absolute w-[200px] h-[200px] border border-dashed border-white/30 rounded-full flex items-center justify-center">
-                <div className="absolute -top-3 transform -translate-x-1/2 bg-isimbi-dark-charcoal px-3 py-1 text-white text-sm">
-                  Data Protection
-                </div>
-                <div className="absolute top-1/4 right-0 transform translate-x-1/2 bg-isimbi-dark-charcoal px-3 py-1 text-white text-sm">
-                  Encryption
-                </div>
-                <div className="absolute -bottom-3 transform -translate-x-1/2 bg-isimbi-dark-charcoal px-3 py-1 text-white text-sm">
-                  Authentication
-                </div>
-                <div className="absolute top-1/4 left-0 transform -translate-x-1/2 bg-isimbi-dark-charcoal px-3 py-1 text-white text-sm">
-                  Backup
-                </div>
-              </div>
-              
-              {/* Core */}
-              <div className="absolute w-24 h-24 rounded-full bg-gradient-to-r from-isimbi-purple to-isimbi-bright-blue flex items-center justify-center">
-                <Shield className="h-8 w-8 text-white" />
-              </div>
-              
-              {/* Attack simulation - moving dots */}
-              {[...Array(5)].map((_, i) => (
-                <motion.div
-                  key={i}
-                  className="absolute w-3 h-3 rounded-full bg-red-500"
-                  initial={{ 
-                    x: 300 * Math.cos(i * Math.PI / 2.5),
-                    y: 300 * Math.sin(i * Math.PI / 2.5),
-                    opacity: 1,
-                    scale: 1
-                  }}
-                  animate={{ 
-                    x: 0,
-                    y: 0,
-                    opacity: 0,
-                    scale: 0.5
-                  }}
-                  transition={{ 
-                    repeat: Infinity,
-                    repeatType: 'loop',
-                    duration: 3 + i,
-                    repeatDelay: i * 2,
-                    ease: 'easeInOut'
-                  }}
-                />
-              ))}
-              
-              {/* Defense simulation - pulsing rings */}
-              <div className="absolute w-32 h-32 rounded-full border border-isimbi-purple/30 animate-ping" style={{ animationDuration: '3s' }}></div>
-              <div className="absolute w-32 h-32 rounded-full border border-isimbi-bright-blue/20 animate-ping" style={{ animationDuration: '4s', animationDelay: '1s' }}></div>
-            </div>
-          </div>
-        </div>
-      </section>
-      
-      {/* CTA Section */}
-      <section className="py-24 bg-isimbi-navy relative overflow-hidden">
-        <div className="container mx-auto px-4 relative z-10">
-          <div className="max-w-3xl mx-auto text-center">
-            <Badge variant="outline" className="mb-6 px-3 py-1 text-isimbi-purple border-isimbi-purple/30 inline-block">
-              Get Started
-            </Badge>
-            <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">Ready to Strengthen Your Security Posture?</h2>
-            <p className="text-xl text-gray-300 mb-10">
-              Join industry leaders who trust eCyber for their most critical security operations.
-            </p>
-            <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4">
-              <Link to="/dashboard">
-                <Button size="lg" className="bg-isimbi-purple hover:bg-isimbi-purple/90 text-white px-8 shadow-lg shadow-isimbi-purple/20">
-                  Experience the Dashboard
-                </Button>
-              </Link>
-              <Button variant="outline" size="lg" className="border-gray-600 text-white hover:bg-white/5">
-                Schedule Demo
-              </Button>
+          {/* Enhanced Terminal Content */}
+          <div className="p-8 text-left text-sm h-96 overflow-y-auto space-y-2 font-mono relative">
+            {/* Background scanning effect */}
+            <div className="absolute inset-0 opacity-5">
+              <motion.div
+                className="w-full h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent"
+                animate={{ y: [0, 384, 0] }}
+                transition={{ duration: 4, repeat: Infinity, ease: 'linear' }}
+              />
             </div>
             
-            <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="glass-card p-6 text-center">
-                <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-full bg-isimbi-purple/10">
-                  <Monitor className="h-6 w-6 text-isimbi-purple" />
-                </div>
-                <h3 className="text-lg font-semibold text-white">Live Demo</h3>
-                <p className="text-gray-300 text-sm mt-2">
-                  See eCyber in action with a personalized demo for your team
-                </p>
-              </div>
-              
-              <div className="glass-card p-6 text-center">
-                <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-full bg-isimbi-purple/10">
-                  <Shield className="h-6 w-6 text-isimbi-purple" />
-                </div>
-                <h3 className="text-lg font-semibold text-white">Free Assessment</h3>
-                <p className="text-gray-300 text-sm mt-2">
-                  Get a complimentary security assessment for your organization
-                </p>
-              </div>
-              
-              <div className="glass-card p-6 text-center">
-                <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-full bg-isimbi-purple/10">
-                  <Activity className="h-6 w-6 text-isimbi-purple" />
-                </div>
-                <h3 className="text-lg font-semibold text-white">Technical Support</h3>
-                <p className="text-gray-300 text-sm mt-2">
-                  24/7 expert support for all your security questions
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        {/* Background decorative elements */}
-        <div className="absolute top-0 left-0 w-full h-full">
-          <div className="absolute top-10 left-10 w-72 h-72 bg-isimbi-purple/5 rounded-full blur-3xl"></div>
-          <div className="absolute bottom-10 right-10 w-80 h-80 bg-isimbi-bright-blue/5 rounded-full blur-3xl"></div>
-        </div>
-      </section>
-      
-      {/* Contact Section */}
-      <section id="contact" className="py-24 bg-isimbi-dark-charcoal">
-        <div className="container mx-auto px-4">
-          <div className="max-w-5xl mx-auto">
-            <div className="text-center mb-12">
-              <Badge variant="outline" className="mb-4 px-3 py-1 text-isimbi-bright-blue border-isimbi-bright-blue/30">
-                Contact Us
-              </Badge>
-              <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">Get in Touch</h2>
-              <p className="text-gray-300 max-w-2xl mx-auto">
-                Have questions or ready to enhance your cybersecurity? Our team of experts is here to help.
-              </p>
-            </div>
-            
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-              <div className="lg:col-span-2 space-y-6">
-                <div className="glass-card p-6">
-                  <h3 className="text-lg font-semibold text-white mb-4">Contact Information</h3>
-                  <div className="space-y-4">
-                    <div className="flex items-start">
-                      <div className="mr-3 mt-1">
-                        <Globe className="h-5 w-5 text-isimbi-purple" />
-                      </div>
-                      <div>
-                        <p className="text-white font-medium">Global Headquarters</p>
-                        <p className="text-gray-300 text-sm">Kigali Down Town KK. 376 <br /></p>
-                      </div>
-                    </div>
-                    <div className="flex items-start">
-                      <div className="mr-3 mt-1">
-                        <Network className="h-5 w-5 text-isimbi-purple" />
-                      </div>
-                      <div>
-                        <p className="text-white font-medium">International Offices</p>
-                        <p className="text-gray-300 text-sm">London • Singapore • Sydney • Tokyo</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start">
-                      <div className="mr-3 mt-1">
-                        <Shield className="h-5 w-5 text-isimbi-purple" />
-                      </div>
-                      <div>
-                        <p className="text-white font-medium">Security Operations</p>
-                        <p className="text-gray-300 text-sm">24/7 Support: +250 782484464-eCyber</p>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="mt-6 pt-6 border-t border-gray-700">
-                    <h4 className="text-white font-medium mb-3">Follow Us</h4>
-                    <div className="flex space-x-4">
-                      <div className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors">
-                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" className="text-white"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path></svg>
-                      </div>
-                      <div className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors">
-                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" className="text-white"><path d="M23 3a10.9 10.9 0 0 1-3.14 1.53 4.48 4.48 0 0 0-7.86 3v1A10.66 10.66 0 0 1 3 4s-4 9 5 13a11.64 11.64 0 0 1-7 2c9 5 20 0 20-11.5a4.5 4.5 0 0 0-.08-.83A7.72 7.72 0 0 0 23 3z"></path></svg>
-                      </div>
-                      <div className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors">
-                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" className="text-white"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
-                      </div>
-                      <div className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors">
-                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" className="text-white"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path><rect x="2" y="9" width="4" height="12"></rect><circle cx="4" cy="4" r="2"></circle></svg>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="lg:col-span-3">
-                <div className="glass-card p-6">
-                  <h3 className="text-lg font-semibold text-white mb-4">Send Us a Message</h3>
-                  <form className="space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-1">Your Name</label>
-                        <input 
-                          type="text" 
-                          className="w-full px-4 py-2 bg-white/5 border border-gray-700 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-isimbi-purple/50 focus:border-transparent" 
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-1">Email Address</label>
-                        <input 
-                          type="email" 
-                          className="w-full px-4 py-2 bg-white/5 border border-gray-700 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-isimbi-purple/50 focus:border-transparent" 
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-1">Company</label>
-                      <input 
-                        type="text" 
-                        className="w-full px-4 py-2 bg-white/5 border border-gray-700 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-isimbi-purple/50 focus:border-transparent" 
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-1">Message</label>
-                      <textarea 
-                        rows={4} 
-                        className="w-full px-4 py-2 bg-white/5 border border-gray-700 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-isimbi-purple/50 focus:border-transparent" 
-                      ></textarea>
-                    </div>
-                    <div>
-                      <Button className="w-full bg-isimbi-purple hover:bg-isimbi-purple/90 text-white">
-                        Submit Message
-                      </Button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="bg-isimbi-dark-charcoal py-10 border-t border-white/10">
-        <div className="container mx-auto px-4">
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-            <div className="md:col-span-3">
-              <div className="flex items-center mb-4">
-                <div className="h-10 w-10 rounded-md bg-isimbi-purple flex items-center justify-center">
-                  <Shield className="h-6 w-6 text-white" />
-                </div>
-                <span className="text-2xl font-bold text-white ml-2 tracking-wider">eCyber</span>
-              </div>
-              <p className="text-sm text-gray-400">
-                Advanced cybersecurity solutions for modern enterprises, combining AI, machine learning, and expert systems for superior protection.
-              </p>
-            </div>
-            
-            <div className="md:col-span-2">
-              <h3 className="font-semibold text-white mb-4">Products</h3>
-              <ul className="space-y-2 text-sm">
-                <li><a href="#" className="text-gray-400 hover:text-isimbi-purple">eCyber</a></li>
-                <li><a href="#" className="text-gray-400 hover:text-isimbi-purple">Network Guardian</a></li>
-                <li><a href="#" className="text-gray-400 hover:text-isimbi-purple">Endpoint Shield</a></li>
-                <li><a href="#" className="text-gray-400 hover:text-isimbi-purple">Cloud Protector</a></li>
-                <li><a href="#" className="text-gray-400 hover:text-isimbi-purple">Threat Intelligence</a></li>
-              </ul>
-            </div>
-            
-            <div className="md:col-span-2">
-              <h3 className="font-semibold text-white mb-4">Resources</h3>
-              <ul className="space-y-2 text-sm">
-                <li><a href="#" className="text-gray-400 hover:text-isimbi-purple">Documentation</a></li>
-                <li><a href="#" className="text-gray-400 hover:text-isimbi-purple">API Reference</a></li>
-                <li><a href="#" className="text-gray-400 hover:text-isimbi-purple">Blog</a></li>
-                <li><a href="#" className="text-gray-400 hover:text-isimbi-purple">Case Studies</a></li>
-                <li><a href="#" className="text-gray-400 hover:text-isimbi-purple">Resource Library</a></li>
-              </ul>
-            </div>
-            
-            <div className="md:col-span-2">
-              <h3 className="font-semibold text-white mb-4">Company</h3>
-              <ul className="space-y-2 text-sm">
-                <li><a href="#" className="text-gray-400 hover:text-isimbi-purple">About Us</a></li>
-                <li><a href="#" className="text-gray-400 hover:text-isimbi-purple">Careers</a></li>
-                <li><a href="#" className="text-gray-400 hover:text-isimbi-purple">Partners</a></li>
-                <li><a href="#" className="text-gray-400 hover:text-isimbi-purple">Press</a></li>
-                <li><a href="#" className="text-gray-400 hover:text-isimbi-purple">Contact</a></li>
-              </ul>
-            </div>
-            
-            <div className="md:col-span-3">
-              <h3 className="font-semibold text-white mb-4">Stay Updated</h3>
-              <p className="text-sm text-gray-400 mb-4">
-                Subscribe to our newsletter for security alerts and updates.
-              </p>
-              <div className="flex">
-                <input 
-                  type="email" 
-                  placeholder="Your email" 
-                  className="bg-white/5 border border-gray-700 px-3 py-2 rounded-l-md text-white text-sm flex-1 focus:outline-none focus:ring-1 focus:ring-isimbi-purple"
-                />
-                <button className="bg-isimbi-purple hover:bg-isimbi-purple/90 px-3 py-2 text-white rounded-r-md">
-                  Subscribe
-                </button>
-              </div>
-              <p className="text-xs text-gray-500 mt-2">
-                We respect your privacy. Unsubscribe at any time.
-              </p>
-            </div>
+            <motion.p initial={{opacity: 0}} animate={{opacity: 1}} transition={{delay: 2.7}} className="text-cyan-400 font-bold">
+              [QUANTUM] █████████████████████████ 100% Neural network initialized...
+            </motion.p>
+            <motion.p initial={{opacity: 0}} animate={{opacity: 1}} transition={{delay: 2.9}} className="text-green-400">
+              [AI-CORE] Advanced ML model loaded: quantum-threat-neural-net-v9.7
+            </motion.p>
+            <motion.p initial={{opacity: 0}} animate={{opacity: 1}} transition={{delay: 3.1}} className="text-blue-400">
+              [GLOBAL] Monitoring 847,291 endpoints across 195 countries in real-time
+            </motion.p>
+            <motion.p initial={{opacity: 0}} animate={{opacity: 1}} transition={{delay: 3.3}} className="text-purple-400">
+              [INTEL] Real-time threat intelligence pipeline: MAXIMUM OVERDRIVE
+            </motion.p>
+            <motion.p initial={{opacity: 0}} animate={{opacity: 1}} transition={{delay: 3.5}} className="text-green-400">
+              [DEFENSE] Zero-day exploit detection: QUANTUM-ENABLED
+            </motion.p>
+            <motion.p initial={{opacity: 0}} animate={{opacity: 1}} transition={{delay: 3.7}} className="text-red-400 animate-pulse font-bold">
+              [CRITICAL] 247 APT attacks detected and neutralized in last 60 seconds
+            </motion.p>
+            <motion.p initial={{opacity: 0}} animate={{opacity: 1}} transition={{delay: 3.9}} className="text-yellow-400 animate-pulse">
+              [WARNING] Lazarus Group attempting blockchain infiltration - BLOCKED
+            </motion.p>
+            <motion.p initial={{opacity: 0}} animate={{opacity: 1}} transition={{delay: 4.1}} className="text-green-400">
+              [SUCCESS] Quantum signature database synced (2,847,291 signatures)
+            </motion.p>
+            <motion.p initial={{opacity: 0}} animate={{opacity: 1}} transition={{delay: 4.3}} className="text-cyan-400">
+              [BLOCKCHAIN] Quantum-encrypted verification: AUTHENTICATED
+            </motion.p>
+            <motion.p initial={{opacity: 0}} animate={{opacity: 1}} transition={{delay: 4.5}} className="text-orange-400 animate-pulse">
+              [ALERT] Maze ransomware variant detected - Auto-countermeasures deployed
+            </motion.p>
+            <motion.p initial={{opacity: 0}} animate={{opacity: 1}} transition={{delay: 4.7}} className="text-purple-400">
+              [NEURAL] Deep learning threat prediction accuracy: 99.97%
+            </motion.p>
+            <motion.p initial={{opacity: 0}} animate={{opacity: 1}} transition={{delay: 4.9}} className="text-green-400">
+              [STATUS] All quantum defense grids operational - DEFCON 2 ACTIVE
+            </motion.p>
+            <motion.p initial={{opacity: 0}} animate={{opacity: 1}} transition={{delay: 5.1}} className="text-red-400 animate-pulse font-bold">
+              [BREAKING] Nation-state actor detected - Initiating quantum counterstrike...
+            </motion.p>
+            <motion.p initial={{opacity: 0}} animate={{opacity: 1}} transition={{delay: 5.3}} className="text-cyan-400">
+              [SYSTEM] Threat response time: 0.0003 milliseconds - NEW RECORD
+            </motion.p>
+            <motion.p initial={{opacity: 0}} animate={{opacity: 1}} transition={{delay: 5.5}} className="text-green-400 font-bold">
+              [VICTORY] All hostile activities neutralized - Network secured
+            </motion.p>
           </div>
           
-          <div className="pt-8 mt-8 border-t border-gray-800 flex flex-col md:flex-row justify-between items-center">
-            <div className="text-sm text-gray-500 mb-4 md:mb-0">
-              &copy; {new Date().getFullYear()} eCyber Security. All rights reserved.
-            </div>
-            <div className="flex space-x-6">
-              <a href="#" className="text-gray-400 hover:text-isimbi-purple text-sm">Privacy Policy</a>
-              <a href="#" className="text-gray-400 hover:text-isimbi-purple text-sm">Terms of Service</a>
-              <a href="#" className="text-gray-400 hover:text-isimbi-purple text-sm">Cookie Policy</a>
+          {/* Terminal scan line */}
+          <motion.div
+            className="absolute bottom-0 left-0 w-full h-0.5 bg-gradient-to-r from-cyan-400 via-green-400 to-red-400"
+            animate={{ 
+              boxShadow: ['0 0 10px rgba(34,211,238,0.5)', '0 0 30px rgba(34,211,238,1)', '0 0 10px rgba(34,211,238,0.5)']
+            }}
+            transition={{ duration: 1, repeat: Infinity }}
+          />
+        </motion.div>
+      </main>
+
+      {/* Enhanced Floating Particles and Effects */}
+      <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 5 }}>
+        {[...Array(50)].map((_, i) => (
+          <motion.div
+            key={i}
+            className="absolute w-2 h-2 rounded-full"
+            style={{
+              left: `${Math.random() * 100}%`,
+              top: `${Math.random() * 100}%`,
+              backgroundColor: ['#22d3ee', '#ef4444', '#a855f7', '#10b981'][Math.floor(Math.random() * 4)]
+            }}
+            animate={{
+              scale: [0, 2, 0],
+              opacity: [0, 1, 0],
+              rotate: [0, 360]
+            }}
+            transition={{
+              duration: 4,
+              repeat: Infinity,
+              delay: Math.random() * 4,
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Laser scanning effects */}
+      <motion.div
+        className="absolute inset-0 pointer-events-none"
+        style={{ zIndex: 4 }}
+      >
+        <motion.div
+          className="absolute w-full h-0.5 bg-gradient-to-r from-transparent via-red-500 to-transparent opacity-30"
+          animate={{ y: ['0vh', '100vh'] }}
+          transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
+        />
+        <motion.div
+          className="absolute h-full w-0.5 bg-gradient-to-b from-transparent via-cyan-500 to-transparent opacity-30"
+          animate={{ x: ['0vw', '100vw'] }}
+          transition={{ duration: 10, repeat: Infinity, ease: 'linear', delay: 2 }}
+        />
+      </motion.div>
+
+      {/* Enhanced Footer */}
+      <motion.footer
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 6 }}
+        className="relative z-30 mt-auto py-8 px-8 text-sm border-t-2 border-cyan-500/50 text-center backdrop-blur-xl bg-black/60"
+        style={{ boxShadow: '0 0 50px rgba(34,211,238,0.3)' }}
+      >
+        <div className="flex justify-between items-center">
+          <span className="text-cyan-400">
+            &copy; {new Date().getFullYear()} eCyber Security Operations Center. 
+            <span className="text-red-400 font-bold"> CLASSIFIED - TOP SECRET</span>
+          </span>
+          <div className="flex items-center space-x-6">
+            <motion.div
+              animate={{ scale: [1, 1.2, 1] }}
+              transition={{ duration: 2, repeat: Infinity }}
+              className="flex items-center space-x-2"
+            >
+              <span className="text-green-400 font-bold">QUANTUM ENCRYPTION ACTIVE</span>
+              <motion.div 
+                className="w-3 h-3 bg-green-400 rounded-full"
+                animate={{ opacity: [1, 0.3, 1] }}
+                transition={{ duration: 1, repeat: Infinity }}
+              />
+            </motion.div>
+            <div className="flex items-center space-x-2">
+              <span className="text-red-400 font-bold">THREAT LEVEL:</span>
+              <span className="text-red-400 font-bold animate-pulse">MAXIMUM</span>
             </div>
           </div>
         </div>
-      </footer>
-    </div>
+      </motion.footer>
+
+      {/* Custom Styles */}
+      <style jsx>{`
+        .bg-grid-pattern {
+          background-image: 
+            linear-gradient(rgba(34,211,238,0.2) 2px, transparent 2px),
+            linear-gradient(90deg, rgba(34,211,238,0.2) 2px, transparent 2px);
+          background-size: 60px 60px;
+        }
+        
+        .bg-circuit-pattern {
+          background-image: 
+            radial-gradient(circle at 25px 25px, rgba(34,211,238,0.3) 2px, transparent 2px),
+            radial-gradient(circle at 75px 75px, rgba(239,68,68,0.3) 2px, transparent 2px);
+          background-size: 100px 100px;
+        }
+        
+        @keyframes dataStream {
+          0% { transform: translateY(-100vh); opacity: 0; }
+          10% { opacity: 1; }
+          90% { opacity: 1; }
+          100% { transform: translateY(100vh); opacity: 0; }
+        }
+        
+        .animate-dataStream {
+          animation: dataStream 3s linear infinite;
+        }
+      `}</style>
+      </div>
+      <AuthModal/>
+      </>
   );
 };
 

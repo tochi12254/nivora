@@ -36,6 +36,7 @@ import { useDeepCompareEffect } from 'use-deep-compare';
 import AnomalyInsightsSection from '@/components/dashboard/AnomalyInsightsSection'; // Added import
 import HttpActivityView from '../components/dashboard/HttpActivityView'; // Import HTTP Log View
 import DnsActivityView from '../components/dashboard/DnsActivityView';   // Import DNS Log View
+import { UserList } from '@/components/dashboard/UserList'; // Import the new component
 
 // Mock data for activity stream - REMOVED
 
@@ -197,9 +198,9 @@ const Dashboard = () => {
     created_at: string; // ISO date string
     updated_at?: string | null; // ISO date string
   }
-  const [usersListData, setUsersListData] = useState<UserListData[]>([]);
-  const [isLoadingUsersList, setIsLoadingUsersList] = useState<boolean>(true);
-  const [errorUsersList, setErrorUsersList] = useState<string | null>(null);
+  // const [usersListData, setUsersListData] = useState<UserListData[]>([]); // Handled by UserList.tsx
+  // const [isLoadingUsersList, setIsLoadingUsersList] = useState<boolean>(true); // Handled by UserList.tsx
+  // const [errorUsersList, setErrorUsersList] = useState<string | null>(null); // Handled by UserList.tsx
 
   // State for API-fetched general settings
   interface GeneralSettingsData {
@@ -246,7 +247,7 @@ const Dashboard = () => {
       setIsLoadingApiEmergingThreats(true);
       setErrorApiEmergingThreats(null);
       try {
-        const response = await fetch('/api/v1/threat-intelligence/emerging-threats');
+        const response = await fetch('http://127.0.0.1:8000/api/v1/threat-intelligence/emerging-threats');
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -364,7 +365,7 @@ const Dashboard = () => {
         setIsLoadingUsersList(false);
       }
     };
-    fetchUsersList();
+    // fetchUsersList(); // Handled by UserList.tsx
 
     const fetchGeneralSettings = async () => {
       setIsLoadingGeneralSettings(true);
@@ -1116,46 +1117,8 @@ const Dashboard = () => {
                 <div className="glass-card p-6">
                   <h2 className="text-xl font-semibold mb-4">Access Control</h2>
                   <p className="mb-4">Manage users and permissions for system access.</p>
-                  <div className="border border-border rounded-lg bg-background/50 overflow-hidden">
-                    <div className="p-4 bg-muted text-sm font-medium border-b border-border">
-                      <div className="grid grid-cols-12 gap-4">
-                        <div className="col-span-3">User</div>
-                        <div className="col-span-3">Role</div>
-                        <div className="col-span-3">Last Login</div>
-                        <div className="col-span-3">Status</div>
-                      </div>
-                    </div>
-                    <div className="divide-y divide-border">
-                      {isLoadingUsersList && <div className="p-4 text-sm text-muted-foreground text-center">Loading users...</div>}
-                      {errorUsersList && <div className="p-4 text-sm text-red-500 text-center">Error: {errorUsersList}</div>}
-                      {!isLoadingUsersList && !errorUsersList && usersListData.length === 0 && (
-                        <div className="p-4 text-sm text-muted-foreground text-center">No users found.</div>
-                      )}
-                      {!isLoadingUsersList && !errorUsersList && usersListData.map((user) => (
-                        <div key={user.id} className="p-4 text-sm">
-                          <div className="grid grid-cols-12 gap-4 items-center">
-                            <div className="col-span-3">
-                              <div className="font-medium">{user.full_name || user.username}</div>
-                              <div className="text-xs text-muted-foreground">{user.email}</div>
-                            </div>
-                            <div className="col-span-3">
-                              {user.is_superuser ? "Administrator" : "Standard User"}
-                            </div>
-                            <div className="col-span-3 text-muted-foreground">
-                              {user.updated_at ? new Date(user.updated_at).toLocaleDateString() : (user.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A')}
-                            </div>
-                            <div className="col-span-3">
-                              <Badge variant="outline" className={cn(
-                                user.is_active ? "bg-green-500/10 text-green-500" : "bg-gray-500/10 text-gray-500"
-                              )}>
-                                {user.is_active ? "Active" : "Inactive"}
-                              </Badge>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                  {/* Replace existing user display logic with UserList component */}
+                  <UserList />
                 </div>
               </TabsContent>
 
