@@ -312,6 +312,7 @@ const Dashboard = () => {
       setErrorUserSummary(null);
       try {
         const response = await fetch('http://127.0.0.1:8000/api/v1/users');
+        // const response = await fetch('https://ecyber-backend.onrender.com/api/v1/users');
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }

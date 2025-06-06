@@ -49,7 +49,7 @@ const Threats = () => {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await fetch('http://127.0.0.1:8000/api/v1/threat-intelligence/emerging-threats');
+        const response = await fetch('https://ecyber-backend.onrender.com/api/v1/threat-intelligence/emerging-threats');
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }

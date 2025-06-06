@@ -239,6 +239,7 @@ export const useTelemetrySocket = () => {
 
     if (!socket) {
       // In a real app, this would connect to your server
+      // https://ecyber-backend.onrender.com
       socket = io("http://127.0.0.1:8000",{
         autoConnect: true,
         reconnection: true,

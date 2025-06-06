@@ -253,6 +253,7 @@ async def create_app() -> FastAPI:
             "http://127.0.0.1:3000",
             "http://localhost:4000",
             "http://127.0.0.1:4000",
+            "https://ecyber.vercel.app",
         ],
         allow_credentials=True,
         allow_methods=["*"],
@@ -363,7 +364,8 @@ if __name__ == "__main__":
     from hypercorn.config import Config
 
     config = Config()
-    config.bind = ["0.0.0.0:8000"]
+    config.bind = ["127.0.0.1:8000"]
+    # config.bind = ["0.0.0.0:8000"]
 
     # config.use_reloader = True
 

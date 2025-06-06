@@ -1,8 +1,7 @@
 
 import React from "react";
 import DataTable from "./DataTable";
-import { IPv6Activity } from "@/types";
-
+import { IPv6Activity } from "../types";
 interface IPv6ActivityTableProps {
   activities: IPv6Activity[];
   className?: string;

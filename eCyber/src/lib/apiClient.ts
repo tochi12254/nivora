@@ -5,7 +5,7 @@ import axios from 'axios';
 const isDevelopment = import.meta.env.DEV;
 
 // Backend URL when running in production/packaged mode
-const PROD_BACKEND_URL = 'http://127.0.0.1:8000';
+const PROD_BACKEND_URL = 'https://ecyber-backend.onrender.com';
 
 const apiClient = axios.create({
   baseURL: isDevelopment ? '/' : PROD_BACKEND_URL,

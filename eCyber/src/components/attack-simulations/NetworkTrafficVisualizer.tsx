@@ -379,6 +379,7 @@ const NetworkTrafficVisualizer = () => {
         async () => {
           try {
             const info = await axios.get("http://127.0.0.1:8000/api/system/interfaces");
+            // const info = await axios.get("https://ecyber-backend.onrender.com/api/system/interfaces");
             if (info.data) {
               dispatch(getNetworkInterfaces(info.data))
       

@@ -85,7 +85,7 @@ const Models = () => {
 
       // Original API fetching logic
       try {
-        const response = await axios.get("http://127.0.0.1:8000/api/v1/models/list");
+        const response = await axios.get("https://ecyber-backend.onrender.com/api/v1/models/list");
         const data: ModelData[] = response.data;
   
         // Save to Cache on Successful Fetch
