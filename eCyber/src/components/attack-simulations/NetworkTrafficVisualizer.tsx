@@ -354,7 +354,7 @@ const NetworkTrafficVisualizer = () => {
 
     if(snifferSocket){
       snifferSocket?.on("packet_summary", (data: any) => {
-        setPackets(prev => [...prev])
+        setPackets(prev => [...prev, data])
         console.log("Packet summary: ", data)
       })
     }

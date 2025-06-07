@@ -38,7 +38,7 @@ import usePacketSniffer from "./hooks/usePacketSnifferSocket";
 import RegisterPage from "./pages/Register";
 import CyberLoader from "./utils/Loader"
 import AuthModal from "./pages/AuthModal";
-import LoadingSpinner from "./utils/LoadingSpinner";
+// import LoadingSpinner from "./utils/LoadingSpinner";
 import { useSelector } from "react-redux"
 import { RootState } from "@/app/store"
 
