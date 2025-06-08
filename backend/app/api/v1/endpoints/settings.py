@@ -1,5 +1,8 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends # Added Depends
 from pydantic import BaseModel
+
+from ....core.security import get_current_active_user # Import auth dependency
+from ....models.user import User # Import User model
 
 router = APIRouter()
 
@@ -11,7 +14,7 @@ class GeneralSettings(BaseModel):
 
 
 @router.get("/general", response_model=GeneralSettings)
-async def get_general_settings():
+async def get_general_settings(current_user: User = Depends(get_current_active_user)):
     """
     Retrieve mock general system settings.
     """

@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..services.detection.signature import SignatureEngine
 from ..database import get_db
 from ..models.log import NetworkLog
+from ..models.user import User # Import User model
+from ..core.security import get_current_active_user # Import auth dependency
 
 router = APIRouter()
 signature_engine = SignatureEngine()
@@ -19,6 +21,7 @@ async def get_threats(
     limit: int = 100,
     severity: str = None,
     time_range: str = "24h",
+    current_user: User = Depends(get_current_active_user)
 ):
     """Get detected threats with filtering options"""
     # Calculate time filter
@@ -65,13 +68,13 @@ async def get_threats(
 
 
 @router.get("/rules", response_model=List[Dict])
-async def get_signature_rules():
+async def get_signature_rules(current_user: User = Depends(get_current_active_user)):
     """Get all signature-based detection rules"""
     return signature_engine.get_rules()
 
 
 @router.post("/rules")
-async def add_signature_rule(rule: Dict):
+async def add_signature_rule(rule: Dict, current_user: User = Depends(get_current_active_user)):
     """Add a new signature rule"""
     if signature_engine.add_rule(rule):
         return JSONResponse(
@@ -83,7 +86,7 @@ async def add_signature_rule(rule: Dict):
 
 
 @router.get("/summary", response_model=Dict)
-async def get_threat_summary(db: AsyncSession = Depends(get_db)):
+async def get_threat_summary(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)):
     """Get threat summary statistics"""
     # Last 24 hours
     time_filter = datetime.utcnow() - timedelta(hours=24)

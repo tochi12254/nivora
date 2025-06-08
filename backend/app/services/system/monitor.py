@@ -19,6 +19,7 @@ from collections import deque, OrderedDict
 import signal
 import json
 
+from ...core.config import settings # Import settings
 from ml.feature_extraction import flatten_complex_data
 from ...utils.save_to_json import save_telemetry_to_json
 from ...utils.map_telemetry_to_frontend import map_to_system_telemetry_format
@@ -1098,12 +1099,22 @@ class SystemMonitor(mp.Process):
         if not ip or ip.startswith(("127.", "10.", "192.168.", "172.")):
             return None
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(f"http://ip-api.com/json/{ip}") as resp:
-                    data = await resp.json()
-                    return (
-                        {
+        max_retries = 3
+        base_delay = 1  # seconds
+        default_timeout = aiohttp.ClientTimeout(total=10)
+
+        for attempt in range(max_retries):
+            try:
+                async with aiohttp.ClientSession(timeout=default_timeout) as session:
+                    url_template = settings.GEOIP_SERVICE_URL_TEMPLATE
+                    if not url_template:
+                        logger.warning("GEOIP_SERVICE_URL_TEMPLATE not configured. Skipping GeoIP lookup.")
+                        return None
+                    async with session.get(url_template.format(ip=ip)) as resp: # Individual calls could also have specific timeout
+                        resp.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
+                        data = await resp.json()
+                        return (
+                            {
                             "country": data.get("country"),
                             "region": data.get("regionName"),
                             "city": data.get("city"),
@@ -1111,12 +1122,20 @@ class SystemMonitor(mp.Process):
                             "org": data.get("org"),
                             "asn": data.get("as"),
                         }
-                        if data.get("status") == "success"
-                        else None
-                    )
-        except Exception as e:
-            logger.debug(f"GeoIP lookup failed: {e}")
-            return None
+                            if data.get("status") == "success"
+                            else None
+                        )
+            except aiohttp.ClientError as e: # More specific exception for client errors (includes timeouts)
+                logger.warning(f"GeoIP lookup for {ip} failed on attempt {attempt + 1}/{max_retries}: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(base_delay * (2 ** attempt))  # Exponential backoff
+                else:
+                    logger.error(f"GeoIP lookup for {ip} failed after {max_retries} attempts.")
+                    return None
+            except Exception as e: # Catch other unexpected errors
+                logger.error(f"Unexpected error during GeoIP lookup for {ip}: {e}", exc_info=True)
+                return None # Non-retryable error
+        return None # Should be unreachable if loop completes, but as a fallback
 
     async def _lookup_whois(self, ip: str) -> Optional[Dict]:
         """WHOIS lookup using system whois command"""
@@ -1151,44 +1170,71 @@ class SystemMonitor(mp.Process):
         if not ip or ip.startswith(("127.", "10.", "192.168.", "172.")):
             return None
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                # AbuseIPDB (requires API key in config)
-                abuse_resp = await session.get(
-                    f"https://api.abuseipdb.com/api/v2/check",
-                    params={"ipAddress": ip},
-                    headers={"Key": os.getenv("ABUSEIPDB_KEY")},
-                )
-                abuse_data = await abuse_resp.json()
+        max_retries = 2
+        base_delay = 1 # seconds
+        default_timeout = aiohttp.ClientTimeout(total=15) # Slightly longer for multiple external calls
 
-                # VirusTotal (requires API key)
-                vt_resp = await session.get(
-                    f"https://www.virustotal.com/api/v3/ip_addresses/{ip}",
-                    headers={"x-apikey": os.getenv("VIRUSTOTAL_KEY")},
-                )
-                vt_data = await vt_resp.json()
-                async with session.get(
-                    f"https://www.hybrid-analysis.com/api/v2/search/terms",
-                    params={"host": ip},
-                    headers={"api-key": os.getenv("HYBRID_KEY")},
-                ) as ha_resp:
-                    ha_data = await ha_resp.json()
+        for attempt in range(max_retries):
+            try:
+                async with aiohttp.ClientSession(timeout=default_timeout) as session:
+                    abuse_data, vt_data, ha_data = {}, {}, {} # Initialize
 
-                return {
-                    "abuse_score": abuse_data.get("data", {}).get(
-                        "abuseConfidenceScore"
-                    ),
-                    "vt_malicious": vt_data.get("data", {})
-                    .get("attributes", {})
-                    .get("last_analysis_stats", {})
-                    .get("malicious"),
-                    "hybrid_analysis": ha_data.get("result", [])[:3],
-                    "is_tor": abuse_data.get("data", {}).get("isTor"),
-                    "is_cloud": abuse_data.get("data", {}).get("isCloudProvider"),
-                }
-        except Exception as e:
-            logger.debug(f"Threat feed check failed: {e}")
-            return None
+                    # AbuseIPDB
+                    abuse_key = os.getenv("ABUSEIPDB_KEY")
+                    if abuse_key:
+                        abuse_resp = await session.get(
+                            "https://api.abuseipdb.com/api/v2/check", # Removed f-string for static URL
+                            params={"ipAddress": ip},
+                            headers={"Key": abuse_key},
+                        )
+                        abuse_resp.raise_for_status()
+                        abuse_data = await abuse_resp.json()
+                    else:
+                        logger.debug("ABUSEIPDB_KEY not set. Skipping AbuseIPDB check.")
+
+                    # VirusTotal
+                    vt_key = os.getenv("VIRUSTOTAL_KEY")
+                    if vt_key:
+                        vt_resp = await session.get(
+                            f"https://www.virustotal.com/api/v3/ip_addresses/{ip}",
+                            headers={"x-apikey": vt_key},
+                        )
+                        vt_resp.raise_for_status()
+                        vt_data = await vt_resp.json()
+                    else:
+                        logger.debug("VIRUSTOTAL_KEY not set. Skipping VirusTotal check.")
+
+                    # HybridAnalysis
+                    ha_key = os.getenv("HYBRID_KEY")
+                    if ha_key:
+                        async with session.get(
+                            "https://www.hybrid-analysis.com/api/v2/search/terms", # Removed f-string
+                            params={"host": ip},
+                            headers={"api-key": ha_key},
+                        ) as ha_resp: # Use async with for individual request if session is created outside
+                            ha_resp.raise_for_status()
+                            ha_data = await ha_resp.json()
+                    else:
+                        logger.debug("HYBRID_KEY not set. Skipping HybridAnalysis check.")
+
+                    return {
+                        "abuse_score": abuse_data.get("data", {}).get("abuseConfidenceScore"),
+                        "vt_malicious": vt_data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {}).get("malicious"),
+                        "hybrid_analysis": ha_data.get("result", [])[:3],
+                        "is_tor": abuse_data.get("data", {}).get("isTor"),
+                        "is_cloud": abuse_data.get("data", {}).get("isCloudProvider"),
+                    }
+            except aiohttp.ClientError as e:
+                logger.warning(f"Threat feed check for {ip} failed on attempt {attempt + 1}/{max_retries}: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(base_delay * (2 ** attempt))
+                else:
+                    logger.error(f"Threat feed check for {ip} failed after {max_retries} attempts.")
+                    return None # Or some default error structure
+            except Exception as e:
+                logger.error(f"Unexpected error during threat feed check for {ip}: {e}", exc_info=True)
+                return None # Non-retryable error
+        return None # Should be unreachable if loop completes, but as a fallback
 
     def _analyze_packet_patterns(self, conn: Dict) -> Dict:
         """Analyze network patterns for anomalies"""

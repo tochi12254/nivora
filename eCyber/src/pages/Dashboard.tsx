@@ -291,7 +291,7 @@ const Dashboard = () => {
       setIsLoadingThreatFeeds(true);
       setErrorThreatFeeds(null);
       try {
-        const response = await fetch('/api/v1/threat-intelligence/feeds');
+        const response = await fetch('http://127.0.0.1:8000/api/v1/threat-intelligence/feeds');
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -333,7 +333,7 @@ const Dashboard = () => {
       setIsLoadingMlAccuracy(true);
       setErrorMlAccuracy(null);
       try {
-        const response = await fetch('/api/v1/ml-models/accuracy');
+        const response = await fetch('http://127.0.0.1:8000/api/v1/ml-models/accuracy');
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -353,7 +353,7 @@ const Dashboard = () => {
       setIsLoadingUsersList(true);
       setErrorUsersList(null);
       try {
-        const response = await fetch('/api/v1/users/'); // Assuming this is the correct endpoint from v1 router
+        const response = await fetch('http://127.0.0.1:8000/api/v1/users/'); // Assuming this is the correct endpoint from v1 router
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -373,7 +373,7 @@ const Dashboard = () => {
       setIsLoadingGeneralSettings(true);
       setErrorGeneralSettings(null);
       try {
-        const response = await fetch('/api/v1/settings/general');
+        const response = await fetch('http://127.0.0.1:8000/api/v1/settings/general');
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -482,7 +482,7 @@ const Dashboard = () => {
         setIsLoadingNetworkStats(true);
         try {
           // TODO: Add authentication headers if required by the backend
-          const response = await fetch('/api/network/stats'); 
+          const response = await fetch('http://127.0.0.1/api/network/stats'); 
           if (!response.ok) {
             throw new Error(`Failed to fetch network stats: ${response.statusText}`);
           }

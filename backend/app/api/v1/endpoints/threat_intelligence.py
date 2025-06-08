@@ -1,11 +1,35 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from ....services.threat_intelligence_service import ThreatIntelligenceService
+from ....models.user import User # Import User model
+from ....core.security import get_current_active_user # Import auth dependency
 from pydantic import BaseModel
 from typing import List, Optional, Any
 
 router = APIRouter()
-threat_intelligence_service = ThreatIntelligenceService()
 
+# Dependency provider for ThreatIntelligenceService
+_threat_intel_service_instance: Optional[ThreatIntelligenceService] = None
+_threat_intel_service_initialized: bool = False
+
+async def get_threat_intel_service() -> ThreatIntelligenceService: # Changed to async def
+    global _threat_intel_service_instance, _threat_intel_service_initialized
+    
+    if _threat_intel_service_instance is None:
+        _threat_intel_service_instance = ThreatIntelligenceService() # Synchronous instantiation
+    
+    if not _threat_intel_service_initialized:
+        if _threat_intel_service_instance: # Should always be true here
+            await _threat_intel_service_instance.initial_data_load()
+            _threat_intel_service_initialized = True
+        else:
+            # This case should ideally not be reached if instance is created above.
+            # Handling for robustness, though it might indicate a logic error if ever hit.
+            raise HTTPException(status_code=500, detail="Threat intelligence service not available.")
+
+    if _threat_intel_service_instance is None: # Defensive check, should not happen
+        raise HTTPException(status_code=500, detail="Threat intelligence service failed to initialize.")
+        
+    return _threat_intel_service_instance
 
 # Pydantic Models for API responses
 class FeedStatus(BaseModel):
@@ -51,9 +75,9 @@ class RefreshResponse(BaseModel):
 
 
 @router.get("/emerging-threats", response_model=List[EmergingThreat])
-async def get_emerging_threats_endpoint():
+async def get_emerging_threats_endpoint(service: ThreatIntelligenceService = Depends(get_threat_intel_service)):
     try:
-        return threat_intelligence_service.get_emerging_threats()
+        return service.get_emerging_threats()
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to get emerging threats: {str(e)}"
@@ -61,9 +85,9 @@ async def get_emerging_threats_endpoint():
 
 
 @router.get("/feeds", response_model=List[FeedStatus])
-async def list_feeds_endpoint():
+async def list_feeds_endpoint(service: ThreatIntelligenceService = Depends(get_threat_intel_service)):
     try:
-        return threat_intelligence_service.get_feeds()
+        return service.get_feeds()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list feeds: {str(e)}")
 
@@ -71,11 +95,14 @@ async def list_feeds_endpoint():
 # Use response_model=FeedStatus for subscribe endpoint as service returns the updated feed status
 @router.post("/feeds/{feed_id}/subscribe", response_model=FeedStatus)
 async def subscribe_to_feed_endpoint(
-    feed_id: str, subscription_request: SubscriptionRequest
+    feed_id: str,
+    subscription_request: SubscriptionRequest,
+    service: ThreatIntelligenceService = Depends(get_threat_intel_service),
+    current_user: User = Depends(get_current_active_user)
 ):
     try:
         # The service method now returns the updated feed status or an error dict
-        result = threat_intelligence_service.update_feed_subscription(
+        result = service.update_feed_subscription(
             feed_id, subscription_request.is_subscribed
         )
         if isinstance(result, dict) and "error" in result:
@@ -94,9 +121,13 @@ async def subscribe_to_feed_endpoint(
 
 
 @router.post("/feeds/{feed_id}/refresh", response_model=RefreshResponse)
-async def refresh_feed_endpoint(feed_id: str):
+async def refresh_feed_endpoint(
+    feed_id: str, 
+    service: ThreatIntelligenceService = Depends(get_threat_intel_service),
+    current_user: User = Depends(get_current_active_user)
+):
     try:
-        result = threat_intelligence_service.refresh_feed_data(feed_id)
+        result = service.refresh_feed_data(feed_id)
         # Result is a dictionary like:
         # {"feed_id": feed_id, "status": "refreshed", "last_updated": last_updated_ts, "entry_count": ...}
         # OR {"feed_id": feed_id, "status": "error", "error": ...}

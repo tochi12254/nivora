@@ -352,12 +352,16 @@ const NetworkTrafficVisualizer = () => {
 
   useEffect(() =>{
 
-    if(snifferSocket){
-      snifferSocket?.on("packet_summary", (data: any) => {
-        setPackets(prev => [...prev, data])
-        console.log("Packet summary: ", data)
-      })
+    if (snifferSocket) {
+      snifferSocket.on("packet_summary", (data: any) => {
+        setPackets(prev => {
+          const updated = [...prev, data];
+          return updated.slice(-100); // keep only the last 100
+        });
+        
+      });
     }
+    
 
   },[snifferSocket]);
 

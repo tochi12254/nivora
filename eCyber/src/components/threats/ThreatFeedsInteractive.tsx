@@ -38,7 +38,7 @@ const ThreatFeedsInteractive = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/v1/threat-intelligence/feeds');
+      const response = await fetch('http://127.0.0.1:8000/api/v1/threat-intelligence/feeds');
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -75,7 +75,7 @@ const ThreatFeedsInteractive = () => {
   const toggleSubscription = async (feedId: string, currentIsSubscribed: boolean) => {
     const newSubscriptionStatus = !currentIsSubscribed;
     try {
-      const response = await fetch(`/api/v1/threat-intelligence/feeds/${feedId}/subscribe`, {
+      const response = await fetch(`http://127.0.0.1:800/api/v1/threat-intelligence/feeds/${feedId}/subscribe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_subscribed: newSubscriptionStatus }),
@@ -117,7 +117,7 @@ const ThreatFeedsInteractive = () => {
   const refreshFeed = async (feedId: string) => {
     toast({ title: "Refreshing Feed", description: `Requesting latest data for ${feedId}...` });
     try {
-      const response = await fetch(`/api/v1/threat-intelligence/feeds/${feedId}/refresh`, { method: 'POST' });
+      const response = await fetch(`http://127.0.0.1:8000/api/v1/threat-intelligence/feeds/${feedId}/refresh`, { method: 'POST' });
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);

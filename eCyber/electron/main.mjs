@@ -1,3 +1,85 @@
+// import { app, BrowserWindow } from 'electron';
+// import { spawn } from 'child_process';
+// import path from 'path';
+// import { fileURLToPath } from 'url';
+// import { existsSync } from 'fs';
+
+// const isDev = !app.isPackaged;
+// const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// // Paths relative to your Electron source file (frontend/electron/main.mjs)
+// const projectRoot = path.resolve(__dirname, '..', '..'); // Goes up to your main project root
+// const frontendDist = path.join(__dirname, '..', 'dist');
+// const backendScript = path.join(projectRoot, 'backend', 'main.py');
+// const venvPython = path.join(projectRoot, 'backend', 'venv', 'Scripts', 'python.exe'); // Windows path
+// const backendExe = path.join(projectRoot, 'backend', 'dist', 'backend_server.exe');
+
+// let mainWindow;
+// let backendProcess;
+
+// const createWindow = () => {
+//   mainWindow = new BrowserWindow({
+//     width: 1280,
+//     height: 800,
+//     icon: path.join(__dirname, '..', 'public', 'eCyber.ico'),
+//        webPreferences: {
+//         preload: isDev
+//           ? path.join(__dirname, 'electron/preload.mjs')
+//           : path.join(__dirname, 'preload.mjs'), // production path
+//     },
+//   });
+
+//   if (!app.isPackaged) {
+//     mainWindow.loadFile(path.join(frontendDist, 'index.html'));
+//   } else {
+//     mainWindow.loadURL('http://localhost:4000');
+//     mainWindow.webContents.openDevTools();
+//   }
+// };
+
+// const startBackend = () => {
+//   if (existsSync(backendExe)) {
+//     backendProcess = spawn(backendExe, [], {
+//       detached: true,
+//       stdio: 'ignore',
+//     });
+//     backendProcess.unref(); // Allow the app to exit independently
+//   } else if (existsSync(venvPython)) {
+//     backendProcess = spawn(venvPython, [backendScript]);
+
+//     backendProcess.stdout.on('data', (data) => {
+//       console.log(`[Backend]: ${data}`);
+//     });
+
+//     backendProcess.stderr.on('data', (data) => {
+//       console.error(`[Backend Error]: ${data}`);
+//     });
+//   } else {
+//     console.error('❌ Backend executable or Python interpreter not found.');
+//   }
+// };
+
+// app.whenReady().then(() => {
+//   createWindow();
+//   startBackend();
+
+//   app.on('activate', () => {
+//     if (BrowserWindow.getAllWindows().length === 0) createWindow();
+//   });
+// });
+
+// app.on('window-all-closed', () => {
+//   if (process.platform !== 'darwin') app.quit();
+//   // backendProcess?.kill();  // Don't kill if detached
+// });
+
+
+
+
+
+
+
+
 // import { app, BrowserWindow, Menu } from 'electron'
 // import path from 'path'
 // import { fileURLToPath } from 'url'
@@ -147,7 +229,7 @@ const createWindow = () => {
     height: 800,
     icon: path.join(__dirname, '../public/eCyber.ico'),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload.mjs'),
     },
   });
 
@@ -175,7 +257,7 @@ const startBackend = () => {
 
 app.whenReady().then(() => {
   createWindow();
-  // startBackend();
+  startBackend();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

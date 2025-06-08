@@ -1,5 +1,5 @@
 from pydantic import AnyHttpUrl
-from typing import List
+from typing import List, Optional
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
@@ -28,6 +28,29 @@ class Settings(BaseSettings):
 
     # Redis for production scaling
     REDIS_URL: str = "redis://localhost:6379/0"
+
+    # Settings for MitigationEngine
+    FIREWALL_API_URL: Optional[str] = "http://127.0.0.1:8000/firewall"
+    FIREWALL_API_KEY: Optional[str] = None # Example: "changeme_firewall_api_key"
+    THREAT_INTEL_API_URL: Optional[str] = "http://127.0.0.1:8000/intel/update"
+    NAC_API_URL: Optional[str] = "http://127.0.0.1:8000/nac/quarantine" # Corrected typo from local127.0.0.1
+    DNS_CONTROLLER_API_URL: Optional[str] = "http://127.0.0.1:8000/dns"
+    DNS_CONTROLLER_API_KEY: Optional[str] = None # Example: "changeme_dns_api_key"
+    
+    DASHBOARD_API_URL: Optional[str] = "http://localhost:8081" # For SIEM/Dashboard integration
+    DASHBOARD_API_KEY: Optional[str] = None # Example: "changeme_dashboard_api_key"
+    
+    # Optional: If these dashboard settings also need to be configurable
+    DASHBOARD_MAX_RETRIES: int = 3
+    DASHBOARD_RETRY_DELAY: int = 5 # seconds
+    DASHBOARD_TIMEOUT: int = 10 # seconds
+
+    # GeoIP Service URL for SystemMonitor
+    GEOIP_SERVICE_URL_TEMPLATE: Optional[str] = "http://ip-api.com/json/{ip}"
+
+    # ThreatIntelligenceService feed URLs
+    THREATFOX_URL: Optional[str] = "https://threatfox.abuse.ch/export/json/recent/"
+    CIRCL_CVE_URL: Optional[str] = "https://cve.circl.lu/api/last/10"
 
     class Config:
         case_sensitive = True

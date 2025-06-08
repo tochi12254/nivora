@@ -5,6 +5,7 @@ import uuid # Added import
 import pandas as pd
 import gzip, joblib, json
 import time
+import sklearn.ensemble._iforest
 import logging
 from contextlib import asynccontextmanager
 from .feature_processor import EXPECTED_FEATURES # Added import
@@ -18,7 +19,8 @@ from collections import defaultdict, deque, Counter
 from typing import Callable, Dict, Optional, List, Tuple,Any
 from multiprocessing import Process,Manager, Value,Queue, Event, Lock as ProcessLock
 from pathlib import Path
-import pickle 
+import pickle
+from concurrent.futures import ThreadPoolExecutor
 import socket
 import multiprocessing as mp
 from multiprocessing.managers import DictProxy
@@ -118,116 +120,55 @@ class PacketSniffer:
         self.stop_sniffing_event = mp.Event()
         self.total_bytes = 0
         
-
-        ##Machine learning part
-        # Define paths for ML models
-        CLASSIFIER_MODELS_PATH = Path("ml/models/eCyber_classifier_models")
-        ANOMALY_MODEL_PATH = Path("ml/models/eCyber_anomaly_isolation")
-
-        # Load classifier models
+        ## Machine learning part - Refactored for parallel loading ##
         self.models = {}  # Stores classifier models: attack_name -> {model, scaler, features, threshold}
-        if CLASSIFIER_MODELS_PATH.exists() and CLASSIFIER_MODELS_PATH.is_dir():
-            for attack_dir_path in CLASSIFIER_MODELS_PATH.iterdir():
-                if attack_dir_path.is_dir():
-                    attack_name = attack_dir_path.name
-                    try:
-                        model_path = attack_dir_path / "model.pkl.gz"
-                        scaler_path = attack_dir_path / "scaler.pkl.gz"
-
-                        if not model_path.exists():
-                            logger.warning(f"Model file not found for {attack_name} at {model_path}")
-                            continue
-                        if not scaler_path.exists():
-                            logger.warning(f"Scaler file not found for {attack_name} at {scaler_path}")
-                            continue
-
-                        with gzip.open(model_path, "rb") as f_model:
-                            model = joblib.load(f_model)
-                        with gzip.open(scaler_path, "rb") as f_scaler:
-                            scaler = joblib.load(f_scaler)
-
-                        # Use EXPECTED_FEATURES as the definitive list of feature names
-                        features = EXPECTED_FEATURES
-                        threshold = 0.5  # Default threshold
-
-                        # Optionally, try to load metadata to override threshold if available
-                        meta_path_training = attack_dir_path / "training.json"
-                        meta_path_metrics = attack_dir_path / "metrics.json"
-                        meta_data = None
-                        if meta_path_training.exists():
-                            with open(meta_path_training, "r") as f_meta:
-                                meta_data = json.load(f_meta)
-                        elif meta_path_metrics.exists():
-                             with open(meta_path_metrics, "r") as f_meta:
-                                meta_data = json.load(f_meta)
-
-                        if meta_data and "threshold" in meta_data:
-                            threshold = meta_data["threshold"]
-                            logger.info(f"Loaded threshold {threshold} for {attack_name} from metadata.")
-                        else:
-                            logger.info(f"Using default threshold {threshold} for {attack_name}.")
-
-                        self.models[attack_name] = {
-                            "model": model,
-                            "scaler": scaler,
-                            "features": features,
-                            "threshold": threshold
-                        }
-                        
-
-                    except FileNotFoundError as e:
-                        logger.error(f"File not found during model loading for {attack_name}: {e}")
-                    except Exception as e:
-                        logger.error(f"Error loading model for {attack_name} from {attack_dir_path}: {e}", exc_info=True)
-        else:
-            logger.warning(f"Classifier models path not found or is not a directory: {CLASSIFIER_MODELS_PATH}")
-
-        # Load anomaly model
         self.anomaly_model = None
         self.anomaly_scaler = None
         self.anomaly_threshold_value = None
-        self.anomaly_features = EXPECTED_FEATURES # Default to EXPECTED_FEATURES
+        self.anomaly_features = EXPECTED_FEATURES # Default
 
-        if ANOMALY_MODEL_PATH.exists() and ANOMALY_MODEL_PATH.is_dir():
-            try:
-                anomaly_model_path = ANOMALY_MODEL_PATH / "anomaly_model.pkl.gz"
-                anomaly_scaler_path = ANOMALY_MODEL_PATH / "anomaly_scaler.pkl.gz"
-                anomaly_threshold_path = ANOMALY_MODEL_PATH / "anomaly_threshold.pkl.gz"
-                anomaly_meta_path = ANOMALY_MODEL_PATH / "anomaly_meta.json"
+        CLASSIFIER_MODELS_PATH = Path("ml/models/eCyber_classifier_models")
+        ANOMALY_MODEL_PATH = Path("ml/models/eCyber_anomaly_isolation")
 
-                if not anomaly_model_path.exists():
-                    logger.warning(f"Anomaly model file not found at {anomaly_model_path}")
-                elif not anomaly_scaler_path.exists():
-                    logger.warning(f"Anomaly scaler file not found at {anomaly_scaler_path}")
-                elif not anomaly_threshold_path.exists():
-                    logger.warning(f"Anomaly threshold file not found at {anomaly_threshold_path}")
-                else:
-                    with gzip.open(anomaly_model_path, "rb") as f_model:
-                        self.anomaly_model = joblib.load(f_model)
-                    with gzip.open(anomaly_scaler_path, "rb") as f_scaler:
-                        self.anomaly_scaler = joblib.load(f_scaler)
-                    with gzip.open(anomaly_threshold_path, "rb") as f_thresh:
-                        self.anomaly_threshold_value = joblib.load(f_thresh)
+        with ThreadPoolExecutor(max_workers=mp.cpu_count()) as executor:
+            # Submit classifier model loading tasks
+            classifier_futures = []
+            if CLASSIFIER_MODELS_PATH.exists() and CLASSIFIER_MODELS_PATH.is_dir():
+                for attack_dir_path in CLASSIFIER_MODELS_PATH.iterdir():
+                    if attack_dir_path.is_dir():
+                        classifier_futures.append(executor.submit(self._load_single_classifier_model, attack_dir_path))
+            else:
+                logger.warning(f"Classifier models path not found or is not a directory: {CLASSIFIER_MODELS_PATH}")
 
-                    logger.info("Successfully loaded anomaly model, scaler, and threshold.")
+            # Submit anomaly model loading task
+            anomaly_future = None
+            if ANOMALY_MODEL_PATH.exists() and ANOMALY_MODEL_PATH.is_dir():
+                anomaly_future = executor.submit(self._load_anomaly_model_components, ANOMALY_MODEL_PATH)
+            else:
+                logger.warning(f"Anomaly model path not found or is not a directory: {ANOMALY_MODEL_PATH}")
 
-                    if anomaly_meta_path.exists():
-                        with open(anomaly_meta_path, "r") as f_meta:
-                            meta_data = json.load(f_meta)
-                        if "features" in meta_data and isinstance(meta_data["features"], list):
-                            self.anomaly_features = meta_data["features"]
-                        else:
-                            logger.info("Anomaly metadata does not contain 'features' list, using EXPECTED_FEATURES.")
-                    else:
-                        logger.info(f"Anomaly metadata file not found at {anomaly_meta_path}, using EXPECTED_FEATURES.")
-
-            except FileNotFoundError as e:
-                logger.error(f"File not found during anomaly model loading: {e}")
-            except Exception as e:
-                logger.error(f"Error loading anomaly model from {ANOMALY_MODEL_PATH}: {e}", exc_info=True)
-        else:
-            logger.warning(f"Anomaly model path not found or is not a directory: {ANOMALY_MODEL_PATH}")
-        
+            # Collect classifier model results
+            for future in classifier_futures:
+                try:
+                    result = future.result()
+                    if result:
+                        attack_name, model_data = result
+                        if model_data:
+                            self.models[attack_name] = model_data
+                except Exception as e:
+                    logger.error(f"Exception collecting classifier model future: {e}", exc_info=True)
+            
+            # Collect anomaly model results
+            if anomaly_future:
+                try:
+                    anomaly_result = anomaly_future.result()
+                    if anomaly_result:
+                        self.anomaly_model = anomaly_result.get("model")
+                        self.anomaly_scaler = anomaly_result.get("scaler")
+                        self.anomaly_threshold_value = anomaly_result.get("threshold")
+                        self.anomaly_features = anomaly_result.get("features", EXPECTED_FEATURES)
+                except Exception as e:
+                    logger.error(f"Exception collecting anomaly model future: {e}", exc_info=True)
 
         self.feature_extractor = AdvancedFeatureExtractor(
             cleanup_interval=300, flow_timeout=120
@@ -319,6 +260,9 @@ class PacketSniffer:
         """Runs the AsyncSniffer in a separate process."""
         logger.info("Sniffer process started on interface %s", interface)
         self.sio_queue = sio_queue  # Crucial for the new process
+        # Ensure EXPECTED_FEATURES is available if needed by _load_single_classifier_model or _load_anomaly_model_components
+        # if it's not passed as an argument, it should be accessible in their scope (e.g. self.EXPECTED_FEATURES or global)
+        # For now, it's a global import, so it should be fine.
 
         sniffer = None
         try:
@@ -389,16 +333,137 @@ class PacketSniffer:
     def __setstate__(self, state):
         # 1) Restore attributes
         self.__dict__.update(state)
-        
+
         # 2) Reinitialize non-pickleable attributes
+        # Ensure these are re-initialized as they were before, e.g. if they were Manager().dict()
+        # For this refactor, focusing on model loading, these are assumed to be correctly handled.
         from collections import defaultdict
         self.recent_packets = defaultdict(default_recent_packet)
         self._endpoint_tracker = defaultdict(lambda: defaultdict(set))
-        self._dns_counter = {}
-        self._protocol_counter = {}
-        self.stop_sniffing_event = mp.Event()
-        self.firewall = FirewallManager(self.sio_queue)
+        # self._dns_counter = {} # If it was a regular dict
+        # self._protocol_counter = {} # If it was a regular dict
+        # If they were manager.dict(), they should be re-created using self.manager if manager is restored
+        # For now, assuming they are handled correctly by the existing __setstate__ or are not manager.dict()
+        # For the purpose of this refactoring, only ensuring the re-init as per original code
+        self._dns_counter = self.manager.dict() if hasattr(self, 'manager') and self.manager else {}
+        self._protocol_counter = self.manager.dict() if hasattr(self, 'manager') and self.manager else {}
 
+        self.stop_sniffing_event = mp.Event() # Re-initialize event
+        self.firewall = FirewallManager(self.sio_queue) if hasattr(self, 'sio_queue') else None # Re-initialize firewall
+
+
+    def _load_single_classifier_model(self, attack_dir_path: Path) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """Loads a single classifier model, its scaler, and metadata."""
+        attack_name = attack_dir_path.name
+        try:
+            model_path = attack_dir_path / "model.pkl.gz"
+            scaler_path = attack_dir_path / "scaler.pkl.gz"
+
+            if not model_path.exists():
+                logger.warning(f"Model file not found for {attack_name} at {model_path}")
+                return None
+            if not scaler_path.exists():
+                logger.warning(f"Scaler file not found for {attack_name} at {scaler_path}")
+                return None
+
+            with gzip.open(model_path, "rb") as f_model:
+                model = joblib.load(f_model)
+            with gzip.open(scaler_path, "rb") as f_scaler:
+                scaler = joblib.load(f_scaler)
+
+            features = EXPECTED_FEATURES  # Global or class member
+            threshold = 0.5  # Default threshold
+
+            meta_path_training = attack_dir_path / "training.json"
+            meta_path_metrics = attack_dir_path / "metrics.json"
+            meta_data = None
+            if meta_path_training.exists():
+                with open(meta_path_training, "r") as f_meta:
+                    meta_data = json.load(f_meta)
+            elif meta_path_metrics.exists():
+                with open(meta_path_metrics, "r") as f_meta:
+                    meta_data = json.load(f_meta)
+
+            if meta_data and "threshold" in meta_data:
+                threshold = meta_data["threshold"]
+                logger.info(f"Loaded threshold {threshold} for {attack_name} from metadata.")
+            else:
+                logger.info(f"Using default threshold {threshold} for {attack_name}.")
+
+            return attack_name, {
+                "model": model,
+                "scaler": scaler,
+                "features": features,
+                "threshold": threshold
+            }
+        except FileNotFoundError as e:
+            logger.error(f"File not found during model loading for {attack_name}: {e}")
+        except Exception as e:
+            logger.error(f"Error loading model for {attack_name} from {attack_dir_path}: {e}", exc_info=True)
+        return None
+
+    def _load_anomaly_model_components(self, anomaly_model_base_path: Path) -> Optional[Dict[str, Any]]:
+        """Loads anomaly model, scaler, threshold, and features metadata."""
+        try:
+            anomaly_model_path = anomaly_model_base_path / "anomaly_model.pkl.gz"
+            anomaly_scaler_path = anomaly_model_base_path / "anomaly_scaler.pkl.gz"
+            # Following existing code for .pkl.gz threshold file
+            anomaly_threshold_path = anomaly_model_base_path / "anomaly_threshold.pkl.gz"
+            anomaly_meta_path = anomaly_model_base_path / "anomaly_meta.json"
+
+            model = None
+            scaler = None
+            threshold_value = None
+            features = EXPECTED_FEATURES # Default
+
+            if not anomaly_model_path.exists():
+                logger.warning(f"Anomaly model file not found at {anomaly_model_path}")
+                # Decide if partial load is acceptable or return None
+            else:
+                with gzip.open(anomaly_model_path, "rb") as f_model:
+                    model = joblib.load(f_model)
+
+            if not anomaly_scaler_path.exists():
+                logger.warning(f"Anomaly scaler file not found at {anomaly_scaler_path}")
+            else:
+                with gzip.open(anomaly_scaler_path, "rb") as f_scaler:
+                    scaler = joblib.load(f_scaler)
+            
+            if not anomaly_threshold_path.exists():
+                logger.warning(f"Anomaly threshold file (.pkl.gz) not found at {anomaly_threshold_path}")
+            else:
+                with gzip.open(anomaly_threshold_path, "rb") as f_thresh:
+                    threshold_value = joblib.load(f_thresh)
+            
+            if model and scaler and threshold_value is not None:
+                 logger.info("Successfully loaded anomaly model, scaler, and threshold.")
+            else:
+                logger.warning("Anomaly model, scaler, or threshold could not be loaded. Anomaly detection might be impaired.")
+
+
+            if anomaly_meta_path.exists():
+                with open(anomaly_meta_path, "r") as f_meta:
+                    meta_data = json.load(f_meta)
+                if "features" in meta_data and isinstance(meta_data["features"], list):
+                    features = meta_data["features"]
+                    logger.info(f"Loaded features for anomaly model from {anomaly_meta_path}.")
+                else:
+                    logger.info(f"Anomaly metadata {anomaly_meta_path} does not contain 'features' list, using EXPECTED_FEATURES.")
+            else:
+                logger.info(f"Anomaly metadata file not found at {anomaly_meta_path}, using EXPECTED_FEATURES.")
+
+            return {
+                "model": model,
+                "scaler": scaler,
+                "threshold": threshold_value,
+                "features": features
+            }
+
+        except FileNotFoundError as e:
+            logger.error(f"File not found during anomaly model component loading: {e}")
+        except Exception as e:
+            logger.error(f"Error loading anomaly model components from {anomaly_model_base_path}: {e}", exc_info=True)
+        return None
 
     def _init_ip_databases(self):
         """Initialize local IP information databases"""

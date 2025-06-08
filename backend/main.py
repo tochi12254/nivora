@@ -254,6 +254,7 @@ async def create_app() -> FastAPI:
             "http://localhost:4000",
             "http://127.0.0.1:4000",
             "https://ecyber.vercel.app",
+            "https://ecyber-ten.vercel.app"
         ],
         allow_credentials=True,
         allow_methods=["*"],
@@ -354,7 +355,7 @@ async def emit_progress():
 async def mark_server_ready():
     global server_ready_emitted
     total_time = time.time() - startup_start_time
-    await sio.emit("server_ready", {"startup_time": total_time})
+    await sio.emit("server_ready", {"startup_time": total_time}, namespace="/packet_sniffer")
     server_ready_emitted = True
 
 
