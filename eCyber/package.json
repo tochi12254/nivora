@@ -13,7 +13,7 @@
   "scripts": {
     "dev": "vite",
     "build": "electron-builder",
-    "home-build":"vite build",
+    "home-build": "vite build",
     "start": "vite",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
@@ -118,15 +118,19 @@
       "buildResources": "build_assets"
     },
     "files": [
-      "electron/**/*",
-      "dist/**/*",
-      "public/**/*",
       "electron/main.mjs",
       "electron/preload.mjs",
-       {
-        "from": "backend/dist/",
+      "dist/**/*",
+      "!dist/**/*.map",
+      "public/**/*",
+      {
+        "from": "backend/dist/ecyber_backend_dist",
         "to": "backend",
-        "filter": ["backend_server.exe"]
+        "filter": [
+          "backend_server",
+          "backend_server.exe",
+          "**/*"
+        ]
       }
     ],
     "extraFiles": [],
@@ -163,6 +167,8 @@
       "perMachine": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
-    }
+    },
+    "files_comments_vite_sourcemaps": "// REVIEW: Ensure Vite build (vite.config.ts) has sourcemaps disabled for production (build.sourcemap: false or 'hidden')",
+    "files_comments_public_dir": "// REVIEW: Check eCyber/public/ directory for unneeded large assets."
   }
 }
