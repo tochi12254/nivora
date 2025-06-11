@@ -117,6 +117,7 @@
       "output": "dist_electron",
       "buildResources": "build_assets"
     },
+    "asarUnpack": ["backend/**"],
     "files": [
       "electron/**/*",
       "dist/**/*",
@@ -124,8 +125,8 @@
       "electron/main.mjs",
       "electron/preload.mjs",
        {
-        "from": "backend/dist/",
-        "to": "backend",
+        "from": "backend/dist/backend_server/",
+        "to": "backend/",
         "filter": ["backend_server.exe"]
       }
     ],
@@ -155,14 +156,18 @@
       ],
       "icon": "build_assets/icon.png",
       "category": "Security",
-      "maintainer": "enock"
+      "maintainer": "ecyber corporations"
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "perMachine": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+       "oneClick": false,
+        "perMachine": true,
+        "allowToChangeInstallationDirectory": true,
+        "createDesktopShortcut": true,
+        "createStartMenuShortcut": true,
+        "runAfterFinish": true,
+        "license": "LICENSE.txt",
+        "include": "build_assets/nsis-auto-start.nsh"
     }
   }
 }
+

@@ -1,0 +1,14 @@
+2025-06-11 19:07:44 - main - INFO - Database initialized successfully
+2025-06-11 19:07:52 - main - INFO - 🚀 Starting CyberWatch Security System
+2025-06-11 19:07:52 - main - INFO - Initializing background services...
+2025-06-11 19:36:33 - main - INFO - Database initialized successfully
+2025-06-11 19:36:37 - main - INFO - 🚀 Starting CyberWatch Security System
+2025-06-11 19:36:37 - main - INFO - Initializing background services...
+2025-06-11 19:38:36 - main - INFO - Registered /malware_events namespace for EMPDRS communication.
+2025-06-11 20:05:05 - main - INFO - 🎉 Server marked as ready! Total startup time: 0.41s
+2025-06-11 20:05:06 - main - INFO - 🚀 Starting CyberWatch Security System - Core Services
+2025-06-11 20:05:06 - main - INFO - Database initialized successfully
+2025-06-11 20:05:08 - main - INFO - ✅ Core services initialized
+2025-06-11 20:05:08 - main - INFO - 🎯 Server ready for connections!
+2025-06-11 20:05:08 - main - INFO - 🔧 Initializing background services...
+2025-06-11 20:06:37 - main - ERROR - Error initializing background services: [Errno 4] Interrupted function call

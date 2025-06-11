@@ -1,20 +1,42 @@
-# Logs
+# Node.js
+node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
+# Electron
+.DS_Store
+dist/
+release/
+build/
+*.asar
+*.node
 dist-ssr
+
+# Python backend artifacts (PyInstaller)
+backend/dist/
+backend/build/
+backend/__pycache__/
+backend/*.spec
+*.pyc
+*.pyo
+*.pyd
+
+# Other
+*.exe
+*.dll
+*.so
+*.dylib
 *.local
 
-# Editor directories and files
-.vscode/*
+# IDE / Editor specific
+.vscode/
 !.vscode/extensions.json
-.idea
-.DS_Store
+.idea/
+*.swp
+*~
 *.suo
 *.ntvs*
 *.njsproj

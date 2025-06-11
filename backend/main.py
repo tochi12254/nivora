@@ -88,6 +88,7 @@ logging.basicConfig(
 setup_logger("main", "INFO")
 logger = logging.getLogger(__name__)
 
+manager = None
 sniffer = None
 sniffer_service = None
 startup_start_time = time.time()
@@ -122,7 +123,7 @@ async def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         """Lifespan for startup and shutdown events."""
         await init_db()
-        logger.info("🚀 Starting CyberWatch Security System")
+        logger.info("🚀 Starting eCyber Security System")
         logger.info("Initializing background services...")
 
         # Initialize services
@@ -132,7 +133,7 @@ async def create_app() -> FastAPI:
         # blocker = ApplicationBlocker(sio)
 
         # Initialize packet components INDEPENDENTLY
-        global sniffer, sniffer_service
+        global sniffer, sniffer_service, manager
         manager = Manager()
         sio_queue = manager.Queue(maxsize=10000)
         output_queue = Queue()
@@ -357,27 +358,24 @@ async def mark_server_ready():
     await sio.emit("server_ready", {"startup_time": total_time}, namespace="/packet_sniffer")
     server_ready_emitted = True
 
-
-# Hypercorn entry point
 if __name__ == "__main__":
-    import hypercorn.asyncio
-    from hypercorn.config import Config
-
-    config = Config()
-    config.bind = ["127.0.0.1:8000"]
-    # config.bind = ["0.0.0.0:8000"]
-
-    config.use_reloader = True
+    import uvicorn
+    import asyncio
 
     async def run():
-        app = await create_app()  # Properly await the app creation
-        await hypercorn.asyncio.serve(app, config)
+        app = await create_app()  # Async FastAPI app creation
+        config = uvicorn.Config(app=app, host="127.0.0.1", port=8000, reload=True, loop="asyncio")
+
+        server = uvicorn.Server(config)
+
+        # Start the Uvicorn server and other async tasks
+        server_task = asyncio.create_task(server.serve())
         asyncio.create_task(emit_progress())
         await mark_server_ready()
 
+        await server_task
+
     try:
-
         asyncio.run(run())
-
     except KeyboardInterrupt:
         pass
