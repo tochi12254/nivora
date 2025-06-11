@@ -12,3 +12,6 @@
 2025-06-11 20:05:08 - main - INFO - 🎯 Server ready for connections!
 2025-06-11 20:05:08 - main - INFO - 🔧 Initializing background services...
 2025-06-11 20:06:37 - main - ERROR - Error initializing background services: [Errno 4] Interrupted function call
+2025-06-11 20:09:21 - main - INFO - Database initialized successfully
+2025-06-11 20:09:29 - main - INFO - 🚀 Starting CyberWatch Security System
+2025-06-11 20:09:29 - main - INFO - Initializing background services...
