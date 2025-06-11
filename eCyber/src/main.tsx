@@ -43,7 +43,7 @@ createRoot(rootElement).render(
               <Toaster />
               <Sonner />
               <BrowserRouter>
-                <AuthProvider>
+               <AuthProvider>
                   <App/>
                 </AuthProvider>
               </BrowserRouter>
