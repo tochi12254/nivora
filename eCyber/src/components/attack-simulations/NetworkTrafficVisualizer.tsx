@@ -326,6 +326,7 @@ const NetworkTrafficVisualizer = () => {
   
   const snifferIntervalRef = useRef<number | null>(null);
   const socket = getSocket();
+  const scrollRef = useRef(null)
 
 
   useEffect(() => {
@@ -382,10 +383,15 @@ const NetworkTrafficVisualizer = () => {
       (
         async () => {
           try {
-            const info = await axios.get("http://127.0.0.1:8000/api/system/interfaces");
+            const token = localStorage.getItem('authToken');
+            const info = await axios.get("http://127.0.0.1:8000/api/system/interfaces", {
+              headers:{
+                Authorization: `Bearer ${token}`
+              }
+            });
             // const info = await axios.get("https://ecyber-backend.onrender.com/api/system/interfaces");
-            if (info.data) {
-              dispatch(getNetworkInterfaces(info.data))
+            if (info?.data) {
+              dispatch(getNetworkInterfaces(info?.data))
       
             }
           } catch (error: any) {
@@ -497,6 +503,14 @@ const NetworkTrafficVisualizer = () => {
         p.method?.toLowerCase().includes(term)
       );
     });
+    
+
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [filteredPackets]);
 
   // Handle packet action
   const handlePacketAction = (action: 'block' | 'unblock' | 'details', packet: PacketData) => {
@@ -727,77 +741,82 @@ const NetworkTrafficVisualizer = () => {
                 <div className="col-span-1">Action</div>
               </div>
               
-              <ScrollArea className="h-[300px]">
-                <div className="divide-y">
-                  {filteredPackets.length > 0 ? (
-                    filteredPackets.map((packet, i) => (
-                      <div 
-                        key={i} 
-                        className={`grid grid-cols-7 gap-2 py-2 px-3 text-xs ${
-                          packet.blocked ? 'bg-gray-100 dark:bg-gray-800' :
-                          packet.risk_score && packet.risk_score >= 80 ? 'bg-red-500/10' :
-                          packet.risk_score && packet.risk_score >= 50 ? 'bg-orange-500/5' :
-                          packet.risk_score && packet.risk_score >= 30 ? 'bg-amber-500/5' :
-                          packet.suspicious_headers ? 'bg-blue-500/5' : 
-                          ''
-                        } hover:bg-muted/50`}
-                      >
-                        <div className="col-span-1 font-mono">
-                          {new Date(packet.timestamp).toLocaleTimeString()}
-                        </div>
-                        <div className="col-span-1 font-mono" title={packet.source_ip}>
-                          {packet.source_ip}
-                        </div>
-                        <div className="col-span-1 font-mono" title={packet.destination_ip}>
-                          {packet.destination_ip || '—'}
-                        </div>
-                        <div className="col-span-1 truncate" title={packet.host}>
-                          {packet.host}
-                        </div>
-                        <div className="col-span-1">
-                          {getProtocolBadge(packet.protocol)}
-                        </div>
-                        <div className="col-span-1">
-                          {getRiskBadge(packet.risk_score)}
-                        </div>
-                        <div className="col-span-1 flex gap-1">
-                          {packet.blocked ? (
-                            <Button 
-                              variant="outline" 
-                              size="sm" 
-                              className="h-6 px-2 text-[10px]"
-                              onClick={() => handlePacketAction('unblock', packet)}
-                            >
-                              <CircleCheck size={10} className="mr-1" /> Unblock
-                            </Button>
-                          ) : (
-                            <Button 
-                              variant="outline" 
-                              size="sm" 
-                              className="h-6 px-2 text-[10px]"
-                              onClick={() => handlePacketAction('block', packet)}
-                            >
-                              <CircleX size={10} className="mr-1" /> Block
-                            </Button>
-                          )}
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="h-6 px-2 text-[10px]"
-                            onClick={() => handlePacketAction('details', packet)}
-                          >
-                            <Eye size={10} className="mr-1" /> Details
-                          </Button>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="py-8 text-center text-sm text-muted-foreground">
-                      No traffic data available
-                    </div>
-                  )}
+      <ScrollArea className="h-[300px]">
+        <div 
+          ref={scrollRef}
+          className="divide-y overflow-y-auto" 
+          style={{ maxHeight: '30vh' }} // Fixed typo: maxHeigth → maxHeight
+        >
+          {filteredPackets.length > 0 ? (
+            filteredPackets.map((packet, i) => (
+              <div 
+                key={i} 
+                className={`grid grid-cols-7 gap-2 py-2 px-3 text-xs ${
+                  packet.blocked ? 'bg-gray-100 dark:bg-gray-800' :
+                  packet.risk_score >= 80 ? 'bg-red-500/10' :
+                  packet.risk_score >= 50 ? 'bg-orange-500/5' :
+                  packet.risk_score >= 30 ? 'bg-amber-500/5' :
+                  packet.suspicious_headers ? 'bg-blue-500/5' : 
+                  ''
+                } hover:bg-muted/50`}
+              >
+                <div className="col-span-1 font-mono">
+                  {new Date(packet.timestamp).toLocaleTimeString()}
                 </div>
-              </ScrollArea>
+                <div className="col-span-1 font-mono" title={packet.source_ip}>
+                  {packet.source_ip}
+                </div>
+                <div className="col-span-1 font-mono" title={packet.destination_ip}>
+                  {packet.destination_ip || '—'}
+                </div>
+                <div className="col-span-1 truncate" title={packet.host}>
+                  {packet.host}
+                </div>
+                <div className="col-span-1">
+                  {getProtocolBadge(packet.protocol)}
+                </div>
+                <div className="col-span-1">
+                  {getRiskBadge(packet.risk_score)}
+                </div>
+                <div className="col-span-1 flex gap-1">
+                  {packet.blocked ? (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="h-6 px-2 text-[10px]"
+                      onClick={() => handlePacketAction('unblock', packet)}
+                    >
+                      <CircleCheck size={10} className="mr-1" /> Unblock
+                    </Button>
+                  ) : (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="h-6 px-2 text-[10px]"
+                      onClick={() => handlePacketAction('block', packet)}
+                    >
+                      <CircleX size={10} className="mr-1" /> Block
+                    </Button>
+                  )}
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="h-6 px-2 text-[10px]"
+                    onClick={() => handlePacketAction('details', packet)}
+                  >
+                    <Eye size={10} className="mr-1" /> Details
+                  </Button>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              No traffic data available
+            </div>
+          )}
+        </div>
+      </ScrollArea>
+
             </div>
           </TabsContent>
           

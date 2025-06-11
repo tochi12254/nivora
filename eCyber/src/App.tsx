@@ -29,35 +29,56 @@ import RegisterPage from "./pages/Register";
 import CyberLoader from "./utils/Loader"
 import AuthModal from "./pages/AuthModal";
 // import LoadingSpinner from "./utils/LoadingSpinner";
-import { useSelector } from "react-redux"
+import { useSelector, useDispatch } from "react-redux" // Added useDispatch
 import { RootState } from "@/app/store"
+import { setIsBackendUp } from "@/app/slices/displaySlice"; // Added import for action
+import { checkBackendHealth } from "@/services/api"; // Added import for health check
 
 
 const App = () => {
   const { isConnected, connectionError, socket } = usePacketSniffer();
 
   const [showLoader, setShowLoader] = useState(true);
+  const dispatch = useDispatch();
+  const isBackendUp = useSelector((state: RootState) => state.display.isBackendUp);
 
   useEffect(() => {
-    // Show loader for 3 minutes then reload the page
-    const timer = setTimeout(() => {
-      window.location.reload();
-    }, 3 * 60 * 1000); // 180000ms = 3 minutes
+    const performHealthCheck = async () => {
+      try {
+        // const health = await checkBackendHealth(); // Optionally check health.status
+        await checkBackendHealth();
+        dispatch(setIsBackendUp(true));
+        // setShowLoader(false); // Handled by the next useEffect
+      } catch (error) {
+        console.error("Backend health check failed:", error);
+        dispatch(setIsBackendUp(false));
+        // Consider if setShowLoader(true) is needed here or if loader remains visible by default
+      }
+    };
 
-    return () => clearTimeout(timer); // Cleanup on unmount
-  }, []);
+    if (!isBackendUp) { // Only run if backend isn't already marked as up
+      performHealthCheck();
+    } else {
+      setShowLoader(false); // If already up (e.g. from persisted state), hide loader
+    }
+  }, [dispatch, isBackendUp]);
 
-  // Optional: stop loader manually if backend is confirmed up before timeout
-  const isBackendUp = useSelector((state: RootState) => state.display.isBackendUp);
+  // This useEffect handles hiding the loader once isBackendUp becomes true
+  // (either from health check or other means like persisted Redux state).
   useEffect(() => {
     if (isBackendUp) {
       setShowLoader(false);
     }
+    // If !isBackendUp, showLoader remains true (or its current state), 
+    // allowing CyberLoader to display "Connecting..." or "Backend unavailable"
+    // For now, CyberLoader just shows a generic loading animation.
   }, [isBackendUp]);
 
-  if (showLoader) {
-    return <CyberLoader isLoading={true} />;
-  }
+  // if (showLoader) {
+  //   // Optionally, CyberLoader could take isBackendUp as a prop to show different messages
+  //   // e.g., <CyberLoader isLoading={true} backendStatusKnown={isBackendUp !== undefined} isUp={isBackendUp} />
+  //   return <CyberLoader isLoading={true} />; 
+  // }
 
   return (
     <>

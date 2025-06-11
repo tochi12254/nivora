@@ -151,3 +151,62 @@ export const removeAuthToken = () => {
 //   const response = await apiClient.get('/users/me'); // Assuming a /users/me endpoint
 //   return response.data;
 // };
+
+// --- System Settings Endpoints ---
+
+// Interfaces for System Settings
+export interface SystemNameResponse { value: string; }
+export interface NotificationEmailsResponse { value: string[]; }
+export interface SessionTimeoutResponse { value: number; }
+
+export interface SystemNamePayload { value: string; }
+export interface NotificationEmailsPayload { value: string[]; }
+export interface SessionTimeoutPayload { value: number; }
+
+// API client functions for System Settings
+export const getSystemName = async (): Promise<SystemNameResponse> => {
+  const response = await apiClient.get<SystemNameResponse>('/settings/system_name');
+  return response.data;
+};
+
+export const updateSystemName = async (payload: SystemNamePayload): Promise<SystemNameResponse> => {
+  const response = await apiClient.post<SystemNameResponse>('/settings/system_name', payload);
+  return response.data;
+};
+
+export const getNotificationEmails = async (): Promise<NotificationEmailsResponse> => {
+  const response = await apiClient.get<NotificationEmailsResponse>('/settings/notification_emails');
+  return response.data;
+};
+
+export const updateNotificationEmails = async (payload: NotificationEmailsPayload): Promise<NotificationEmailsResponse> => {
+  const response = await apiClient.post<NotificationEmailsResponse>('/settings/notification_emails', payload);
+  return response.data;
+};
+
+export const getSessionTimeout = async (): Promise<SessionTimeoutResponse> => {
+  const response = await apiClient.get<SessionTimeoutResponse>('/settings/session_timeout');
+  return response.data;
+};
+
+export const updateSessionTimeout = async (payload: SessionTimeoutPayload): Promise<SessionTimeoutResponse> => {
+  const response = await apiClient.post<SessionTimeoutResponse>('/settings/session_timeout', payload);
+  return response.data;
+};
+
+// --- Health Check Endpoint ---
+export interface HealthStatus {
+  status: string; // Expect "ok"
+}
+
+export const checkBackendHealth = async (): Promise<HealthStatus> => {
+  // The backend /api/health is not prefixed with /api/v1.
+  // Construct the URL manually.
+  // Ensure baseURL ends with a slash if needed, or handle potential double slashes.
+  const baseApiUrl = apiClient.defaults.baseURL?.replace('/api/v1', '') || 'http://127.0.0.1:8000';
+  const healthCheckUrl = `${baseApiUrl}/api/health`;
+  
+  // Using axios directly for a URL that might be outside the apiClient's base path logic
+  const response = await axios.get<HealthStatus>(healthCheckUrl);
+  return response.data;
+};

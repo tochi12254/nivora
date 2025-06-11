@@ -22,6 +22,7 @@ from .models.ids_rule import IDSRule
 from .models.config import AppConfig
 from .models.system import SystemLog
 from .models.ips import IPSRule, IPSEvent
+from .models.system_setting import SystemSetting # Import SystemSetting
 from .models.base import Base
 
 
@@ -64,6 +65,7 @@ async def init_db():
                 SystemLog.__table__,
                 IDSRule.__table__,
                 FirewallRule.__table__,
+                SystemSetting.__table__, # Add SystemSetting table
             ],
         )
 

@@ -166,7 +166,6 @@ async def create_app() -> FastAPI:
         # cyber_defender = activate_cyber_defense(monitor)
 
         # phishing_blocker = PhishingBlocker(sio)
-        # phishing_blocker = PhishingBlocker(sio)  # Initialize PhishingBlocker
         # logger.info("PhishingBlocker initialized.")
 
         # Initialize IPS Adapter
@@ -368,7 +367,7 @@ if __name__ == "__main__":
     config.bind = ["127.0.0.1:8000"]
     # config.bind = ["0.0.0.0:8000"]
 
-    # config.use_reloader = True
+    config.use_reloader = True
 
     async def run():
         app = await create_app()  # Properly await the app creation

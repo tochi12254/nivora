@@ -129,13 +129,7 @@
         "filter": ["backend_server.exe"]
       }
     ],
-    "extraFiles": [
-    {
-      "from": "../backend/dist/",
-      "to": "backend/dist/",
-      "filter": ["backend_server.exe"]
-    }
-  ],
+    "extraFiles": [],
     "extraResources": [],
     "asar": true,
     "win": {

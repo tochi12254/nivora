@@ -213,10 +213,12 @@ import { app, BrowserWindow } from 'electron';
 import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs'; // Import fs for existsSync
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const isDev = !app.isPackaged; // Define isDev
 
-const pythonPath = path.join(__dirname, '../../backend/venv/Scripts/python.exe');
+// const pythonPath = path.join(__dirname, '../../backend/venv/Scripts/python.exe'); // Will be defined in startBackend
 
 
 
@@ -227,32 +229,77 @@ const createWindow = () => {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
-    icon: path.join(__dirname, '../public/eCyber.ico'),
+    icon: path.join(__dirname, '..', 'public', 'eCyber.ico'), // Adjusted path for consistency if public is at eCyber/public
     webPreferences: {
-      preload: path.join(__dirname, 'preload.mjs'),
+      preload: path.join(__dirname, 'preload.mjs'), 
     },
   });
 
-  if(app.isPackaged) {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
-  }
-  else {
-    mainWindow.loadURL('http://localhost:4000');
+  if (isDev) {
+    mainWindow.loadURL('http://localhost:4000'); // Vite dev server URL
     mainWindow.webContents.openDevTools();
+  } else {
+    // 'dist' is relative to the project root (eCyber).
+    // In packaged app, main.mjs is in 'resources/app.asar/electron/', index.html is in 'resources/app.asar/dist/'
+    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
 };
 
 const startBackend = () => {
-  const script = path.join(__dirname, '../../backend/main.py');
-  backendProcess = spawn(pythonPath, [script]);
+  const backendExeName = process.platform === 'win32' ? 'backend_server.exe' : 'backend_server';
 
-  backendProcess.stdout.on('data', (data) => {
-    console.log(`[FastAPI]: ${data}`);
-  });
+  // Path for packaged app (production)
+  const prodBackendPath = path.join(process.resourcesPath, 'backend', backendExeName);
 
-  backendProcess.stderr.on('data', (data) => {
-    console.error(`[FastAPI error]: ${data}`);
-  });
+  // Paths for development
+  const devBackendScript = path.join(__dirname, '..', '..', 'backend', 'main.py');
+  const devPythonInterpreter = path.join(__dirname, '..', '..', 'backend', 'venv', 'Scripts', 'python.exe'); // Windows specific
+
+  if (!isDev) {
+    if (fs.existsSync(prodBackendPath)) {
+      console.log(`[ElectronMain] Starting packaged backend: ${prodBackendPath}`);
+      backendProcess = spawn(prodBackendPath, [], { detached: false });
+    } else {
+      console.error(`[ElectronMain] Packaged backend not found at: ${prodBackendPath}`);
+      // Optionally: dialog.showErrorBox('Backend Error', `Packaged backend not found: ${prodBackendPath}`);
+      return;
+    }
+  } else { // isDev
+    if (fs.existsSync(devPythonInterpreter) && fs.existsSync(devBackendScript)) {
+      console.log(`[ElectronMain] Starting backend script with: ${devPythonInterpreter} ${devBackendScript}`);
+      backendProcess = spawn(devPythonInterpreter, [devBackendScript]);
+    } else {
+      console.error('[ElectronMain] Development backend script or Python interpreter not found.');
+      if (!fs.existsSync(devPythonInterpreter)) console.error(`[ElectronMain] Dev Interpreter not found: ${devPythonInterpreter}`);
+      if (!fs.existsSync(devBackendScript)) console.error(`[ElectronMain] Dev Script not found: ${devBackendScript}`);
+      // Optionally: dialog.showErrorBox('Backend Error', 'Development backend script or Python interpreter not found.');
+      return;
+    }
+  }
+
+  if (backendProcess) {
+    backendProcess.stdout.on('data', (data) => {
+      // Added trim() to remove extra newlines often present in stdout
+      console.log(`[Backend]: ${data.toString().trim()}`);
+    });
+
+    backendProcess.stderr.on('data', (data) => {
+      console.error(`[Backend Error]: ${data.toString().trim()}`);
+    });
+
+    backendProcess.on('close', (code) => {
+      console.log(`[ElectronMain] Backend process exited with code ${code}`);
+      backendProcess = null; 
+      // Optionally, attempt to restart or notify the user
+      // For example, if (!isDev && code !== 0) { dialog.showErrorBox('Backend Error', `Backend process exited unexpectedly with code ${code}. Please restart the application.`); }
+    });
+
+    backendProcess.on('error', (err) => {
+      console.error(`[ElectronMain] Failed to start backend process: ${err.message}`);
+      backendProcess = null;
+      // Optionally: dialog.showErrorBox('Backend Error', `Failed to start backend process: ${err.message}`);
+    });
+  }
 };
 
 app.whenReady().then(() => {

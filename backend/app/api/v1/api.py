@@ -17,7 +17,7 @@ api_v1_router.include_router(
 )
 api_v1_router.include_router(old_users_router.router, prefix="/users", tags=["Users"]) # Keep the old one for now
 api_v1_router.include_router(ml_models.router, prefix="/ml-models", tags=["ML Models"])
-api_v1_router.include_router(settings.router, prefix="/settings", tags=["Settings"])
+api_v1_router.include_router(settings.router, prefix="/settings", tags=["System Settings"])
 
 # Include the new auth router
 api_v1_router.include_router(auth.router, prefix="/auth", tags=["authentication"])

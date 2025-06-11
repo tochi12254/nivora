@@ -146,10 +146,15 @@ const Sidebar = () => {
       (
         async () => {
           try {
-            const info = await axios.get("http://127.0.0.1:8000/api/system/system_info");
+            const token = localStorage.getItem('authToken');
+            const info = axios.get('http://127.0.0.1:8000/api/system/system_info', {
+              headers: {
+                Authorization: `Bearer ${token}`
+                  }
+            });
             // const info = await axios.get("https://ecyber-backend.onrender.com/api/system/system_info");
-            if (info.data) {
-              setSystemInfo(info.data);
+            if (info?.data) {
+              setSystemInfo(info?.data);
   
             }
           } catch (error: any) {

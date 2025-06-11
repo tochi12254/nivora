@@ -7,7 +7,7 @@ import AIAssistant from "../common/AIAssistant";
 import { useAuth } from "@/context/AuthContext"; // Added
 import { useDispatch } from "react-redux"; // Added
 import { setAuthModalState } from "@/app/slices/displaySlice"; // Added
-import LoadingSpinner from '@/utils/LoadingSpinner'; // Added for better UX
+// import LoadingSpinner from '@/utils/LoadingSpinner'; // Added for better UX
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { Shield, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -40,14 +40,6 @@ const MainLayout = () => {
     setSidebarCollapsed(!sidebarCollapsed);
   };
 
-  if (isAuthLoading) {
-    // Show a loading spinner while authentication status is being determined
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <LoadingSpinner />
-      </div>
-    );
-  }
 
   if (!isAuthenticated) {
     // User is not authenticated, and we've already dispatched to open modal and navigated to '/'.

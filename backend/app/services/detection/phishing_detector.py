@@ -631,6 +631,7 @@ class ClassicalPhishingDetector:
                     # Use a generic weight or define specific weights per pattern if needed
                     risk_score += self.risk_weights.get(f"pattern_{pattern_str}", 0.3)
             except re.error as e:
+                pass
                 # Log this error, as it indicates an issue with the defined patterns
                 # PROD_CLEANUP: print(
                     # PROD_CLEANUP: f"Warning: Invalid regex pattern in self.suspicious_url_patterns: {pattern_str} - {e}"
@@ -697,7 +698,8 @@ class ClassicalPhishingDetector:
                             f"DNS: MX query failed or no records for {main_domain_with_tld} ({type(e).__name__})"
                         )
                         risk_score += self.risk_weights["dns_suspicious_mx"]
-            except Exception as e:  # Catch-all for other DNS query library issues
+            except Exception as e:
+                pass  # Catch-all for other DNS query library issues
                 # PROD_CLEANUP: print(
                     # PROD_CLEANUP: f"General DNS check error for {domain} or {main_domain_with_tld}: {e}"
                 # PROD_CLEANUP: )
@@ -817,6 +819,7 @@ class ClassicalPhishingDetector:
                         risk_score += self.risk_weights["whois_privacy_protected"]
 
             except Exception as e:
+                pass
                 # Catch-all for any other unexpected errors in WHOIS processing logic
                 # PROD_CLEANUP: print(f"Critical WHOIS logic error for {main_domain_with_tld}: {e}")
 

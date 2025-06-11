@@ -14,9 +14,17 @@ import ThemeSwitcher from '../components/settings/ThemeSwitcher';
 import SystemUpdater from '../components/settings/SystemUpdater';
 import { useToast } from "@/hooks/use-toast";
 import { TwoFactorAuthSetupDialog } from '../components/settings/TwoFactorAuthSetupDialog';
-import { ChangePasswordDialog } from '../components/settings/ChangePasswordDialog'; // Import new dialog
+import { ChangePasswordDialog } from '../components/settings/ChangePasswordDialog';
 import { useAuth } from '@/context/AuthContext';
-import { disable2FA } from '@/services/api';
+import { 
+  disable2FA,
+  getSystemName,
+  updateSystemName,
+  getNotificationEmails,
+  updateNotificationEmails,
+  getSessionTimeout,
+  updateSessionTimeout,
+} from '@/services/api';
 
 
 const Settings = () => {
@@ -27,8 +35,42 @@ const Settings = () => {
   const [isUpdating2FA, setIsUpdating2FA] = useState(false);
   const [isChangePasswordDialogOpen, setIsChangePasswordDialogOpen] = useState(false);
 
-  // useEffect to fetch initial 2FA status is no longer needed here if AuthProvider handles initial user load.
-  // The `user` object from `useAuth()` will have the latest `is_two_factor_enabled`.
+  // State for new settings
+  const [systemName, setSystemName] = useState<string>('');
+  const [notificationEmails, setNotificationEmails] = useState<string[]>([]);
+  const [notificationEmailsInput, setNotificationEmailsInput] = useState<string>('');
+  const [sessionTimeout, setSessionTimeout] = useState<number>(30);
+  const [isLoadingSettings, setIsLoadingSettings] = useState<boolean>(true);
+  const [isSavingSystemName, setIsSavingSystemName] = useState<boolean>(false);
+  const [isSavingNotificationEmails, setIsSavingNotificationEmails] = useState<boolean>(false);
+  const [isSavingSessionTimeout, setIsSavingSessionTimeout] = useState<boolean>(false);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      setIsLoadingSettings(true);
+      try {
+        const [nameRes, emailsRes, timeoutRes] = await Promise.all([
+          getSystemName(),
+          getNotificationEmails(),
+          getSessionTimeout(),
+        ]);
+        setSystemName(nameRes.value);
+        setNotificationEmails(emailsRes.value);
+        setNotificationEmailsInput(emailsRes.value.join(', '));
+        setSessionTimeout(timeoutRes.value);
+      } catch (error) {
+        toast({ title: "Error", description: "Failed to load system settings.", variant: "destructive" });
+        console.error("Failed to load settings:", error);
+        // Set defaults if loading fails, or handle appropriately
+        setSystemName('eCyber Security Platform'); // Default from previous defaultValue
+        setNotificationEmailsInput('admin@example.com, security@example.com'); // Default
+        setSessionTimeout(30); // Default
+      } finally {
+        setIsLoadingSettings(false);
+      }
+    };
+    fetchSettings();
+  }, [toast]);
 
   const handleTwoFactorSwitchChange = async (checked: boolean) => {
     if (checked) {
@@ -58,12 +100,62 @@ const Settings = () => {
     // If further actions were needed on this page after dialog success, they'd go here.
   };
   
-  const handleSaveChanges = () => {
-    toast({
-      title: "Settings Saved",
-      description: "Your settings have been updated successfully",
-    });
+  
+  const handleSystemNameSave = async () => {
+    setIsSavingSystemName(true);
+    try {
+      await updateSystemName({ value: systemName });
+      toast({ title: "Success", description: "System name updated successfully." });
+    } catch (error: any) {
+      const detail = error.response?.data?.detail || "Failed to update system name.";
+      toast({ title: "Error", description: detail, variant: "destructive" });
+    } finally {
+      setIsSavingSystemName(false);
+    }
   };
+
+  const handleNotificationEmailsSave = async () => {
+    setIsSavingNotificationEmails(true);
+    const parsedEmails = notificationEmailsInput.split(',').map(email => email.trim()).filter(email => email);
+    // Basic validation for email format can be added here if needed, though Pydantic on backend handles it
+    try {
+      const res = await updateNotificationEmails({ value: parsedEmails });
+      setNotificationEmails(res.value); // Update state with potentially validated/formatted emails from backend
+      setNotificationEmailsInput(res.value.join(', ')); // Re-sync input field
+      toast({ title: "Success", description: "Notification emails updated successfully." });
+    } catch (error: any) {
+      const detail = error.response?.data?.detail || "Failed to update notification emails.";
+      toast({ title: "Error", description: detail, variant: "destructive" });
+    } finally {
+      setIsSavingNotificationEmails(false);
+    }
+  };
+
+  const handleSessionTimeoutSave = async () => {
+    setIsSavingSessionTimeout(true);
+    if (sessionTimeout <= 0) {
+      toast({ title: "Error", description: "Session timeout must be a positive number.", variant: "destructive" });
+      setIsSavingSessionTimeout(false);
+      return;
+    }
+    try {
+      await updateSessionTimeout({ value: sessionTimeout });
+      toast({ title: "Success", description: "Session timeout updated successfully." });
+    } catch (error: any) {
+      const detail = error.response?.data?.detail || "Failed to update session timeout.";
+      toast({ title: "Error", description: detail, variant: "destructive" });
+    } finally {
+      setIsSavingSessionTimeout(false);
+    }
+  };
+  
+  // Generic save changes (can be removed if specific handlers are used everywhere)
+  // const handleSaveChanges = () => {
+  //   toast({
+  //     title: "Settings Saved",
+  //     description: "Your settings have been updated successfully",
+  //   });
+  // };
   
   return (
     <div className="flex h-screen bg-background">
@@ -80,9 +172,10 @@ const Settings = () => {
                 <p className="text-muted-foreground">Configure system settings and integrations</p>
               </div>
               
-              <div className="mt-4 md:mt-0 text-xs text-muted-foreground">
+              {/* Last updated can be removed or be dynamic based on actual saves */}
+              {/* <div className="mt-4 md:mt-0 text-xs text-muted-foreground">
                 Last updated: {new Date().toLocaleTimeString()}
-              </div>
+              </div> */}
             </div>
             
             {/* Settings tabs */}
@@ -108,7 +201,12 @@ const Settings = () => {
                     <CardContent className="space-y-6">
                       <div className="space-y-2">
                         <Label htmlFor="system-name">System Name</Label>
-                        <Input id="system-name" defaultValue="eCyber Security Platform" />
+                        <Input 
+                          id="system-name" 
+                          value={systemName} 
+                          onChange={(e) => setSystemName(e.target.value)}
+                          disabled={isLoadingSettings || isSavingSystemName} 
+                        />
                       </div>
                       
                       <div className="space-y-2">
@@ -125,7 +223,13 @@ const Settings = () => {
                       </div>
                     </CardContent>
                     <CardFooter>
-                      <Button className="ml-auto" onClick={handleSaveChanges}>Save Changes</Button>
+                      <Button 
+                        className="ml-auto" 
+                        onClick={handleSystemNameSave}
+                        disabled={isLoadingSettings || isSavingSystemName}
+                      >
+                        {isSavingSystemName ? "Saving..." : "Save Changes"}
+                      </Button>
                     </CardFooter>
                   </Card>
                   
@@ -171,8 +275,14 @@ const Settings = () => {
                     </div>
                     
                     <div className="space-y-2">
-                      <Label>Email Recipients</Label>
-                      <Input defaultValue="admin@example.com, security@example.com" />
+                      <Label htmlFor="email-recipients">Email Recipients</Label>
+                      <Input 
+                        id="email-recipients"
+                        value={notificationEmailsInput}
+                        onChange={(e) => setNotificationEmailsInput(e.target.value)}
+                        placeholder="email1@example.com, email2@example.com"
+                        disabled={isLoadingSettings || isSavingNotificationEmails}
+                      />
                       <p className="text-xs text-muted-foreground">Separate multiple emails with commas</p>
                     </div>
                     
@@ -195,7 +305,13 @@ const Settings = () => {
                     </div>
                   </CardContent>
                   <CardFooter>
-                    <Button className="ml-auto" onClick={handleSaveChanges}>Save Changes</Button>
+                    <Button 
+                      className="ml-auto" 
+                      onClick={handleNotificationEmailsSave}
+                      disabled={isLoadingSettings || isSavingNotificationEmails}
+                    >
+                      {isSavingNotificationEmails ? "Saving..." : "Save Changes"}
+                    </Button>
                   </CardFooter>
                 </Card>
               </TabsContent>
@@ -243,8 +359,15 @@ const Settings = () => {
                     </div>
                     
                     <div className="space-y-2">
-                      <Label>Session Timeout Duration</Label>
-                      <Input defaultValue="30" type="number" className="max-w-xs" />
+                      <Label htmlFor="session-timeout-duration">Session Timeout Duration</Label>
+                      <Input 
+                        id="session-timeout-duration"
+                        value={sessionTimeout.toString()} // Input expects string
+                        onChange={(e) => setSessionTimeout(parseInt(e.target.value, 10) || 0)}
+                        type="number" 
+                        className="max-w-xs" 
+                        disabled={isLoadingSettings || isSavingSessionTimeout}
+                      />
                       <p className="text-xs text-muted-foreground">Minutes of inactivity before session expires</p>
                     </div>
                     
@@ -282,7 +405,15 @@ const Settings = () => {
                     </div>
                   </CardContent>
                   <CardFooter>
-                    <Button className="ml-auto" onClick={handleSaveChanges}>Save Changes</Button>
+                    <Button 
+                      className="ml-auto" 
+                      onClick={handleSessionTimeoutSave} // Changed to specific handler
+                      disabled={isLoadingSettings || isSavingSessionTimeout}
+                    >
+                      {isSavingSessionTimeout ? "Saving..." : "Save Changes"} 
+                    </Button>
+                    <Button className="ml-auto" onClick={() => toast({title: "Info", description: "Data management save not implemented yet."})}>Save Changes</Button>
+                    <Button className="ml-auto" onClick={() => toast({title: "Info", description: "Integrations save not implemented yet."})}>Save Changes</Button>
                   </CardFooter>
                 </Card>
               </TabsContent>

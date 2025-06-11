@@ -174,7 +174,7 @@
     "id": "SCAN-018",
     "name": "HTTP Parameter Pollution",
     "protocol": "http",
-    "pattern": "(?:\\?|&)(?:\\w+)=\\w+&\\1=\\w+",
+    "pattern": "(?:\\?|&)(?P<param>\\w+)=\\w+&(?P=param)=\\w+",
     "action": "alert",
     "severity": "medium",
     "description": "Detects HTTP parameter pollution attempts"
@@ -237,7 +237,7 @@
     "id": "SCAN-025",
     "name": "HTTP Parameter Pollution",
     "protocol": "http",
-    "pattern": "(?:\\?|&)(?:\\w+)=\\w+&\\1=\\w+",
+    "pattern": "(?:\\?|&)(?P<param>\\w+)=\\w+&(?P=param)=\\w+",
     "action": "alert",
     "severity": "medium",
     "description": "Detects HTTP parameter pollution attempts"
@@ -679,7 +679,7 @@
     "id": "ZD-1201",
     "name": "Memory Corruption Patterns",
     "protocol": "http",
-    "pattern": "(?:%[0-9a-fA-F]{2}|\\\\x[0-9a-fA-F]{2}|\\x[0-9a-fA-F]{2}){8,}",
+    "pattern": "(?:%[0-9a-fA-F]{2}|\\\\x[0-9a-fA-F]{2}|\\\\x[0-9a-fA-F]{2}){8,}",
     "action": "block",
     "severity": "critical",
     "description": "Blocks potential memory corruption attempts"
