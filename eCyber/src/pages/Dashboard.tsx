@@ -11,7 +11,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
-
+import axios from 'axios'
 import { RootState } from '../app/store'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -311,12 +311,17 @@ const Dashboard = () => {
       setIsLoadingUserSummary(true);
       setErrorUserSummary(null);
       try {
-        const response = await fetch('http://127.0.0.1:8000/api/v1/users');
+        const token = localStorage.getItem("authToken");
+        const response = await axios.get('http://127.0.0.1:8000/api/v1/users',{
+          headers:{
+            Authorization: `Bearer ${token}`
+          }
+        });
         // const response = await fetch('https://ecyber-backend.onrender.com/api/v1/users');
-        if (!response.ok) {
+        if (!response?.data) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
-        const data: UserSummaryData = await response.json();
+        const data: UserSummaryData = response?.data;
         setUserSummaryData(data);
         console.log("Users: ", data)
       } catch (e) {

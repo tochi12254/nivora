@@ -130,7 +130,7 @@ class PacketSniffer:
         CLASSIFIER_MODELS_PATH = Path("ml/models/eCyber_classifier_models")
         ANOMALY_MODEL_PATH = Path("ml/models/eCyber_anomaly_isolation")
 
-        with ThreadPoolExecutor(max_workers=mp.cpu_count()) as executor:
+        with ThreadPoolExecutor(max_workers=min(8,mp.cpu_count())) as executor:
             # Submit classifier model loading tasks
             classifier_futures = []
             if CLASSIFIER_MODELS_PATH.exists() and CLASSIFIER_MODELS_PATH.is_dir():

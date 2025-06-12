@@ -149,11 +149,12 @@ async def create_app() -> FastAPI:
         await intel.load_from_cache()
         asyncio.create_task(intel.fetch_and_cache_feeds())
         rules_path = os.path.join(os.path.dirname(__file__), "rules.json")
+        num_workers=min(8, multiprocessing.cpu_count())
         ips = EnterpriseIPS(
             rules_path,
             sio,
             intel,
-            multiprocessing.cpu_count(),
+            num_workers,
             sio_queue,
             output_queue,
         )

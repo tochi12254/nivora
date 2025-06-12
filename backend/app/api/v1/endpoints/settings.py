@@ -11,7 +11,11 @@ from ....schemas import system_setting
 from ....database import get_db
 from ....models.user import User # For current_user dependency if needed for auth
 from ....core.security import get_current_active_user # For auth
-
+from ....crud.crud_system_setting import (
+    get_setting,
+    upsert_setting,
+    upsert_setting_atomic,
+)
 router = APIRouter()
 
 # --- System Name ---
@@ -21,7 +25,7 @@ async def read_system_name(db: AsyncSession = Depends(get_db)):
     Retrieve the system name.
     Returns a default name if not set.
     """
-    setting = await crud.crud_system_setting.get_setting(db, key="system_name")
+    setting = await get_setting(db, key="system_name")
     default_name = "CyberWatch Tower" # Default system name
     
     current_value = default_name
@@ -42,7 +46,7 @@ async def update_system_name(
     if not system_name_in.value or not system_name_in.value.strip():
         raise HTTPException(status_code=400, detail="System name cannot be empty.")
     
-    updated_setting = await crud.crud_system_setting.upsert_setting(
+    updated_setting = await upsert_setting(
         db, key="system_name", value=system_name_in.value
     )
     # Ensure the returned value is correctly typed for the response model
@@ -55,7 +59,7 @@ async def read_notification_emails(db: AsyncSession = Depends(get_db)):
     Retrieve the list of notification email recipients.
     Returns an empty list if not set or if the stored value is not a list.
     """
-    setting = await crud.crud_system_setting.get_setting(db, key="notification_emails")
+    setting = await get_setting(db, key="notification_emails")
     default_emails: List[EmailStr] = []
     
     current_value = default_emails
@@ -84,7 +88,7 @@ async def update_notification_emails(
     # We need to store it as a list of strings for JSON serialization.
     string_emails = [str(email) for email in emails_in.value]
     
-    updated_setting = await crud.crud_system_setting.upsert_setting(
+    updated_setting = await upsert_setting(
         db, key="notification_emails", value=string_emails
     )
     # Re-cast to EmailStr for the response model, though it should be fine as strings too if schema expects EmailStr
@@ -99,7 +103,7 @@ async def read_session_timeout(db: AsyncSession = Depends(get_db)):
     Retrieve the session timeout duration in minutes.
     Returns a default value if not set or if the stored value is not a positive integer.
     """
-    setting = await crud.crud_system_setting.get_setting(db, key="session_timeout")
+    setting = await get_setting(db, key="session_timeout")
     default_timeout_minutes = 30  # Default to 30 minutes
     
     current_value = default_timeout_minutes
@@ -120,7 +124,7 @@ async def update_session_timeout(
     if not isinstance(timeout_in.value, int) or timeout_in.value <= 0:
         raise HTTPException(status_code=400, detail="Session timeout must be a positive integer minutes.")
     
-    updated_setting = await crud.crud_system_setting.upsert_setting(
+    updated_setting = await upsert_setting(
         db, key="session_timeout", value=timeout_in.value
     )
     return system_setting.SessionTimeout(value=int(updated_setting.value))

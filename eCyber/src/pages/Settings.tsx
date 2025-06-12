@@ -150,12 +150,12 @@ const Settings = () => {
   };
   
   // Generic save changes (can be removed if specific handlers are used everywhere)
-  // const handleSaveChanges = () => {
-  //   toast({
-  //     title: "Settings Saved",
-  //     description: "Your settings have been updated successfully",
-  //   });
-  // };
+  const handleSaveChanges = () => {
+    toast({
+      title: "Settings Saved",
+      description: "Your settings have been updated successfully",
+    });
+  };
   
   return (
     <div className="flex h-screen bg-background">
