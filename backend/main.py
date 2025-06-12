@@ -360,12 +360,14 @@ async def mark_server_ready():
     server_ready_emitted = True
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support() 
     import uvicorn
     import asyncio
 
     async def run():
         app = await create_app()  # Async FastAPI app creation
-        config = uvicorn.Config(app=app, host="127.0.0.1", port=8000, reload=True, loop="asyncio")
+        config = uvicorn.Config(app=app, host="127.0.0.1", port=8000, reload=False, loop="asyncio")
 
         server = uvicorn.Server(config)
 

@@ -155,6 +155,7 @@ const Sidebar = () => {
             // const info = await axios.get("https://ecyber-backend.onrender.com/api/system/system_info");
             if (info?.data) {
               setSystemInfo(info?.data);
+              console.log("System info: ", info?.data || info)
   
             }
           } catch (error: any) {

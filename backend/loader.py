@@ -42,6 +42,8 @@ async def run():
     await server_task
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support() 
     try:
         asyncio.run(run())
     except KeyboardInterrupt:
