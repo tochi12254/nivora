@@ -31,7 +31,7 @@ const createWindow = () => {
 const startBackend = () => {
   const backendExeName = process.platform === 'win32' ? 'backend_server.exe' : 'backend_server';
   const prodBackendPath = path.join(process.resourcesPath, 'backend', backendExeName);
-  const devBackendScript = path.join(__dirname, '..', '..', 'backend', 'main.py');
+  const devBackendScript = path.join(__dirname, '..', '..', 'backend', 'loader.py');
   const devPythonInterpreter = path.join(__dirname, '..', '..', 'backend', 'venv', 'Scripts', 'python.exe'); // Windows specific
 
   if (!isDev) {
